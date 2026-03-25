@@ -66,6 +66,11 @@
       <input type="text" id="model" placeholder="anthropic/claude-sonnet-4">
       <button onclick="setModel()">Set</button>
     </div>
+    <div class="row">
+      <label>Brave Key</label>
+      <input type="password" id="brave-key" placeholder="BSA...">
+      <button onclick="setBraveKey()">Set</button>
+    </div>
     <div class="status" id="config-status"></div>
   </div>
 
@@ -155,6 +160,14 @@ async function setModel() {
   status('config-status', 'Model updated', true);
 }
 
+async function setBraveKey() {
+  const key = document.getElementById('brave-key').value;
+  if (!key) return;
+  await post({action: 'set-brave-key', key});
+  document.getElementById('brave-key').value = '';
+  status('config-status', 'Brave key set', true);
+}
+
 async function addShip() {
   const ship = document.getElementById('new-ship').value;
   const role = document.getElementById('new-role').value;
@@ -218,45 +231,8 @@ async function addCtx() {
   renderCtxTabs();
 }
 
-async function loadHistory() {
-  const hist = await api('/history');
-  const el = document.getElementById('chat');
-  el.innerHTML = hist.map(m =>
-    `<div class="msg"><span class="role ${m.role}">${m.role}</span>${escHtml(m.content)}</div>`
-  ).join('');
-  el.scrollTop = el.scrollHeight;
-}
-
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
-}
-
-async function sendPrompt() {
-  const input = document.getElementById('prompt-input');
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  appendMsg('user', text);
-  await post({action: 'prompt', content: text});
-  setTimeout(loadHistory, 1000);
-  setTimeout(loadHistory, 5000);
-  setTimeout(loadHistory, 12000);
-}
-
-function appendMsg(role, content) {
-  const el = document.getElementById('chat');
-  el.innerHTML += `<div class="msg"><span class="role ${role}">${role}</span>${escHtml(content)}</div>`;
-  el.scrollTop = el.scrollHeight;
-}
-
-async function clearChat() {
-  await post({action: 'clear'});
-  document.getElementById('chat').innerHTML = '';
-}
-
 loadConfig();
 loadContext();
-loadHistory();
 </script>
 </body>
 </html>

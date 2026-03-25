@@ -1,28 +1,21 @@
 ::  claw: llm agent harness types
 ::
 |%
-::  a chat message
-::
 +$  msg  [role=@t content=@t]
-::  permission levels for whitelisted ships
-::
 +$  ship-role  ?(%owner %allowed)
-::  poke actions
 ::
 +$  action
   $%  [%set-key key=@t]
       [%set-model model=@t]
+      [%set-brave-key key=@t]
       [%prompt content=@t]
       [%clear ~]
-      ::  context management
       [%set-context field=@tas content=@t]
       [%append-context field=@tas content=@t]
       [%del-context field=@tas]
-      ::  dm whitelist
       [%add-ship =ship role=ship-role]
       [%del-ship =ship]
   ==
-::  subscription updates
 ::
 +$  update
   $%  [%response =msg]
@@ -30,7 +23,15 @@
       [%pending ~]
       [%dm-response =ship =msg]
   ==
-::  agent states
+::
+::  tool loop state for async tool execution
+::
++$  tool-pending
+  $:  source=?(%direct [%dm =ship])
+      hist=(list msg)
+      follow-msgs=(list json)
+      pending=(list [id=@t name=@t arguments=@t])
+  ==
 ::
 +$  state-0
   $:  %0
@@ -41,7 +42,6 @@
       pending=?
       last-error=@t
   ==
-::
 +$  state-1
   $:  %1
       api-key=@t
@@ -51,26 +51,37 @@
       last-error=@t
       context=(map @tas @t)
   ==
-::
 +$  state-2
   $:  %2
       api-key=@t
       model=@t
-      ::  direct conversation (via poke)
       history=(list msg)
       pending=?
       last-error=@t
-      ::  context files
       context=(map @tas @t)
-      ::  dm integration
       whitelist=(map ship ship-role)
       dm-history=(map ship (list msg))
       dm-pending=(set ship)
+  ==
++$  state-3
+  $:  %3
+      api-key=@t
+      brave-key=@t
+      model=@t
+      history=(list msg)
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-history=(map ship (list msg))
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
   ==
 ::
 +$  versioned-state
   $%  state-0
       state-1
       state-2
+      state-3
   ==
 --

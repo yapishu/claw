@@ -10,7 +10,7 @@
 /+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t)]
@@ -173,7 +173,7 @@
 --
 ::
 %-  agent:dbug
-=|  state-2:claw
+=|  state-3:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -229,14 +229,16 @@
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
   ?-  -.old
-      %2  `this(state old)
+      %3  `this(state old)
+      %2
+    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~])
       %1
-    `this(state [%2 api-key.old model.old history.old pending.old last-error.old context.old ~ ~ ~])
+    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~])
       %0
     =/  ctx=(map @tas @t)  *(map @tas @t)
     =?  ctx  !=('' system-prompt.old)
       (~(put by ctx) %agent system-prompt.old)
-    `this(state [%2 api-key.old model.old history.old pending.old last-error.old ctx ~ ~ ~])
+    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~])
   ==
 ::
 ++  on-poke
@@ -336,6 +338,9 @@
             %'set-model'
           ^-  action:claw
           [%set-model `@t`((ot ~[model+so]) u.jon)]
+            %'set-brave-key'
+          ^-  action:claw
+          [%set-brave-key `@t`((ot ~[key+so]) u.jon)]
             %'set-context'
           ^-  action:claw
           =/  [f=@tas c=@t]  ((ot ~[field+(se %tas) content+so]) u.jon)
@@ -380,6 +385,10 @@
       %set-model
     %-  (slog leaf+"claw: model set to {(trip model.act)}" ~)
     `this(model model.act)
+  ::
+      %set-brave-key
+    %-  (slog leaf+"claw: brave api key set" ~)
+    `this(brave-key key.act)
   ::
       %set-context
     %-  (slog leaf+"claw: context '{(trip field.act)}' set" ~)
@@ -585,8 +594,63 @@
     (handle-llm-response sign [%dm who] `who hist)
   ::
       [%tool @ ~]  `this  ::  tool poke-acks
+  ::
+  ::  async tool http response
+  ::
+      [%tool-http @ ~]
+    ?.  ?=([%iris %http-response *] sign)  `this
+    =/  resp=client-response:iris  client-response.sign
+    ?.  ?=(%finished -.resp)  `this
+    ?~  tool-loop
+      %-  (slog leaf+"claw: tool-http but no pending loop" ~)
+      `this
+    =/  tl=tool-pending:claw  u.tool-loop
+    =/  tool-name=@t  i.t.wire
+    =/  body=@t
+      ?~  full-file.resp  'error: empty response'
+      ?.  =(200 status-code.response-header.resp)
+        (rap 3 'error: http ' (scot %ud status-code.response-header.resp) ~)
+      q.data.u.full-file.resp
+    =/  result=@t  (parse-tool-response:tools tool-name body)
+    %-  (slog leaf+"claw: tool {(trip tool-name)} done" ~)
+    ::  find the call id for this tool
+    =/  tc-id=@t
+      =/  found  (skim pending.tl |=([id=@t n=@t a=@t] =(n tool-name)))
+      ?~  found  'unknown'
+      id.i.found
+    =/  new-fmsgs=(list json)  (snoc follow-msgs.tl (tool-result-json tc-id result))
+    =/  rest=(list [id=@t name=@t arguments=@t])
+      ^-  (list [@t @t @t])
+      (skip pending.tl |=([id=@t n=@t a=@t] =(n tool-name)))
+    ::  if more pending, fire next
+    ?^  rest
+      =/  next  i.rest
+      =/  res=tool-result:tools
+        (execute-tool:tools bowl name.next arguments.next brave-key)
+      ?.  ?=(%async -.res)
+        =.  tool-loop  `[source.tl hist.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest]
+        `this
+      =.  tool-loop  `[source.tl hist.tl new-fmsgs t.rest]
+      :_  this  [card.res]~
+    ::  all done - fire llm follow-up
+    =/  sys-prompt=@t  (build-prompt bowl context)
+    =/  follow-wire=path
+      ?:  ?=(%direct source.tl)  /query-tools
+      /dm-query-tools/(scot %p ship.source.tl)
+    :_  this(tool-loop ~)
+    :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs)
+    ==
   ==
 ::
+::
+++  tool-result-json
+  |=  [id=@t content=@t]
+  ^-  json
+  %-  pairs:enjs:format
+  :~  ['role' s+'tool']
+      ['tool_call_id' s+id]
+      ['content' s+content]
+  ==
 ::  +handle-llm-response: shared handler for llm responses
 ::    handles both text and tool-call responses
 ::
@@ -659,40 +723,51 @@
   ::
       %tools
     %-  (slog leaf+"claw: executing {<(lent calls.u.parsed)>} tool call(s)" ~)
-    ::  execute each tool, collect results and cards
+    ::  process tool calls: sync ones immediately, async ones queued
     =/  tool-cards=(list card)  ~
-    =/  result-msgs=(list json)  ~
+    =/  follow-msgs=(list json)  [assistant-json.u.parsed]~
+    =/  async-pending=(list [id=@t name=@t arguments=@t])  ~
     =/  remaining  calls.u.parsed
     |-
     ?~  remaining
-      ::  build follow-up request with tool results
+      ::  if async tools pending, store state and fire first one
+      ?^  async-pending
+        =/  first  i.async-pending
+        %-  (slog leaf+"claw: async tool {(trip name.first)}" ~)
+        =/  res=tool-result:tools
+          (execute-tool:tools bowl name.first arguments.first brave-key)
+        ?.  ?=(%async -.res)
+          ::  shouldn't happen, but handle gracefully
+          $(async-pending t.async-pending, follow-msgs (snoc follow-msgs (tool-result-json id.first 'unexpected sync')))
+        =.  tool-loop
+          `[source hist follow-msgs t.async-pending]
+        :_  this
+        (weld (flop tool-cards) [card.res]~)
+      ::  all sync - fire llm follow-up immediately
       =/  sys-prompt=@t  (build-prompt bowl context)
-      ::  assistant message (with tool_calls) + tool result messages
-      =/  extra-msgs=(list json)
-        (weld [assistant-json.u.parsed]~ (flop result-msgs))
       =/  follow-wire=path
         ?:  ?=(%direct source)  /query-tools
         /dm-query-tools/(scot %p ship.source)
       :_  this
       %+  weld  (flop tool-cards)
-      :~  (make-llm-request bowl api-key model sys-prompt hist follow-wire extra-msgs)
+      :~  (make-llm-request bowl api-key model sys-prompt hist follow-wire follow-msgs)
       ==
     ::  execute this tool
     =/  tc  i.remaining
-    %-  (slog leaf+"claw: tool {(trip name.tc)}({(trip arguments.tc)})" ~)
-    =/  [cards=(list card) result=@t]
-      (execute-tool:tools bowl name.tc arguments.tc)
-    ::  build tool result message
-    =/  result-json=json
-      %-  pairs:enjs:format
-      :~  ['role' s+'tool']
-          ['tool_call_id' s+id.tc]
-          ['content' s+result]
+    %-  (slog leaf+"claw: tool {(trip name.tc)}" ~)
+    =/  res=tool-result:tools
+      (execute-tool:tools bowl name.tc arguments.tc brave-key)
+    ?:  ?=(%async -.res)
+      ::  queue async tool for later
+      %=  $
+        remaining     t.remaining
+        async-pending  (snoc async-pending tc)
       ==
+    ::  sync tool - execute now
     %=  $
       remaining    t.remaining
-      tool-cards   (weld cards tool-cards)
-      result-msgs  [result-json result-msgs]
+      tool-cards   (weld cards.res tool-cards)
+      follow-msgs  (snoc follow-msgs (tool-result-json id.tc result.res))
     ==
   ==
   --
