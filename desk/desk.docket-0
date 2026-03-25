@@ -1,0 +1,9 @@
+:~  title+'claw'
+    info+'LLM agent harness'
+    color+0x3a.7a4a
+    version+[0 1 0]
+    website+''
+    license+'MIT'
+    base+'claw'
+    site+/apps/claw
+==

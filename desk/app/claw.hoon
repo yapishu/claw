@@ -7,7 +7,7 @@
 /-  claw
 /-  c=chat
 /-  d=channels
-/+  dbug, default-agent
+/+  dbug, default-agent, server
 |%
 +$  card  card:agent:gall
 +$  versioned-state  $%(state-0:claw state-1:claw state-2:claw)
@@ -184,7 +184,9 @@
           "direct messages from whitelisted ships."
         ==
     ==
-  `this(model 'anthropic/claude-sonnet-4', pending %.n, context default-ctx)
+  :_  this(model 'anthropic/claude-sonnet-4', pending %.n, context default-ctx)
+  :~  [%pass /eyre/connect %arvo %e %connect [`/apps/claw/api dap.bowl]]
+  ==
 ::
 ++  on-save  !>(state)
 ::
@@ -206,9 +208,135 @@
 ++  on-poke
   |=  [=mark =vase]
   ^-  (quip card _this)
-  ?>  =(src our):bowl
-  ?.  ?=(%claw-action mark)
+  ?+  mark
     (on-poke:def mark vase)
+  ::
+      %handle-http-request
+    =+  !<([rid=@ta =inbound-request:eyre] vase)
+    =/  req  inbound-request
+    ?>  authenticated.req
+    =/  rl  (parse-request-line:server url.request.req)
+    =/  site=(list @t)  site.rl
+    ::  strip /apps/claw/api prefix
+    =/  api-path=(list @t)
+      ^-  (list @t)
+      ?.  ?=([@ @ @ *] site)  ~
+      ?.  &(=('apps' i.site) =('claw' i.t.site) =('api' i.t.t.site))  ~
+      t.t.t.site
+    =;  =simple-payload:http
+      :_  this
+      (give-simple-payload:app:server rid simple-payload)
+    ::  cors headers for all responses
+    =/  cors-headers=(list [key=@t value=@t])
+      :~  ['content-type' 'application/json']
+          ['access-control-allow-origin' '*']
+      ==
+    ?+  api-path  [[404 ~] `(as-octs:mimes:html '"not found"')]
+    ::
+        [%config ~]
+      =/  j=json
+        %-  pairs:enjs:format
+        :~  ['model' s+model]
+            ['pending' b+pending]
+            ['last-error' s+last-error]
+            :-  'whitelist'
+            %-  pairs:enjs:format
+            %+  turn  ~(tap by whitelist)
+            |=  [s=ship r=ship-role:claw]
+            [(scot %p s) s+?:(=(r %owner) 'owner' 'allowed')]
+            :-  'context-keys'
+            a+(turn ~(tap in ~(key by context)) |=(k=@tas s+(scot %tas k)))
+        ==
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
+    ::
+        [%context ~]
+      =/  j=json
+        %-  pairs:enjs:format
+        %+  turn  ~(tap by context)
+        |=  [k=@tas v=@t]
+        [(scot %tas k) s+v]
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
+    ::
+        [%context @ ~]
+      =/  field=@tas  i.t.api-path
+      =/  val=(unit @t)  (~(get by context) field)
+      =/  j=json  ?~(val ~ s+u.val)
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
+    ::
+        [%history ~]
+      =/  j=json
+        :-  %a
+        %+  turn  history
+        |=  =msg:claw
+        (pairs:enjs:format ~[['role' s+role.msg] ['content' s+content.msg]])
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
+    ::
+        [%dm-history @ ~]
+      =/  who=ship  (slav %p i.t.api-path)
+      =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
+      =/  j=json
+        :-  %a
+        %+  turn  hist
+        |=  =msg:claw
+        (pairs:enjs:format ~[['role' s+role.msg] ['content' s+content.msg]])
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
+    ::
+        [%prompt ~]
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html s+(build-prompt bowl context)))]
+    ::
+        [%action ~]
+      ::  POST endpoint: parse json body into claw action
+      ?.  ?=(%'POST' method.request.req)
+        [[405 ~] `(as-octs:mimes:html '"method not allowed"')]
+      ?~  body.request.req  [[400 ~] `(as-octs:mimes:html '"no body"')]
+      =/  jon=(unit json)  (de:json:html q.u.body.request.req)
+      ?~  jon  [[400 ~] `(as-octs:mimes:html '"invalid json"')]
+      =/  act=(unit action:claw)
+        %-  mole  |.
+        =,  dejs:format
+        =/  typ=@t  ((ot ~[action+so]) u.jon)
+        ?+  typ  !!
+            %'set-key'
+          ^-  action:claw
+          [%set-key `@t`((ot ~[key+so]) u.jon)]
+            %'set-model'
+          ^-  action:claw
+          [%set-model `@t`((ot ~[model+so]) u.jon)]
+            %'set-context'
+          ^-  action:claw
+          =/  [f=@tas c=@t]  ((ot ~[field+(se %tas) content+so]) u.jon)
+          [%set-context f c]
+            %'del-context'
+          ^-  action:claw
+          [%del-context `@tas`((ot ~[field+(se %tas)]) u.jon)]
+            %'add-ship'
+          ^-  action:claw
+          =/  [s=@p r=@t]  ((ot ~[ship+(se %p) role+so]) u.jon)
+          [%add-ship s ?:(=('owner' r) %owner %allowed)]
+            %'del-ship'
+          ^-  action:claw
+          [%del-ship `@p`((ot ~[ship+(se %p)]) u.jon)]
+            %'clear'
+          ^-  action:claw
+          [%clear ~]
+            %'prompt'
+          ^-  action:claw
+          [%prompt `@t`((ot ~[content+so]) u.jon)]
+        ==
+      ?~  act
+        [[400 cors-headers] `(as-octs:mimes:html '"bad action"')]
+      ::  recurse into on-poke with the parsed action
+      =/  res=(each (quip card _this) tang)
+        %-  mule  |.
+        (on-poke %claw-action !>(u.act))
+      ?:  ?=(%| -.res)
+        [[500 cors-headers] `(as-octs:mimes:html '"action failed"')]
+      =.  this  +.p.res
+      [[200 cors-headers] `(as-octs:mimes:html '"ok"')]
+    ==
+  ::
+      %claw-action
+  ?>  =(src our):bowl
   =/  act=action:claw  !<(action:claw vase)
   ?-  -.act
       %set-key
@@ -268,12 +396,14 @@
     :~  (make-llm-request bowl api-key model sys-prompt history /query)
     ==
   ==
+  ==
 ::
 ++  on-watch
   |=  =path
   ^-  (quip card _this)
   ?+  path  (on-watch:def path)
       [%updates ~]  ?>  =(src our):bowl  `this
+      [%http-response *]  `this
   ==
 ::
 ++  on-leave  on-leave:def
@@ -399,6 +529,9 @@
   |=  [=wire sign=sign-arvo]
   ^-  (quip card _this)
   ?+  wire  (on-arvo:def wire sign)
+  ::
+      [%eyre %connect ~]
+    `this
   ::
       [%query ~]
     ?.  ?=([%iris %http-response *] sign)  `this

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>claw</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, system-ui, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+    .container { max-width: 800px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 24px; color: #fff; }
+    h1 span { color: #666; font-weight: 400; }
+    h2 { font-size: 14px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 1px; margin: 32px 0 12px; }
+    .card { background: #141414; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+    .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .row:last-child { margin-bottom: 0; }
+    label { font-size: 13px; color: #888; min-width: 80px; }
+    input[type=text], input[type=password] {
+      flex: 1; background: #0a0a0a; border: 1px solid #333; border-radius: 4px;
+      padding: 8px 10px; color: #e0e0e0; font-size: 13px; font-family: monospace;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #555; }
+    textarea {
+      width: 100%; background: #0a0a0a; border: 1px solid #333; border-radius: 4px;
+      padding: 8px 10px; color: #e0e0e0; font-size: 13px; font-family: monospace;
+      resize: vertical; min-height: 80px;
+    }
+    button {
+      background: #222; border: 1px solid #333; border-radius: 4px; color: #e0e0e0;
+      padding: 6px 14px; font-size: 13px; cursor: pointer;
+    }
+    button:hover { background: #333; }
+    button.primary { background: #1a3a2a; border-color: #2a5a3a; }
+    button.primary:hover { background: #2a5a3a; }
+    button.danger { background: #3a1a1a; border-color: #5a2a2a; }
+    button.danger:hover { background: #5a2a2a; }
+    .tag { display: inline-block; background: #1a2a3a; border-radius: 4px; padding: 2px 8px; font-size: 12px; margin: 2px; }
+    .tag .x { cursor: pointer; margin-left: 4px; color: #888; }
+    .tag .x:hover { color: #fff; }
+    .status { font-size: 12px; color: #555; margin-top: 4px; }
+    .status.ok { color: #4a8; }
+    .status.err { color: #a44; }
+    .ctx-tab { display: inline-block; padding: 6px 12px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: #888; }
+    .ctx-tab.active { color: #fff; border-color: #4a8; }
+    .tabs { border-bottom: 1px solid #222; margin-bottom: 12px; }
+    #chat { max-height: 300px; overflow-y: auto; }
+    .msg { padding: 6px 0; font-size: 13px; }
+    .msg .role { color: #888; font-weight: 600; margin-right: 8px; }
+    .msg .role.user { color: #6af; }
+    .msg .role.assistant { color: #4a8; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>claw <span>llm agent</span></h1>
+
+  <h2>Config</h2>
+  <div class="card">
+    <div class="row">
+      <label>API Key</label>
+      <input type="password" id="api-key" placeholder="sk-or-v1-...">
+      <button onclick="setKey()">Set</button>
+    </div>
+    <div class="row">
+      <label>Model</label>
+      <input type="text" id="model" placeholder="anthropic/claude-sonnet-4">
+      <button onclick="setModel()">Set</button>
+    </div>
+    <div class="status" id="config-status"></div>
+  </div>
+
+  <h2>Whitelist</h2>
+  <div class="card">
+    <div id="whitelist-tags"></div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="new-ship" placeholder="~sampel-palnet">
+      <select id="new-role" style="background:#0a0a0a;border:1px solid #333;border-radius:4px;padding:6px;color:#e0e0e0;font-size:13px">
+        <option value="owner">owner</option>
+        <option value="allowed">allowed</option>
+      </select>
+      <button class="primary" onclick="addShip()">Add</button>
+    </div>
+  </div>
+
+  <h2>Context Files</h2>
+  <div class="card">
+    <div class="tabs" id="ctx-tabs"></div>
+    <textarea id="ctx-editor" rows="8"></textarea>
+    <div class="row" style="margin-top:8px;justify-content:space-between">
+      <div>
+        <input type="text" id="new-ctx-key" placeholder="new field name" style="width:150px">
+        <button onclick="addCtx()">Add Field</button>
+      </div>
+      <div>
+        <button class="danger" onclick="delCtx()">Delete</button>
+        <button class="primary" onclick="saveCtx()">Save</button>
+      </div>
+    </div>
+    <div class="status" id="ctx-status"></div>
+  </div>
+
+  <h2>Chat</h2>
+  <div class="card">
+    <div id="chat"></div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="prompt-input" placeholder="Send a message..." style="flex:1" onkeydown="if(event.key==='Enter')sendPrompt()">
+      <button class="primary" onclick="sendPrompt()">Send</button>
+      <button onclick="clearChat()">Clear</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/apps/claw/api';
+let ctx = {};
+let activeCtxTab = null;
+
+async function api(path) {
+  const r = await fetch(API + path, {credentials: 'include'});
+  return r.json();
+}
+
+async function post(body) {
+  const r = await fetch(API + '/action', {
+    method: 'POST', credentials: 'include',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  return r.json();
+}
+
+function status(id, msg, ok) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (ok ? 'ok' : 'err');
+  setTimeout(() => el.textContent = '', 3000);
+}
+
+async function loadConfig() {
+  const c = await api('/config');
+  document.getElementById('model').value = c.model || '';
+  renderWhitelist(c.whitelist || {});
+}
+
+function renderWhitelist(wl) {
+  const el = document.getElementById('whitelist-tags');
+  el.innerHTML = Object.entries(wl).map(([s, r]) =>
+    `<span class="tag">${s} (${r}) <span class="x" onclick="delShip('${s}')">&times;</span></span>`
+  ).join('') || '<span style="color:#555;font-size:13px">No ships whitelisted</span>';
+}
+
+async function setKey() {
+  const key = document.getElementById('api-key').value;
+  if (!key) return;
+  await post({action: 'set-key', key});
+  document.getElementById('api-key').value = '';
+  status('config-status', 'API key set', true);
+}
+
+async function setModel() {
+  const model = document.getElementById('model').value;
+  if (!model) return;
+  await post({action: 'set-model', model});
+  status('config-status', 'Model updated', true);
+}
+
+async function addShip() {
+  const ship = document.getElementById('new-ship').value;
+  const role = document.getElementById('new-role').value;
+  if (!ship) return;
+  await post({action: 'add-ship', ship, role});
+  document.getElementById('new-ship').value = '';
+  loadConfig();
+}
+
+async function delShip(ship) {
+  await post({action: 'del-ship', ship});
+  loadConfig();
+}
+
+async function loadContext() {
+  ctx = await api('/context');
+  renderCtxTabs();
+}
+
+function renderCtxTabs() {
+  const tabs = document.getElementById('ctx-tabs');
+  const keys = Object.keys(ctx);
+  if (!activeCtxTab && keys.length) activeCtxTab = keys[0];
+  tabs.innerHTML = keys.map(k =>
+    `<span class="ctx-tab ${k===activeCtxTab?'active':''}" onclick="selectCtx('${k}')">${k}</span>`
+  ).join('');
+  if (activeCtxTab && ctx[activeCtxTab] !== undefined) {
+    document.getElementById('ctx-editor').value = ctx[activeCtxTab];
+  }
+}
+
+function selectCtx(k) {
+  activeCtxTab = k;
+  renderCtxTabs();
+}
+
+async function saveCtx() {
+  if (!activeCtxTab) return;
+  const content = document.getElementById('ctx-editor').value;
+  await post({action: 'set-context', field: activeCtxTab, content});
+  ctx[activeCtxTab] = content;
+  status('ctx-status', `${activeCtxTab} saved`, true);
+}
+
+async function delCtx() {
+  if (!activeCtxTab) return;
+  await post({action: 'del-context', field: activeCtxTab});
+  delete ctx[activeCtxTab];
+  activeCtxTab = Object.keys(ctx)[0] || null;
+  renderCtxTabs();
+  status('ctx-status', 'Deleted', true);
+}
+
+async function addCtx() {
+  const key = document.getElementById('new-ctx-key').value.trim();
+  if (!key) return;
+  await post({action: 'set-context', field: key, content: ''});
+  ctx[key] = '';
+  activeCtxTab = key;
+  document.getElementById('new-ctx-key').value = '';
+  renderCtxTabs();
+}
+
+async function loadHistory() {
+  const hist = await api('/history');
+  const el = document.getElementById('chat');
+  el.innerHTML = hist.map(m =>
+    `<div class="msg"><span class="role ${m.role}">${m.role}</span>${escHtml(m.content)}</div>`
+  ).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+async function sendPrompt() {
+  const input = document.getElementById('prompt-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  appendMsg('user', text);
+  await post({action: 'prompt', content: text});
+  setTimeout(loadHistory, 1000);
+  setTimeout(loadHistory, 5000);
+  setTimeout(loadHistory, 12000);
+}
+
+function appendMsg(role, content) {
+  const el = document.getElementById('chat');
+  el.innerHTML += `<div class="msg"><span class="role ${role}">${role}</span>${escHtml(content)}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function clearChat() {
+  await post({action: 'clear'});
+  document.getElementById('chat').innerHTML = '';
+}
+
+loadConfig();
+loadContext();
+loadHistory();
+</script>
+</body>
+</html>
