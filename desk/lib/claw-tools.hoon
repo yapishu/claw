@@ -27,9 +27,7 @@
       ::  messaging
       (tool-fn 'send_dm' 'Send a direct message to another Urbit ship.' (obj ~[['ship' (req-str 'Target ship e.g. ~sampel-palnet')] ['message' (req-str 'Message text')]]))
       ::  web search
-      (tool-fn 'web_search' 'Search the web using Brave Search. Returns titles, URLs, and descriptions.' (obj ~[['query' (req-str 'Search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
-      ::  image search
-      (tool-fn 'image_search' 'Search for images using Brave Image Search. Returns image URLs with metadata.' (obj ~[['query' (req-str 'Image search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
+      (tool-fn 'web_search' 'Search the web using Brave Search. Returns titles, URLs, and descriptions. Can also be used to find images by including "images of" in the query.' (obj ~[['query' (req-str 'Search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
       ::  http fetch
       (tool-fn 'http_fetch' 'Fetch a URL and return its text content. Do NOT use on image/binary URLs.' (obj ~[['url' (req-str 'URL to fetch')]]))
   ==
@@ -107,16 +105,11 @@
     ?~  q  [%sync ~ 'error: query required']
     =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
     =/  n=@t  (fall cnt '5')
-    =/  post-body=json
-      (pairs:enjs:format ~[['q' s+u.q] ['count' (numb:enjs:format (fall (rush n dem) 5))]])
-    =/  body-cord=@t  (en:json:html post-body)
-    =/  hed=(list [key=@t value=@t])
-      :~  ['Content-Type' 'application/json']
-          ['Accept' 'application/json']
-          ['X-Subscription-Token' brave-key]
-      ==
-    =/  bod=(unit octs)  `(as-octs:mimes:html body-cord)
-    [%async [%pass /tool-http/'image_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/images/search' hed bod] *outbound-config:iris]]
+    ::  image search: GET with no headers first to test
+    =/  encoded-q=@t  (crip (en-urlt:html (trip u.q)))
+    =/  url=@t  (rap 3 'https://api.search.brave.com/res/v1/images/search?q=' encoded-q '&count=' n '&token=' brave-key ~)
+    %-  (slog leaf+"claw: image url={<url>}" ~)
+    [%async [%pass /tool-http/'image_search' %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
   ::  http_fetch: async generic GET
   ::
