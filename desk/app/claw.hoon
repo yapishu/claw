@@ -7,7 +7,7 @@
 /-  claw
 /-  c=chat
 /-  d=channels
-/+  dbug, default-agent, server
+/+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
 +$  versioned-state  $%(state-0:claw state-1:claw state-2:claw)
@@ -97,22 +97,26 @@
   (rap 3 this rest ~)
 ::
 ++  make-llm-request
-  |=  [=bowl:gall api-key=@t model=@t sys-prompt=@t msgs=(list msg:claw) =wire]
+  |=  $:  =bowl:gall  api-key=@t  model=@t  sys-prompt=@t
+          msgs=(list msg:claw)  =wire
+          extra-msgs=(list json)  ::  tool-call follow-up messages
+      ==
   ^-  card
-  =/  api-msgs=(list msg:claw)
-    [['system' sys-prompt] msgs]
-  =/  msgs-json=json
+  =/  api-msgs=json
     :-  %a
-    %+  turn  api-msgs
-    |=  =msg:claw
-    %-  pairs:enjs:format
-    :~  ['role' s+role.msg]
-        ['content' s+content.msg]
-    ==
+    %+  weld
+      %+  turn  [['system' sys-prompt] msgs]
+      |=  =msg:claw
+      %-  pairs:enjs:format
+      :~  ['role' s+role.msg]
+          ['content' s+content.msg]
+      ==
+    extra-msgs
   =/  body=json
     %-  pairs:enjs:format
     :~  ['model' s+model]
-        ['messages' msgs-json]
+        ['messages' api-msgs]
+        ['tools' tool-defs:tools]
     ==
   =/  body-cord=@t  (en:json:html body)
   =/  hed=(list [key=@t value=@t])
@@ -123,19 +127,49 @@
     [%'POST' 'https://openrouter.ai/api/v1/chat/completions' hed `(as-octs:mimes:html body-cord)]
   [%pass wire %arvo %i %request req *outbound-config:iris]
 ::
+::  +parse-llm-response: parse openrouter response, detecting tool calls
+::
+::    returns [%text content] for normal responses
+::    returns [%tools assistant-msg tool-calls] for tool call responses
+::    where tool-calls is (list [id=@t name=@t arguments=@t])
+::
 ++  parse-llm-response
   |=  body=@t
-  ^-  (unit @t)
+  ^-  (unit ?([%text content=@t] [%tools assistant-json=json calls=(list [id=@t name=@t arguments=@t])]))
   =/  jon=(unit json)  (de:json:html body)
   ?~  jon  ~
   %-  mole  |.
-  ^-  @t
-  =,  dejs:format
-  =/  choices=(list @t)
-    %.  u.jon
-    (ot ~[choices+(ar (ot ~[message+(ot ~[content+so])]))])
-  ?~  choices  !!
-  i.choices
+  =/  choices=json  (need (~(get by (need (me u.jon))) 'choices'))
+  ?.  ?=([%a [* *]] choices)  !!
+  =/  choice=json  i.p.choices
+  =/  msg=json  (need (~(get by (need (me choice))) 'message'))
+  =/  msg-map=(map @t json)  (need (me msg))
+  ::  check for tool_calls
+  =/  tc=(unit json)  (~(get by msg-map) 'tool_calls')
+  ?~  tc
+    ::  normal text response
+    =/  content=json  (need (~(get by msg-map) 'content'))
+    ?.  ?=([%s *] content)  !!
+    [%text p.content]
+  ::  tool call response
+  ?.  ?=([%a *] u.tc)  !!
+  =/  calls=(list [id=@t name=@t arguments=@t])
+    %+  turn  p.u.tc
+    |=  tc-item=json
+    =/  tcm=(map @t json)  (need (me tc-item))
+    =/  fn=json  (need (~(get by tcm) 'function'))
+    =/  fnm=(map @t json)  (need (me fn))
+    :+  (so:dejs:format (need (~(get by tcm) 'id')))
+      (so:dejs:format (need (~(get by fnm) 'name')))
+    (so:dejs:format (need (~(get by fnm) 'arguments')))
+  [%tools msg calls]
+::
+::  helper: extract object map from json
+++  me
+  |=  =json
+  ^-  (unit (map @t ^json))
+  ?.  ?=([%o *] json)  ~
+  `p.json
 --
 ::
 %-  agent:dbug
@@ -393,7 +427,7 @@
     =/  sys-prompt=@t  (build-prompt bowl context)
     %-  (slog leaf+"claw: sending prompt..." ~)
     :_  this
-    :~  (make-llm-request bowl api-key model sys-prompt history /query)
+    :~  (make-llm-request bowl api-key model sys-prompt history /query ~)
     ==
   ==
   ==
@@ -502,7 +536,7 @@
         `this
       =/  sys-prompt=@t  (build-prompt bowl context)
       :_  this
-      :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from))
+      :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
       ==
     ==
   ::
@@ -528,66 +562,88 @@
 ++  on-arvo
   |=  [=wire sign=sign-arvo]
   ^-  (quip card _this)
+  |^
   ?+  wire  (on-arvo:def wire sign)
   ::
       [%eyre %connect ~]
     `this
   ::
       [%query ~]
-    ?.  ?=([%iris %http-response *] sign)  `this
-    =/  resp=client-response:iris  client-response.sign
-    ?.  ?=(%finished -.resp)  `this
-    =/  code=@ud  status-code.response-header.resp
-    ?.  =(200 code)
-      =/  err=@t  ?~(full-file.resp 'http error' q.data.u.full-file.resp)
-      %-  (slog leaf+"claw error [{(a-co:co code)}]" ~)
-      =.  pending  %.n
-      =.  last-error  err
-      :_  this
-      :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error err])]  ==
-    ?~  full-file.resp
-      =.  pending  %.n
-      =.  last-error  'empty response'
-      :_  this
-      :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error 'empty response'])]  ==
-    =/  parsed=(unit @t)  (parse-llm-response q.data.u.full-file.resp)
-    ?~  parsed
-      =.  pending  %.n
-      =.  last-error  q.data.u.full-file.resp
-      :_  this
-      :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error 'parse error'])]  ==
-    =/  content=@t  u.parsed
-    =.  history  (snoc history ['assistant' content])
-    =.  pending  %.n
-    =.  last-error  ''
-    %-  (slog leaf+"< {(trip content)}" ~)
-    :_  this
-    :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%response ['assistant' content]])]  ==
+    (handle-llm-response sign %direct ~ history)
+  ::
+      [%query-tools ~]
+    (handle-llm-response sign %direct ~ history)
   ::
       [%dm-query @ ~]
     =/  who=ship  (slav %p i.t.wire)
-    ?.  ?=([%iris %http-response *] sign)  `this
-    =/  resp=client-response:iris  client-response.sign
-    ?.  ?=(%finished -.resp)  `this
-    =.  dm-pending  (~(del in dm-pending) who)
-    =/  code=@ud  status-code.response-header.resp
-    ?.  =(200 code)
-      =/  err=@t  ?~(full-file.resp 'http error' q.data.u.full-file.resp)
-      %-  (slog leaf+"claw dm error [{(a-co:co code)}]" ~)
-      =.  last-error  err
-      `this
-    ?~  full-file.resp  `this
-    =/  parsed=(unit @t)  (parse-llm-response q.data.u.full-file.resp)
-    ?~  parsed
-      %-  (slog leaf+"claw dm error: parse failed" ~)
-      =.  last-error  q.data.u.full-file.resp
-      `this
-    =/  content=@t  u.parsed
-    ::  save to dm history
     =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
-    =.  dm-history  (~(put by dm-history) who (snoc hist ['assistant' content]))
+    (handle-llm-response sign [%dm who] `who hist)
+  ::
+      [%dm-query-tools @ ~]
+    =/  who=ship  (slav %p i.t.wire)
+    =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
+    (handle-llm-response sign [%dm who] `who hist)
+  ::
+      [%tool @ ~]  `this  ::  tool poke-acks
+  ==
+::
+::  +handle-llm-response: shared handler for llm responses
+::    handles both text and tool-call responses
+::
+++  handle-llm-response
+  |=  $:  sign=sign-arvo
+          source=?(%direct [%dm =ship])
+          dm-who=(unit ship)
+          hist=(list msg:claw)
+      ==
+  ^-  (quip card _this)
+  ?.  ?=([%iris %http-response *] sign)  `this
+  =/  resp=client-response:iris  client-response.sign
+  ?.  ?=(%finished -.resp)  `this
+  =/  code=@ud  status-code.response-header.resp
+  ::  error handling
+  ?.  =(200 code)
+    =/  err=@t  ?~(full-file.resp 'http error' q.data.u.full-file.resp)
+    %-  (slog leaf+"claw error [{(a-co:co code)}]" ~)
+    =.  last-error  err
+    =?  pending  ?=(%direct source)  %.n
+    =?  dm-pending  ?=([%dm *] source)  (~(del in dm-pending) ship.source)
+    :_  this
+    ?:  ?=(%direct source)
+      :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error err])]  ==
+    ~
+  ?~  full-file.resp
+    =?  pending  ?=(%direct source)  %.n
+    =?  dm-pending  ?=([%dm *] source)  (~(del in dm-pending) ship.source)
+    `this
+  =/  body=@t  q.data.u.full-file.resp
+  =/  parsed  (parse-llm-response body)
+  ?~  parsed
+    %-  (slog leaf+"claw error: parse failed" ~)
+    =.  last-error  body
+    =?  pending  ?=(%direct source)  %.n
+    =?  dm-pending  ?=([%dm *] source)  (~(del in dm-pending) ship.source)
+    `this
+  ::
+  ?-  -.u.parsed
+  ::
+  ::  text response - deliver to user
+  ::
+      %text
+    =/  content=@t  content.u.parsed
+    =.  last-error  ''
+    ?:  ?=(%direct source)
+      =.  history  (snoc history ['assistant' content])
+      =.  pending  %.n
+      %-  (slog leaf+"< {(trip content)}" ~)
+      :_  this
+      :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%response ['assistant' content]])]  ==
+    ::  dm response - send back as dm
+    =/  who  ship.source
+    =/  new-hist  (snoc hist ['assistant' content])
+    =.  dm-history  (~(put by dm-history) who new-hist)
+    =.  dm-pending  (~(del in dm-pending) who)
     %-  (slog leaf+"claw dm to {(scow %p who)}: {(trip content)}" ~)
-    ::  send dm via %chat
     =/  dm-story=story:d  ~[[%inline `(list inline:d)`~[content]]]
     =/  dm-memo=memo:d  [content=dm-story author=our.bowl sent=now.bowl]
     =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
@@ -598,7 +654,48 @@
     :~  [%pass /dm-send/(scot %p who) %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]
         [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
     ==
+  ::
+  ::  tool call response - execute tools and loop back
+  ::
+      %tools
+    %-  (slog leaf+"claw: executing {<(lent calls.u.parsed)>} tool call(s)" ~)
+    ::  execute each tool, collect results and cards
+    =/  tool-cards=(list card)  ~
+    =/  result-msgs=(list json)  ~
+    =/  remaining  calls.u.parsed
+    |-
+    ?~  remaining
+      ::  build follow-up request with tool results
+      =/  sys-prompt=@t  (build-prompt bowl context)
+      ::  assistant message (with tool_calls) + tool result messages
+      =/  extra-msgs=(list json)
+        (weld [assistant-json.u.parsed]~ (flop result-msgs))
+      =/  follow-wire=path
+        ?:  ?=(%direct source)  /query-tools
+        /dm-query-tools/(scot %p ship.source)
+      :_  this
+      %+  weld  (flop tool-cards)
+      :~  (make-llm-request bowl api-key model sys-prompt hist follow-wire extra-msgs)
+      ==
+    ::  execute this tool
+    =/  tc  i.remaining
+    %-  (slog leaf+"claw: tool {(trip name.tc)}({(trip arguments.tc)})" ~)
+    =/  [cards=(list card) result=@t]
+      (execute-tool:tools bowl name.tc arguments.tc)
+    ::  build tool result message
+    =/  result-json=json
+      %-  pairs:enjs:format
+      :~  ['role' s+'tool']
+          ['tool_call_id' s+id.tc]
+          ['content' s+result]
+      ==
+    %=  $
+      remaining    t.remaining
+      tool-cards   (weld cards tool-cards)
+      result-msgs  [result-json result-msgs]
+    ==
   ==
+  --
 ::
 ++  on-fail  on-fail:def
 --
