@@ -86,12 +86,17 @@
     ?~  q  [%sync ~ 'error: query required']
     =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
     =/  n=@t  (fall cnt '5')
-    =/  url=@t  (rap 3 'https://api.search.brave.com/res/v1/web/search?q=' (crip (en-urlt:html (trip u.q))) '&count=' n ~)
+    =/  post-body=json
+      (pairs:enjs:format ~[['q' s+u.q] ['count' (numb:enjs:format (fall (rush n dem) 5))]])
+    =/  body-cord=@t  (en:json:html post-body)
+    %-  (slog leaf+"claw: brave search: {(trip u.q)}" ~)
     =/  hed=(list [key=@t value=@t])
-      :~  ['Accept' 'application/json']
+      :~  ['Content-Type' 'application/json']
+          ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/web-search %arvo %i %request [%'GET' url hed ~] *outbound-config:iris]]
+    =/  bod=(unit octs)  `(as-octs:mimes:html body-cord)
+    [%async [%pass /tool-http/'web_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed bod] *outbound-config:iris]]
   ::
   ::  image_search: async brave image search
   ::
@@ -102,19 +107,23 @@
     ?~  q  [%sync ~ 'error: query required']
     =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
     =/  n=@t  (fall cnt '5')
-    =/  url=@t  (rap 3 'https://api.search.brave.com/res/v1/images/search?q=' (crip (en-urlt:html (trip u.q))) '&count=' n ~)
+    =/  post-body=json
+      (pairs:enjs:format ~[['q' s+u.q] ['count' (numb:enjs:format (fall (rush n dem) 5))]])
+    =/  body-cord=@t  (en:json:html post-body)
     =/  hed=(list [key=@t value=@t])
-      :~  ['Accept' 'application/json']
+      :~  ['Content-Type' 'application/json']
+          ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/image-search %arvo %i %request [%'GET' url hed ~] *outbound-config:iris]]
+    =/  bod=(unit octs)  `(as-octs:mimes:html body-cord)
+    [%async [%pass /tool-http/'image_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/images/search' hed bod] *outbound-config:iris]]
   ::
   ::  http_fetch: async generic GET
   ::
   ?:  =('http_fetch' name)
     =,  dejs:format
     =/  url=@t  ((ot ~[url+so]) u.args)
-    [%async [%pass /tool-http/fetch %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+    [%async [%pass /tool-http/'http_fetch' %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
   [%sync ~ (rap 3 'error: unknown tool ' name ~)]
 ::
@@ -125,50 +134,11 @@
   ^-  @t
   ::
   ?:  =('web_search' name)
-    =/  jon=(unit json)  (de:json:html body)
-    ?~  jon  'error: invalid json from brave'
-    =/  results=(unit json)
-      ?~  (me u.jon)  ~
-      (~(get by (need (me u.jon))) 'web')
-    ?~  results  'no web results found'
-    =/  hits=(unit json)
-      ?~  (me u.results)  ~
-      (~(get by (need (me u.results))) 'results')
-    ?~  hits  'no results found'
-    ?.  ?=([%a *] u.hits)  'no results array'
-    %-  crip
-    %-  zing
-    %+  turn  (scag 10 p.u.hits)
-    |=  item=json
-    =/  m=(unit (map @t json))  (me item)
-    ?~  m  ~
-    =/  title  (fall (bind (~(get by u.m) 'title') |=(j=json ?:(?=([%s *] j) (trip p.j) ""))) "")
-    =/  url  (fall (bind (~(get by u.m) 'url') |=(j=json ?:(?=([%s *] j) (trip p.j) ""))) "")
-    =/  desc  (fall (bind (~(get by u.m) 'description') |=(j=json ?:(?=([%s *] j) (trip p.j) ""))) "")
-    "{title}\0a  {url}\0a  {desc}\0a\0a"
+    ::  return raw json truncated - llm can parse it
+    (crip (scag 6.000 (trip body)))
   ::
   ?:  =('image_search' name)
-    =/  jon=(unit json)  (de:json:html body)
-    ?~  jon  'error: invalid json from brave'
-    =/  results=(unit json)
-      ?~  (me u.jon)  ~
-      (~(get by (need (me u.jon))) 'results')
-    ?~  results  'no image results found'
-    ?.  ?=([%a *] u.results)  'no results array'
-    %-  crip
-    %-  zing
-    %+  turn  (scag 10 p.u.results)
-    |=  item=json
-    =/  m=(unit (map @t json))  (me item)
-    ?~  m  ~
-    =/  title  (fall (bind (~(get by u.m) 'title') |=(j=json ?:(?=([%s *] j) (trip p.j) ""))) "")
-    =/  props  (bind (~(get by u.m) 'properties') |=(j=json (fall (me j) *(map @t json))))
-    =/  img-url
-      %-  fall  :_  ""
-      ?~  props  (bind (~(get by u.m) 'url') |=(j=json ?:(?=([%s *] j) (trip p.j) "")))
-      (bind (~(get by u.props) 'url') |=(j=json ?:(?=([%s *] j) (trip p.j) "")))
-    =/  source  (fall (bind (~(get by u.m) 'source') |=(j=json ?:(?=([%s *] j) (trip p.j) ""))) "")
-    "{title}\0a  Image: {img-url}\0a  Source: {source}\0a\0a"
+    (crip (scag 6.000 (trip body)))
   ::
   ?:  =('http_fetch' name)
     ::  return raw body, truncated

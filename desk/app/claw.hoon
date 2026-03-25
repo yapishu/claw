@@ -148,7 +148,7 @@
 ::
 ++  parse-llm-response
   |=  body=@t
-  ^-  (unit ?([%text content=@t] [%tools assistant-json=json calls=(list [id=@t name=@t arguments=@t])]))
+  ^-  (unit ?([%text content=@t] [%tools content=@t calls=(list [id=@t name=@t arguments=@t])]))
   =/  jon=(unit json)  (de:json:html body)
   ?~  jon  ~
   %-  mole  |.
@@ -164,8 +164,13 @@
     =/  content=json  (need (~(get by msg-map) 'content'))
     ?.  ?=([%s *] content)  !!
     [%text p.content]
-  ::  tool call response
+  ::  tool call response - also grab content text if present
   ?.  ?=([%a *] u.tc)  !!
+  =/  tc-content=@t
+    =/  ct=(unit json)  (~(get by msg-map) 'content')
+    ?~  ct  ''
+    ?:  ?=([%s *] u.ct)  p.u.ct
+    ''
   =/  calls=(list [id=@t name=@t arguments=@t])
     %+  turn  p.u.tc
     |=  tc-item=json
@@ -175,7 +180,7 @@
     :+  (so:dejs:format (need (~(get by tcm) 'id')))
       (so:dejs:format (need (~(get by fnm) 'name')))
     (so:dejs:format (need (~(get by fnm) 'arguments')))
-  [%tools msg calls]
+  [%tools tc-content calls]
 ::
 ::  helper: extract object map from json
 ++  me
@@ -622,11 +627,17 @@
       `this
     =/  tl=tool-pending:claw  u.tool-loop
     =/  tool-name=@t  i.t.wire
+    %-  (slog leaf+"claw: tool-http status={<status-code.response-header.resp>}" ~)
+    =/  raw-body=@t
+      ?~  full-file.resp  ''
+      q.data.u.full-file.resp
+    %-  (slog leaf+"claw: tool-http body[0:200]={<(crip (scag 200 (trip raw-body)))>}" ~)
     =/  body=@t
       ?~  full-file.resp  'error: empty response'
       ?.  =(200 status-code.response-header.resp)
-        (rap 3 'error: http ' (scot %ud status-code.response-header.resp) ~)
-      q.data.u.full-file.resp
+        ::  include error body so LLM and logs can see what went wrong
+        (rap 3 'error: http ' (scot %ud status-code.response-header.resp) ' - ' (crip (scag 500 (trip raw-body))) ~)
+      raw-body
     =/  result=@t  (parse-tool-response:tools tool-name body)
     %-  (slog leaf+"claw: tool {(trip tool-name)} done" ~)
     ::  find the call id for this tool
@@ -736,7 +747,26 @@
     %-  (slog leaf+"claw: executing {<(lent calls.u.parsed)>} tool call(s)" ~)
     ::  process tool calls: sync ones immediately, async ones queued
     =/  tool-cards=(list card)  ~
-    =/  follow-msgs=(list json)  [assistant-json.u.parsed]~
+    ::  rebuild assistant message from parsed calls for clean round-trip
+    =/  assistant-msg=json
+      %-  pairs:enjs:format
+      :~  ['role' s+'assistant']
+          ['content' ?:(=('' content.u.parsed) ~ s+content.u.parsed)]
+          :-  'tool_calls'
+          :-  %a
+          %+  turn  calls.u.parsed
+          |=  [id=@t name=@t arguments=@t]
+          %-  pairs:enjs:format
+          :~  ['id' s+id]
+              ['type' s+'function']
+              :-  'function'
+              %-  pairs:enjs:format
+              :~  ['name' s+name]
+                  ['arguments' s+arguments]
+              ==
+          ==
+      ==
+    =/  follow-msgs=(list json)  [assistant-msg]~
     =/  async-pending=(list [id=@t name=@t arguments=@t])  ~
     =/  remaining  calls.u.parsed
     |-
@@ -751,7 +781,7 @@
           ::  shouldn't happen, but handle gracefully
           $(async-pending t.async-pending, follow-msgs (snoc follow-msgs (tool-result-json id.first 'unexpected sync')))
         =.  tool-loop
-          `[source hist follow-msgs t.async-pending]
+          `[source hist follow-msgs async-pending]
         :_  this
         (weld (flop tool-cards) [card.res]~)
       ::  all sync - fire llm follow-up immediately
