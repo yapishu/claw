@@ -133,6 +133,19 @@
 ::    returns [%tools assistant-msg tool-calls] for tool call responses
 ::    where tool-calls is (list [id=@t name=@t arguments=@t])
 ::
+::  +send-dm-card: build a card to send a dm to a ship
+::
+++  send-dm-card
+  |=  [=bowl:gall to=ship text=@t]
+  ^-  card
+  =/  dm-story=story:d  ~[[%inline `(list inline:d)`~[text]]]
+  =/  dm-memo=memo:d  [content=dm-story author=our.bowl sent=now.bowl]
+  =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
+  =/  dm-delta=delta:writs:c  [%add dm-essay ~]
+  =/  dm-diff=diff:writs:c  [[our.bowl now.bowl] dm-delta]
+  =/  dm-act=action:dm:c  [to dm-diff]
+  [%pass /dm-send/(scot %p to) %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]
+::
 ++  parse-llm-response
   |=  body=@t
   ^-  (unit ?([%text content=@t] [%tools assistant-json=json calls=(list [id=@t name=@t arguments=@t])]))
@@ -259,14 +272,68 @@
       ?.  ?=([@ @ @ *] site)  ~
       ?.  &(=('apps' i.site) =('claw' i.t.site) =('api' i.t.t.site))  ~
       t.t.t.site
-    =;  =simple-payload:http
-      :_  this
-      (give-simple-payload:app:server rid simple-payload)
-    ::  cors headers for all responses
     =/  cors-headers=(list [key=@t value=@t])
       :~  ['content-type' 'application/json']
           ['access-control-allow-origin' '*']
       ==
+    ::  POST /action: handle separately so state changes persist
+    ::
+    ?:  ?=([%action ~] api-path)
+      ?.  ?=(%'POST' method.request.req)
+        :_  this
+        (give-simple-payload:app:server rid [[405 ~] `(as-octs:mimes:html '"method not allowed"')])
+      ?~  body.request.req
+        :_  this
+        (give-simple-payload:app:server rid [[400 ~] `(as-octs:mimes:html '"no body"')])
+      =/  jon=(unit json)  (de:json:html q.u.body.request.req)
+      ?~  jon
+        :_  this
+        (give-simple-payload:app:server rid [[400 ~] `(as-octs:mimes:html '"invalid json"')])
+      =/  act=(unit action:claw)
+        %-  mole  |.
+        =,  dejs:format
+        =/  typ=@t  ((ot ~[action+so]) u.jon)
+        ?+  typ  !!
+            %'set-key'
+          ^-  action:claw  [%set-key `@t`((ot ~[key+so]) u.jon)]
+            %'set-model'
+          ^-  action:claw  [%set-model `@t`((ot ~[model+so]) u.jon)]
+            %'set-brave-key'
+          ^-  action:claw  [%set-brave-key `@t`((ot ~[key+so]) u.jon)]
+            %'set-context'
+          ^-  action:claw
+          =/  [f=@tas c=@t]  ((ot ~[field+(se %tas) content+so]) u.jon)
+          [%set-context f c]
+            %'del-context'
+          ^-  action:claw  [%del-context `@tas`((ot ~[field+(se %tas)]) u.jon)]
+            %'add-ship'
+          ^-  action:claw
+          =/  [s=@p r=@t]  ((ot ~[ship+(se %p) role+so]) u.jon)
+          [%add-ship s ?:(=('owner' r) %owner %allowed)]
+            %'del-ship'
+          ^-  action:claw  [%del-ship `@p`((ot ~[ship+(se %p)]) u.jon)]
+            %'clear'
+          ^-  action:claw  [%clear ~]
+            %'prompt'
+          ^-  action:claw  [%prompt `@t`((ot ~[content+so]) u.jon)]
+        ==
+      ?~  act
+        :_  this
+        (give-simple-payload:app:server rid [[400 cors-headers] `(as-octs:mimes:html '"bad action"')])
+      ::  execute via on-poke and keep state changes
+      =/  res=(each (quip card _this) tang)
+        %-  mule  |.
+        (on-poke %claw-action !>(u.act))
+      ?:  ?=(%| -.res)
+        :_  this
+        (give-simple-payload:app:server rid [[500 cors-headers] `(as-octs:mimes:html '"action failed"')])
+      =/  http-cards  (give-simple-payload:app:server rid [[200 cors-headers] `(as-octs:mimes:html '"ok"')])
+      [(weld -.p.res http-cards) +.p.res]
+    ::  read-only endpoints
+    ::
+    =;  =simple-payload:http
+      :_  this
+      (give-simple-payload:app:server rid simple-payload)
     ?+  api-path  [[404 ~] `(as-octs:mimes:html '"not found"')]
     ::
         [%config ~]
@@ -320,58 +387,6 @@
         [%prompt ~]
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html s+(build-prompt bowl context)))]
     ::
-        [%action ~]
-      ::  POST endpoint: parse json body into claw action
-      ?.  ?=(%'POST' method.request.req)
-        [[405 ~] `(as-octs:mimes:html '"method not allowed"')]
-      ?~  body.request.req  [[400 ~] `(as-octs:mimes:html '"no body"')]
-      =/  jon=(unit json)  (de:json:html q.u.body.request.req)
-      ?~  jon  [[400 ~] `(as-octs:mimes:html '"invalid json"')]
-      =/  act=(unit action:claw)
-        %-  mole  |.
-        =,  dejs:format
-        =/  typ=@t  ((ot ~[action+so]) u.jon)
-        ?+  typ  !!
-            %'set-key'
-          ^-  action:claw
-          [%set-key `@t`((ot ~[key+so]) u.jon)]
-            %'set-model'
-          ^-  action:claw
-          [%set-model `@t`((ot ~[model+so]) u.jon)]
-            %'set-brave-key'
-          ^-  action:claw
-          [%set-brave-key `@t`((ot ~[key+so]) u.jon)]
-            %'set-context'
-          ^-  action:claw
-          =/  [f=@tas c=@t]  ((ot ~[field+(se %tas) content+so]) u.jon)
-          [%set-context f c]
-            %'del-context'
-          ^-  action:claw
-          [%del-context `@tas`((ot ~[field+(se %tas)]) u.jon)]
-            %'add-ship'
-          ^-  action:claw
-          =/  [s=@p r=@t]  ((ot ~[ship+(se %p) role+so]) u.jon)
-          [%add-ship s ?:(=('owner' r) %owner %allowed)]
-            %'del-ship'
-          ^-  action:claw
-          [%del-ship `@p`((ot ~[ship+(se %p)]) u.jon)]
-            %'clear'
-          ^-  action:claw
-          [%clear ~]
-            %'prompt'
-          ^-  action:claw
-          [%prompt `@t`((ot ~[content+so]) u.jon)]
-        ==
-      ?~  act
-        [[400 cors-headers] `(as-octs:mimes:html '"bad action"')]
-      ::  recurse into on-poke with the parsed action
-      =/  res=(each (quip card _this) tang)
-        %-  mule  |.
-        (on-poke %claw-action !>(u.act))
-      ?:  ?=(%| -.res)
-        [[500 cors-headers] `(as-octs:mimes:html '"action failed"')]
-      =.  this  +.p.res
-      [[200 cors-headers] `(as-octs:mimes:html '"ok"')]
     ==
   ::
       %claw-action
@@ -540,9 +555,10 @@
       =.  dm-history  (~(put by dm-history) from hist)
       =.  dm-pending  (~(put in dm-pending) from)
       ?:  =('' api-key)
-        %-  (slog leaf+"claw: no api key, cannot respond" ~)
         =.  dm-pending  (~(del in dm-pending) from)
-        `this
+        :_  this
+        :~  (send-dm-card bowl from 'Sorry, I don\'t have an API key configured yet. My owner needs to set one up.')
+        ==
       =/  sys-prompt=@t  (build-prompt bowl context)
       :_  this
       :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
@@ -675,7 +691,7 @@
     :_  this
     ?:  ?=(%direct source)
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error err])]  ==
-    ~
+    :~  (send-dm-card bowl ship.source 'Sorry, I hit an error talking to the LLM provider.')  ==
   ?~  full-file.resp
     =?  pending  ?=(%direct source)  %.n
     =?  dm-pending  ?=([%dm *] source)  (~(del in dm-pending) ship.source)
@@ -687,7 +703,9 @@
     =.  last-error  body
     =?  pending  ?=(%direct source)  %.n
     =?  dm-pending  ?=([%dm *] source)  (~(del in dm-pending) ship.source)
-    `this
+    :_  this
+    ?:  ?=(%direct source)  ~
+    :~  (send-dm-card bowl ship.source 'Sorry, I had trouble understanding the response from my LLM provider.')  ==
   ::
   ?-  -.u.parsed
   ::
@@ -704,18 +722,11 @@
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%response ['assistant' content]])]  ==
     ::  dm response - send back as dm
     =/  who  ship.source
-    =/  new-hist  (snoc hist ['assistant' content])
-    =.  dm-history  (~(put by dm-history) who new-hist)
+    =.  dm-history  (~(put by dm-history) who (snoc hist ['assistant' content]))
     =.  dm-pending  (~(del in dm-pending) who)
     %-  (slog leaf+"claw dm to {(scow %p who)}: {(trip content)}" ~)
-    =/  dm-story=story:d  ~[[%inline `(list inline:d)`~[content]]]
-    =/  dm-memo=memo:d  [content=dm-story author=our.bowl sent=now.bowl]
-    =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
-    =/  dm-delta=delta:writs:c  [%add dm-essay ~]
-    =/  dm-diff=diff:writs:c  [[our.bowl now.bowl] dm-delta]
-    =/  dm-act=action:dm:c  [who dm-diff]
     :_  this
-    :~  [%pass /dm-send/(scot %p who) %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]
+    :~  (send-dm-card bowl who content)
         [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
     ==
   ::
