@@ -817,8 +817,8 @@
       ?~  s3-result
         %-  (slog leaf+"claw: s3 signing failed" ~)
         (finish-tool tl tc-id 'error: S3 credentials not configured')
-      ::  fire S3 PUT - phase 2
-      =.  tool-loop  `tl
+      ::  fire S3 PUT - phase 2, store URL for later
+      =.  tool-loop  `tl(follow-msgs (snoc follow-msgs.tl s+url.u.s3-result))
       :_  this
       [card.u.s3-result]~
     ::
@@ -833,52 +833,15 @@
         =/  err-body=@t  ?~(full-file.resp '' (crip (scag 200 (trip q.data.u.full-file.resp))))
         %-  (slog leaf+"claw: s3 error: {(trip err-body)}" ~)
         (finish-tool tl tc-id 'error: S3 upload failed')
-      ::  compute the public URL from storage config
-      =/  key=@t  (rap 3 'claw/' (scot %da now.bowl) '.jpg' ~)
-      =/  result=@t
-        =/  conf-result=(each json tang)
-          (mule |.(.^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/json)))
-        ?:  ?=(%| -.conf-result)  key
-        =/  top=(unit (map @t json))  (me:tools p.conf-result)
-        ?~  top  key
-        =/  su=(unit json)  (~(get by u.top) 'storage-update')
-        ?~  su  key
-        =/  su-map=(unit (map @t json))  (me:tools u.su)
-        ?~  su-map  key
-        =/  cr=(unit json)  (~(get by u.su-map) 'configuration')
-        ?~  cr  key
-        =/  m=(unit (map @t json))  (me:tools u.cr)
-        ?~  m  key
-        =/  jget  |=([field=@t map=(map @t json)] (fall (bind (~(get by map) field) |=(j=json ?:(?=([%s *] j) p.j ''))) ''))
-        =/  pub-base=@t  (jget 'publicUrlBase' u.m)
-        ?:  !=('' pub-base)
-          (rap 3 pub-base '/' key ~)
-        =/  bucket=@t  (jget 'currentBucket' u.m)
-        =/  region=@t  (jget 'region' u.m)
-        ::  get endpoint from credentials scry
-        =/  cred-result=(each json tang)
-          (mule |.(.^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/credentials/json)))
-        =/  endpoint=@t
-          ?:  ?=(%| -.cred-result)  ''
-          =/  ct=(unit (map @t json))  (me:tools p.cred-result)
-          ?~  ct  ''
-          =/  csu=(unit json)  (~(get by u.ct) 'storage-update')
-          ?~  csu  ''
-          =/  csm=(unit (map @t json))  (me:tools u.csu)
-          ?~  csm  ''
-          =/  ccr=(unit json)  (~(get by u.csm) 'credentials')
-          ?~  ccr  ''
-          =/  ccm=(unit (map @t json))  (me:tools u.ccr)
-          ?~  ccm  ''
-          (jget 'endpoint' u.ccm)
-        =/  ep=tape  (trip endpoint)
-        =/  raw-ep=@t
-          ?:  =("https://" (scag 8 ep))  (crip (slag 8 ep))
-          ?:  =("http://" (scag 7 ep))  (crip (slag 7 ep))
-          endpoint
-        (rap 3 'https://' raw-ep '/' bucket '/' key ~)
-      %-  (slog leaf+"claw: s3 uploaded: {(trip result)}" ~)
-      (finish-tool tl tc-id result)
+      ::  get stored URL from follow-msgs (last entry is s+url from phase 1)
+      =/  stored-url=@t
+        =/  last  (rear follow-msgs.tl)
+        ?:  ?=([%s *] last)  p.last
+        'upload complete'
+      ::  remove stored URL marker from follow-msgs
+      =.  follow-msgs.tl  (snip follow-msgs.tl)
+      %-  (slog leaf+"claw: s3 uploaded: {(trip stored-url)}" ~)
+      (finish-tool tl tc-id stored-url)
     ::
     %-  (slog leaf+"claw: tool-http status={<status-code.response-header.resp>}" ~)
     =/  raw-body=@t

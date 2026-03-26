@@ -261,7 +261,8 @@
     ?:  (test content-type 'image/gif')  'gif'
     ?:  (test content-type 'image/webp')  'webp'
     'jpg'
-  =/  key=@t  (rap 3 'claw/' (scot %da now.bowl) '.' ext ~)
+  ::  generate clean key with no ~ chars
+  =/  key=@t  (rap 3 (scot %uv (sham now.bowl)) '.' ext ~)
   ::  compute date strings
   =/  d=date  (yore now.bowl)
   =/  pad
@@ -297,13 +298,12 @@
   ::  presigned URL: auth in query string, matches aws cli output exactly
   =/  scope=@t  (rap 3 date-str '/' region '/s3/aws4_request' ~)
   =/  credential=@t  (rap 3 access-key '/' scope ~)
-  =/  signed-headers=@t  'host;x-amz-acl'
-  ::  encode credential for query string (/ -> %2F)
+  ::  sign only host (simple presigned URL), send ACL as unsigned header
+  =/  signed-headers=@t  'host'
   =/  enc-cred=@t
     %-  crip  %-  zing
     %+  turn  (trip credential)
     |=(c=@t ^-(tape ?:(=('/' c) "%2F" [c ~])))
-  ::  canonical query string (alphabetically sorted, no signature)
   =/  canonical-qs=@t
     %-  crip
     %+  join-s3  "&"
@@ -311,11 +311,10 @@
         "X-Amz-Credential={(trip enc-cred)}"
         "X-Amz-Date={(trip amz-date)}"
         "X-Amz-Expires=3600"
-        "X-Amz-SignedHeaders=host%3Bx-amz-acl"
+        "X-Amz-SignedHeaders=host"
     ==
-  ::  canonical request - include x-amz-acl in signed headers
   =/  canon-headers=@t
-    (crip "host:{(trip host)}\0ax-amz-acl:public-read\0a")
+    (crip "host:{(trip host)}\0a")
   =/  canonical-request=@t
     %-  crip
     %+  join-s3  "\0a"
@@ -342,9 +341,11 @@
   =/  presigned=@t
     (rap 3 s3-url '?' canonical-qs '&X-Amz-Signature=' signature ~)
   %-  (slog leaf+"claw: s3 uploading to {(trip public-url)}" ~)
-  ::  PUT with x-amz-acl header (must match signed headers)
+  %-  (slog leaf+"claw: s3 presigned={<presigned>}" ~)
+  ::  PUT with headers matching signed headers
   =/  put-hed=(list [key=@t value=@t])
-    :~  ['x-amz-acl' 'public-read']
+    :~  ['Content-Type' content-type]
+        ['x-amz-acl' 'public-read']
     ==
   :-  ~
   :_  public-url
