@@ -296,7 +296,9 @@
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
   ?-  -.old
-      %3  `this(state old)
+      %3
+    ::  reset tool-loop and pending-src on load (they're transient)
+    `this(state [%3 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
       %2
     `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
       %1
