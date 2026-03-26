@@ -71,8 +71,24 @@
       dm-history=(map ship (list msg))
       dm-pending=(set ship)
   ==
+::  state-3: original shape (do not modify)
 +$  state-3
   $:  %3
+      api-key=@t
+      brave-key=@t
+      model=@t
+      history=(list msg)
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-history=(map ship (list msg))
+      dm-pending=(set ship)
+      tool-loop-3=*
+  ==
+::
++$  state-4
+  $:  %4
       api-key=@t
       brave-key=@t
       model=@t
@@ -87,26 +103,11 @@
       pending-src=(map ship msg-source)
   ==
 ::
-+$  state-3-old
-  $:  %3
-      api-key=@t
-      brave-key=@t
-      model=@t
-      history=(list msg)
-      pending=?
-      last-error=@t
-      context=(map @tas @t)
-      whitelist=(map ship ship-role)
-      dm-history=(map ship (list msg))
-      dm-pending=(set ship)
-      tool-loop=*
-  ==
-::
 +$  versioned-state
   $%  state-0
       state-1
       state-2
-      state-3-old
       state-3
+      state-4
   ==
 --

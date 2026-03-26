@@ -11,7 +11,7 @@
 /+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t)]
@@ -221,7 +221,7 @@
 --
 ::
 %-  agent:dbug
-=|  state-3:claw
+=|  state-4:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -296,18 +296,19 @@
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
   ?-  -.old
+      %4  `this(state old)
       %3
-    ::  reset tool-loop and pending-src on load (they're transient)
-    `this(state [%3 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
+    ::  migrate from state-3 to state-4
+    `this(state [%4 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
       %2
-    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
+    `this(state [%4 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
       %1
-    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~ ~])
+    `this(state [%4 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~ ~])
       %0
     =/  ctx=(map @tas @t)  *(map @tas @t)
     =?  ctx  !=('' system-prompt.old)
       (~(put by ctx) %agent system-prompt.old)
-    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~ ~])
+    `this(state [%4 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~ ~])
   ==
 ::
 ++  on-poke
