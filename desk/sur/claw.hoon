@@ -103,11 +103,49 @@
       pending-src=(map ship msg-source)
   ==
 ::
+::  context summary: compressed representation of old messages
+::
++$  summary
+  $:  id=@ud
+      depth=@ud
+      token-est=@ud
+      created=@da
+      msg-range=[from=@ud to=@ud]
+      content=@t
+  ==
+::
++$  compact-state
+  $%  [%idle ~]
+      [%running target=(unit ship)]
+  ==
+::
++$  state-5
+  $:  %5
+      api-key=@t
+      brave-key=@t
+      model=@t
+      history=(list msg)
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-history=(map ship (list msg))
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      ::  compaction
+      summaries=(map @ud summary)
+      dm-summaries=(map ship (map @ud summary))
+      next-sum-id=@ud
+      compact=compact-state
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
       state-2
       state-3
       state-4
+      state-5
   ==
 --

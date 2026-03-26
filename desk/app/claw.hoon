@@ -11,7 +11,7 @@
 /+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t)]
@@ -97,17 +97,89 @@
   ?:  =('' rest)  this
   (rap 3 this rest ~)
 ::
+::  +estimate-tokens: rough token count for a message list
+::
+++  estimate-tokens
+  |=  msgs=(list msg:claw)
+  ^-  @ud
+  %+  roll  msgs
+  |=  [m=msg:claw acc=@ud]
+  (add acc (div (add (met 3 content.m) 3) 4))
+::
+::  +model-budget: conservative token budget for a model
+::
+++  model-budget
+  |=  mod=@t
+  ^-  @ud
+  =/  m=tape  (cass (trip mod))
+  ?:  !=(~ (find "claude" m))  150.000
+  ?:  !=(~ (find "gpt-4" m))   100.000
+  ?:  !=(~ (find "gemini" m))  800.000
+  50.000
+::
+::  +assemble-context: build message list from summaries + fresh tail
+::
+++  assemble-context
+  |=  [msgs=(list msg:claw) sums=(map @ud summary:claw) budget=@ud]
+  ^-  (list msg:claw)
+  ::  always include fresh tail (last 10 messages)
+  =/  len  (lent msgs)
+  =/  fresh-n=@ud  (min len 10)
+  =/  fresh=(list msg:claw)  (slag (sub len fresh-n) msgs)
+  =/  fresh-tok=@ud  (estimate-tokens fresh)
+  =/  remaining=@ud  ?:((gth fresh-tok budget) 0 (sub budget fresh-tok))
+  ::  add summaries (highest depth first = most condensed)
+  =/  sorted=(list summary:claw)
+    %+  sort  ~(val by sums)
+    |=  [a=summary:claw b=summary:claw]
+    (gth depth.a depth.b)
+  =/  sum-msgs=(list msg:claw)  ~
+  |-
+  ?~  sorted  (weld sum-msgs fresh)
+  ?:  (gth token-est.i.sorted remaining)
+    (weld sum-msgs fresh)
+  %=  $
+    sorted     t.sorted
+    remaining  (sub remaining token-est.i.sorted)
+    sum-msgs   (snoc sum-msgs ['system' (rap 3 '[Summary of messages ' (scot %ud from.msg-range.i.sorted) '-' (scot %ud to.msg-range.i.sorted) ']\0a' content.i.sorted ~)])
+  ==
+::
+::  +make-compact-request: summarize old messages via LLM
+::
+++  make-compact-request
+  |=  [=bowl:gall api-key=@t model=@t msgs=(list msg:claw) =wire]
+  ^-  card
+  =/  sys=@t  'You are a conversation summarizer. Compress the following messages into a concise summary of about 300 words. Preserve: key facts, decisions, user preferences, names/ships mentioned, topics, and action items. Output ONLY the summary text.'
+  =/  msg-text=@t
+    %-  crip
+    %-  zing
+    %+  turn  msgs
+    |=  m=msg:claw
+    "{(trip role.m)}: {(trip content.m)}\0a"
+  =/  api-msgs=json
+    :-  %a
+    :~  (pairs:enjs:format ~[['role' s+'system'] ['content' s+sys]])
+        (pairs:enjs:format ~[['role' s+'user'] ['content' s+msg-text]])
+    ==
+  =/  body=json
+    (pairs:enjs:format ~[['model' s+model] ['messages' api-msgs]])
+  =/  body-cord=@t  (en:json:html body)
+  =/  hed=(list [key=@t value=@t])
+    :~  ['Content-Type' 'application/json']
+        ['Authorization' (crip "Bearer {(trip api-key)}")]
+    ==
+  [%pass wire %arvo %i %request [%'POST' 'https://openrouter.ai/api/v1/chat/completions' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]
+::
 ++  make-llm-request
   |=  $:  =bowl:gall  api-key=@t  model=@t  sys-prompt=@t
           msgs=(list msg:claw)  =wire
-          extra-msgs=(list json)  ::  tool-call follow-up messages
+          extra-msgs=(list json)
+          sums=(map @ud summary:claw)
       ==
   ^-  card
-  ::  cap conversation history to last 30 messages
-  =/  trimmed=(list msg:claw)
-    =/  len  (lent msgs)
-    ?:  (lte len 30)  msgs
-    (slag (sub len 30) msgs)
+  ::  assemble context from summaries + fresh tail within token budget
+  =/  budget=@ud  (model-budget model)
+  =/  trimmed=(list msg:claw)  (assemble-context msgs sums budget)
   =/  api-msgs=json
     :-  %a
     %+  weld
@@ -226,7 +298,7 @@
 --
 ::
 %-  agent:dbug
-=|  state-4:claw
+=|  state-5:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -300,20 +372,22 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  =/  new=state-4:claw
+  =/  new=state-5:claw
     ?-  -.old
-        %4  old
+        %5  old
+        %4
+      [%5 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~ ~ ~ 0 [%idle ~]]
         %3
-      [%4 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~]
+      [%5 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~ ~ ~ 0 [%idle ~]]
         %2
-      [%4 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~]
+      [%5 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~ ~ ~ 0 [%idle ~]]
         %1
-      [%4 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~ ~]
+      [%5 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ 0 [%idle ~]]
         %0
       =/  ctx=(map @tas @t)  *(map @tas @t)
       =?  ctx  !=('' system-prompt.old)
         (~(put by ctx) %agent system-prompt.old)
-      [%4 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~ ~]
+      [%5 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ 0 [%idle ~]]
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -527,7 +601,7 @@
     =/  sys-prompt=@t  (build-prompt bowl context)
     %-  (slog leaf+"claw: sending prompt..." ~)
     :_  this
-    :~  (make-llm-request bowl api-key model sys-prompt history /query ~)
+    :~  (make-llm-request bowl api-key model sys-prompt history /query ~ summaries)
     ==
   ==
   ==
@@ -640,7 +714,7 @@
       =/  sys-prompt=@t
         (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM conversation with ' (scot %p from) '. Their ship name is ' (scot %p from) '. When they ask you to send them something, use ship=' (scot %p from) ' in the send_dm tool.' ~)
       :_  this
-      :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
+      :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~ (fall (~(get by dm-summaries) from) ~))
       ==
     ==
   ::
@@ -738,7 +812,7 @@
               msg-id
           ==
         :_  this
-        :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
+        :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~ (fall (~(get by dm-summaries) from) ~))
         ==
       ::
           %dm-post
@@ -770,7 +844,7 @@
               '\0aYour text response is automatically sent as a DM reply.'
           ==
         :_  this
-        :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
+        :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~ (fall (~(get by dm-summaries) from) ~))
         ==
       ==
       ?~  result
@@ -807,6 +881,52 @@
   ?+  wire  (on-arvo:def wire sign)
   ::
       [%eyre %connect ~]
+    `this
+  ::
+  ::  compaction response
+  ::
+      [%compact @ ~]
+    ?.  ?=([%iris %http-response *] sign)
+      =.  compact  [%idle ~]
+      `this
+    =/  resp=client-response:iris  client-response.sign
+    ?.  ?=(%finished -.resp)
+      =.  compact  [%idle ~]
+      `this
+    =/  who=ship  (slav %p i.t.wire)
+    ?.  =(200 status-code.response-header.resp)
+      %-  (slog leaf+"claw: compaction failed, will retry" ~)
+      =.  compact  [%idle ~]
+      `this
+    ?~  full-file.resp
+      =.  compact  [%idle ~]
+      `this
+    =/  parsed  (parse-llm-response q.data.u.full-file.resp)
+    ?~  parsed
+      =.  compact  [%idle ~]
+      `this
+    ?.  ?=(%text -.u.parsed)
+      =.  compact  [%idle ~]
+      `this
+    =/  summary-text=@t  content.u.parsed
+    =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
+    =/  hist-len=@ud  (lent hist)
+    ::  create summary covering the oldest 10 messages
+    =/  compacted-n=@ud  (min 10 (sub hist-len 10))
+    =/  =summary:claw
+      :*  next-sum-id  0  (div (met 3 summary-text) 4)
+          now.bowl  [0 compacted-n]  summary-text
+      ==
+    ::  remove compacted messages from history (keep fresh tail)
+    =/  new-hist=(list msg:claw)  (slag compacted-n hist)
+    =.  dm-history  (~(put by dm-history) who new-hist)
+    ::  store summary
+    =/  ship-sums=(map @ud summary:claw)  (fall (~(get by dm-summaries) who) ~)
+    =.  ship-sums  (~(put by ship-sums) next-sum-id summary)
+    =.  dm-summaries  (~(put by dm-summaries) who ship-sums)
+    =.  next-sum-id  +(next-sum-id)
+    =.  compact  [%idle ~]
+    %-  (slog leaf+"claw: compacted {(a-co:co compacted-n)} messages for {(scow %p who)}" ~)
     `this
   ::
   ::  Khan thread response (MCP tool execution)
@@ -953,7 +1073,7 @@
       ?:  =(-.msg-source.tl %direct)  /query-tools
       /dm-query-tools/(scot %p (src-ship msg-source.tl))
     :_  this(tool-loop ~)
-    :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs)
+    :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs ~)
     ==
   ==
 ::
@@ -985,7 +1105,7 @@
     ?:  =(-.msg-source.tl %direct)  /query-tools
     /dm-query-tools/(scot %p (src-ship msg-source.tl))
   :_  this(tool-loop ~)
-  :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs)
+  :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs ~)
   ==
 ::
 ++  tool-result-json
@@ -1061,9 +1181,25 @@
     =?  dm-pending  (~(has in dm-pending) who)  (~(del in dm-pending) who)
     =.  pending-src  (~(del by pending-src) who)
     %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
+    ::  check if compaction needed (>20 msgs and idle)
+    =/  ship-hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
+    =/  do-compact=?
+      &(?=([%idle ~] compact) (gth (lent ship-hist) 20) !=('' api-key))
+    =/  to-compact=(list msg:claw)
+      ?.  do-compact  ~
+      =/  tc  (scag (sub (lent ship-hist) 10) ship-hist)
+      ?:((lth (lent tc) 5) ~ (scag 10 tc))
+    =?  compact  &(do-compact !=(~ to-compact))
+      [%running `who]
+    =?  .  &(do-compact !=(~ to-compact))
+      %-  (slog leaf+"claw: triggering compaction" ~)  .
     :_  this
-    :~  (send-reply-card bowl source content)
-        [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
+    %+  weld
+      :~  (send-reply-card bowl source content)
+          [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
+      ==
+    ?.  &(do-compact !=(~ to-compact))  ~
+    :~  (make-compact-request bowl api-key model to-compact /compact/(scot %p who))
     ==
   ::
   ::  tool call response - execute tools and loop back
@@ -1116,7 +1252,7 @@
         /dm-query-tools/(scot %p (src-ship source))
       :_  this
       %+  weld  (flop tool-cards)
-      :~  (make-llm-request bowl api-key model sys-prompt hist follow-wire follow-msgs)
+      :~  (make-llm-request bowl api-key model sys-prompt hist follow-wire follow-msgs ~)
       ==
     ::  execute this tool
     =/  tc  i.remaining

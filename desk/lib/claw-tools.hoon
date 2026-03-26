@@ -52,8 +52,11 @@
       ::  history
       (tool-fn 'read_channel_history' 'Read recent messages from a channel. Returns message IDs, authors, and content.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['count' (opt-str 'Number of messages (default 10)')]]))
       ::  MCP tools (call %mcp-server agent via Khan threads)
-      (tool-fn 'local_mcp' 'Execute a local MCP server tool. ALWAYS call local_mcp_list first to get exact names. Key tools: list-files, get-file, insert-file, build-file, scry (for agent scries), poke-our-agent, prod-hoon, commit-desk, mount-desk, install-app, nuke-agent, revive-agent.' (obj ~[['name' (req-str 'Exact MCP tool name from local_mcp_list')] ['arguments' (req-str 'JSON object of arguments as a string')]]))
-      (tool-fn 'local_mcp_list' 'List all available local MCP server tools with descriptions and parameters.' (obj ~))
+      (tool-fn 'local_mcp' 'Execute a local MCP server tool. ALWAYS call local_mcp_list first to get exact names. Requires the %mcp desk to be installed - use install_local_mcp if not present. Key tools: list-files, get-file, insert-file, build-file, scry (for agent scries), poke-our-agent, prod-hoon, commit-desk, mount-desk, install-app, nuke-agent, revive-agent.' (obj ~[['name' (req-str 'Exact MCP tool name from local_mcp_list')] ['arguments' (req-str 'JSON object of arguments as a string')]]))
+      (tool-fn 'local_mcp_list' 'List all available local MCP server tools. Requires %mcp desk - use install_local_mcp if not present.' (obj ~))
+      (tool-fn 'install_local_mcp' 'Install the %mcp desk from ~matwet. This enables local_mcp and local_mcp_list tools for file management, agent control, code execution, and more.' (obj ~))
+      ::  history search
+      (tool-fn 'search_history' 'Search past conversation history including compacted summaries. Use when you need to recall something from earlier in the conversation.' (obj ~[['query' (req-str 'Search terms or topic')]]))
   ==
 ::
 ::  +execute-tool: run a tool, returns sync result or async card
@@ -320,6 +323,11 @@
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not read channel history']
     [%sync ~ p.result]
   ::
+  ::
+  ::  install_local_mcp: install %mcp desk from ~matwet
+  ::
+  ?:  =('install_local_mcp' name)
+    [%sync :~([%pass /tool/install-mcp %agent [our.bowl %hood] %poke %kiln-install !>([%mcp ~matwet %mcp])]) 'Installing %mcp desk from ~matwet. This may take a minute. Once installed, local_mcp and local_mcp_list tools will be available.']
   ::
   ::  mcp_list_tools: scry %mcp-server for available tools
   ::
