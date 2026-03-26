@@ -103,10 +103,15 @@
           extra-msgs=(list json)  ::  tool-call follow-up messages
       ==
   ^-  card
+  ::  cap conversation history to last 30 messages
+  =/  trimmed=(list msg:claw)
+    =/  len  (lent msgs)
+    ?:  (lte len 30)  msgs
+    (slag (sub len 30) msgs)
   =/  api-msgs=json
     :-  %a
     %+  weld
-      %+  turn  [['system' sys-prompt] msgs]
+      %+  turn  [['system' sys-prompt] trimmed]
       |=  =msg:claw
       %-  pairs:enjs:format
       :~  ['role' s+role.msg]
