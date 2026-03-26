@@ -80,7 +80,7 @@ The agent implements the OpenAI tool-calling protocol. When the LLM needs to tak
 
 ### From ~matwet (recommended)
 ```
-|install our %claw
+|install ~matwet %claw
 ```
 
 ### From source
