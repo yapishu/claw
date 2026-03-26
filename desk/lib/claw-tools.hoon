@@ -106,15 +106,15 @@
     =/  img=(unit @t)  ((ot ~[['image_url' so]]) u.args)
     ?~  ch  [%sync ~ 'error: channel required']
     ?~  m  [%sync ~ 'error: message required']
-    ::  parse nest string "chat/~host/name"
-    =/  parts=tape  (trip u.ch)
+    ::  parse nest string "chat/~host/name" by splitting on /
     =/  parsed=(unit [kind=@tas host=@p name=@tas])
       %-  mole  |.
-      =/  segs=(list @t)
-        %+  rash  u.ch
-        (more fas ;~(pose sym (sear (soft @t) (star ;~(less fas next)))))
-      ?.  ?=([@ @ @ ~] segs)  !!
-      [;;(@tas i.segs) (slav %p i.t.segs) ;;(@tas i.t.t.segs)]
+      =/  parts=tape  (trip u.ch)
+      =/  seg1  (scag (need (find "/" parts)) parts)
+      =/  rest1  (slag +((need (find "/" parts))) parts)
+      =/  seg2  (scag (need (find "/" rest1)) rest1)
+      =/  seg3  (slag +((need (find "/" rest1))) rest1)
+      [(crip seg1) (slav %p (crip seg2)) (crip seg3)]
     ?~  parsed  [%sync ~ 'error: bad channel format, use chat/~host/name']
     =/  knd=kind:channels
       ?+  kind.u.parsed  %chat
@@ -297,7 +297,7 @@
   ::  presigned URL: auth in query string, matches aws cli output exactly
   =/  scope=@t  (rap 3 date-str '/' region '/s3/aws4_request' ~)
   =/  credential=@t  (rap 3 access-key '/' scope ~)
-  =/  signed-headers=@t  'host'
+  =/  signed-headers=@t  'host;x-amz-acl'
   ::  encode credential for query string (/ -> %2F)
   =/  enc-cred=@t
     %-  crip  %-  zing
@@ -311,11 +311,11 @@
         "X-Amz-Credential={(trip enc-cred)}"
         "X-Amz-Date={(trip amz-date)}"
         "X-Amz-Expires=3600"
-        "X-Amz-SignedHeaders=host"
+        "X-Amz-SignedHeaders=host%3Bx-amz-acl"
     ==
-  ::  canonical request
+  ::  canonical request - include x-amz-acl in signed headers
   =/  canon-headers=@t
-    (crip "host:{(trip host)}\0a")
+    (crip "host:{(trip host)}\0ax-amz-acl:public-read\0a")
   =/  canonical-request=@t
     %-  crip
     %+  join-s3  "\0a"
@@ -323,7 +323,7 @@
         (trip (s3-uri-encode s3-path))
         (trip canonical-qs)
         (trip canon-headers)
-        "host"
+        (trip signed-headers)
         "UNSIGNED-PAYLOAD"
     ==
   =/  canon-hash=@t
@@ -342,19 +342,41 @@
   =/  presigned=@t
     (rap 3 s3-url '?' canonical-qs '&X-Amz-Signature=' signature ~)
   %-  (slog leaf+"claw: s3 uploading to {(trip public-url)}" ~)
-  ::  PUT with no custom headers (auth is entirely in URL)
-  ::  bucket is already public so no ACL needed
+  ::  PUT with x-amz-acl header (must match signed headers)
+  =/  put-hed=(list [key=@t value=@t])
+    :~  ['x-amz-acl' 'public-read']
+    ==
   :-  ~
   :_  public-url
-  [%pass /tool-http/'upload_put' %arvo %i %request [%'PUT' presigned ~ `image-data] *outbound-config:iris]
+  [%pass /tool-http/'upload_put' %arvo %i %request [%'PUT' presigned put-hed `image-data] *outbound-config:iris]
 ::
 ::
 ::  s3 signing helpers (from s3-auth, inlined to avoid type issues)
 ::
+::  manual HMAC-SHA256 using shay (since hmac-sha256l produces wrong results)
+::  HMAC(K,m) = SHA256((K ^ opad) || SHA256((K ^ ipad) || m))
 ++  s3-hmac-sha256
   |=  [key=octs msg=octs]
   ^-  @
-  (hmac-sha256l:hmac:crypto key msg)
+  =/  block-size=@ud  64
+  ::  if key > block size, hash it first
+  =/  k=@
+    ?:  (gth p.key block-size)
+      (shay p.key q.key)
+    q.key
+  =/  k-len=@ud  ?:((gth p.key block-size) 32 p.key)
+  ::  pad key to block-size with zeros (already zero-padded in atom)
+  ::  compute ipad-key and opad-key
+  =/  ipad-key=@  (mix k (fil 3 block-size 0x36))
+  =/  opad-key=@  (mix k (fil 3 block-size 0x5c))
+  ::  inner hash: SHA256(ipad-key || msg)
+  =/  inner-data=@  (cat 3 ipad-key q.msg)
+  =/  inner-len=@ud  (add block-size p.msg)
+  =/  inner-hash=@  (shay inner-len inner-data)
+  ::  outer hash: SHA256(opad-key || inner-hash)
+  =/  outer-data=@  (cat 3 opad-key inner-hash)
+  =/  outer-len=@ud  (add block-size 32)
+  (shay outer-len outer-data)
 ++  s3-hmac-sha256-cord
   |=  [key=@t msg=@t]
   ^-  @
@@ -366,7 +388,7 @@
   =/  k-date=@  (s3-hmac-sha256-cord k-secret date)
   =/  k-region=@  (s3-hmac-sha256 [32 k-date] [(met 3 region) region])
   =/  k-service=@  (s3-hmac-sha256 [32 k-region] [(met 3 service) service])
-  (s3-hmac-sha256 [32 k-service] 14 'aws4_request')
+  (s3-hmac-sha256 [32 k-service] [(met 3 'aws4_request') 'aws4_request'])
 ++  s3-hex
   |=  dat=@
   ^-  @t
