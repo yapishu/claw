@@ -295,21 +295,33 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  ?-  -.old
-      %4  `this(state old)
-      %3
-    ::  migrate from state-3 to state-4
-    `this(state [%4 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
-      %2
-    `this(state [%4 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
-      %1
-    `this(state [%4 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~ ~])
-      %0
-    =/  ctx=(map @tas @t)  *(map @tas @t)
-    =?  ctx  !=('' system-prompt.old)
-      (~(put by ctx) %agent system-prompt.old)
-    `this(state [%4 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~ ~])
-  ==
+  =/  new=state-4:claw
+    ?-  -.old
+        %4  old
+        %3
+      [%4 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~]
+        %2
+      [%4 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~]
+        %1
+      [%4 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~ ~]
+        %0
+      =/  ctx=(map @tas @t)  *(map @tas @t)
+      =?  ctx  !=('' system-prompt.old)
+        (~(put by ctx) %agent system-prompt.old)
+      [%4 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~ ~]
+    ==
+  ::  re-establish subscriptions on every load
+  =/  sub-cards=(list card)
+    :~  [%pass /activity %agent [our.bowl %activity] %leave ~]
+        [%pass /activity %agent [our.bowl %activity] %watch /v4]
+    ==
+  ::  re-subscribe to DMs for all whitelisted ships
+  =/  dm-cards=(list card)
+    %+  turn  ~(tap by whitelist.new)
+    |=  [s=ship r=ship-role:claw]
+    [%pass /dm-watch/(scot %p s) %agent [our.bowl %chat] %watch /dm/(scot %p s)]
+  :_  this(state new)
+  (weld sub-cards dm-cards)
 ::
 ++  on-poke
   |=  [=mark =vase]

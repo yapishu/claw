@@ -50,6 +50,10 @@
       (tool-fn 'list_channels' 'List all channels across all groups.' (obj ~))
       ::  history
       (tool-fn 'read_channel_history' 'Read recent messages from a channel. Returns message IDs, authors, and content.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['count' (opt-str 'Number of messages (default 10)')]]))
+      ::  urbit native operations (direct pokes/scries, no MCP needed)
+      (tool-fn 'scry_agent' 'Scry (read) data from any Gall agent. Path must end in /json. Returns JSON.' (obj ~[['agent' (req-str 'Agent name e.g. chat, groups, storage')] ['path' (req-str 'Scry path e.g. /dm/json')]]))
+      (tool-fn 'list_files' 'List files on a Clay desk.' (obj ~[['desk' (req-str 'Desk name e.g. claw, base, groups')] ['path' (opt-str 'Path prefix, default /')]]))
+      (tool-fn 'get_file' 'Read a file from a Clay desk.' (obj ~[['desk' (req-str 'Desk name')] ['path' (req-str 'File path e.g. /app/claw/hoon')]]))
   ==
 ::
 ::  +execute-tool: run a tool, returns sync result or async card
@@ -314,6 +318,53 @@
         .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/posts/newest/(scot %ud n)/outline/channel-posts-4)
       (crip (scag 6.000 (trip (en:json:html history))))
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not read channel history']
+    [%sync ~ p.result]
+  ::
+  ::
+  ::  scry_agent: scry any Gall agent for JSON data
+  ::
+  ?:  =('scry_agent' name)
+    =,  dejs:format
+    =/  agent=@t  ((ot ~[agent+so]) u.args)
+    =/  pax=@t  ((ot ~[path+so]) u.args)
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  =json
+        .^(json %gx /(scot %p our.bowl)/[agent]/(scot %da now.bowl)/[pax])
+      (crip (scag 6.000 (trip (en:json:html json))))
+    ?:  ?=(%| -.result)  [%sync ~ (rap 3 'error: scry failed for ' agent ' at ' pax ~)]
+    [%sync ~ p.result]
+  ::
+  ::  list_files: list Clay files on a desk
+  ::
+  ?:  =('list_files' name)
+    =/  desk=@t  ((ot:dejs:format ~[desk+so:dejs:format]) u.args)
+    =/  pax=(unit @t)  ((ot:dejs-soft:format ~[path+so:dejs-soft:format]) u.args)
+    =/  p=@t  (fall pax '/')
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  files=(list path)
+        .^((list path) %ct /(scot %p our.bowl)/[desk]/(scot %da now.bowl)/[p])
+      %-  crip
+      %-  zing
+      %+  turn  files
+      |=(=path "{(spud path)}\0a")
+    ?:  ?=(%| -.result)  [%sync ~ (rap 3 'error: could not list files on ' desk ~)]
+    [%sync ~ p.result]
+  ::
+  ::  get_file: read a Clay file
+  ::
+  ?:  =('get_file' name)
+    =,  dejs:format
+    =/  desk=@t  ((ot ~[desk+so]) u.args)
+    =/  pax=@t  ((ot ~[path+so]) u.args)
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  =vase
+        .^(vase %cr /(scot %p our.bowl)/[desk]/(scot %da now.bowl)/[pax])
+      =/  content=@t  ;;(@t q.vase)
+      (crip (scag 8.000 (trip content)))
+    ?:  ?=(%| -.result)  [%sync ~ (rap 3 'error: could not read ' pax ' on ' desk ~)]
     [%sync ~ p.result]
   ::
   ?:  =('http_fetch' name)
