@@ -7,6 +7,7 @@
 /-  claw
 /-  c=chat
 /-  d=channels
+/-  a=activity
 /+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
@@ -146,6 +147,30 @@
   =/  dm-act=action:dm:c  [to dm-diff]
   [%pass /dm-send/(scot %p to) %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]
 ::
+::  +src-ship: extract ship from msg-source
+::
+++  src-ship
+  |=  =msg-source:claw
+  ^-  ship
+  ?-  -.msg-source
+    %dm       ship.msg-source
+    %channel  ship.msg-source
+    %direct   *ship
+  ==
+::
+::  +send-reply-card: send a response based on message source
+::
+++  send-reply-card
+  |=  [=bowl:gall =msg-source:claw text=@t]
+  ^-  card
+  ?-  -.msg-source
+      %direct  [%pass /noop %arvo %b %wait (add now.bowl ~s1)]
+      %dm      (send-dm-card bowl ship.msg-source text)
+      %channel
+    ::  respond via DM to sender (channel posting in future)
+    (send-dm-card bowl ship.msg-source text)
+  ==
+::
 ++  parse-llm-response
   |=  body=@t
   ^-  (unit ?([%text content=@t] [%tools content=@t calls=(list [id=@t name=@t arguments=@t])]))
@@ -254,6 +279,8 @@
     ==
   :_  this(model 'anthropic/claude-sonnet-4', pending %.n, context default-ctx)
   :~  [%pass /eyre/connect %arvo %e %connect [`/apps/claw/api dap.bowl]]
+      ::  subscribe to activity for mentions and group invites
+      [%pass /activity %agent [our.bowl %activity] %watch /v4]
   ==
 ::
 ++  on-save  !>(state)
@@ -451,6 +478,8 @@
     =.  whitelist  (~(put by whitelist) ship.act role.act)
     :_  this
     :~  [%pass /dm-rsvp/(scot %p ship.act) %agent [our.bowl %chat] %poke %chat-dm-rsvp !>([ship.act %.y])]
+        ::  leave first to avoid duplicate wire error
+        [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %leave ~]
         [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %watch /dm/(scot %p ship.act)]
     ==
   ::
@@ -606,6 +635,105 @@
       %-  (slog leaf+"claw: dm send failed to {(trip i.t.wire)}" ~)
       `this
     ==
+  ::
+  ::  activity stream: mentions, group invites
+  ::
+      [%activity ~]
+    ?+  -.sign  `this
+        %watch-ack
+      ?~  p.sign
+        %-  (slog leaf+"claw: subscribed to activity" ~)
+        `this
+      %-  (slog leaf+"claw: activity subscription failed" ~)
+      `this
+        %kick
+      :_  this
+      :~  [%pass /activity %agent [our.bowl %activity] %watch /v4]
+      ==
+        %fact
+      ::  use typed extraction via !< with activity types
+      =/  result=(unit (quip card _this))
+        %-  mole  |.
+        =/  upd=update:a  !<(update:a q.cage.sign)
+        ?.  ?=(%add -.upd)  `this
+        =/  incoming=incoming-event:a  -.event.upd
+        %-  (slog leaf+"claw: activity event {<-.incoming>}" ~)
+        ?+  -.incoming  `this
+      ::
+          %group-invite
+        =/  from=ship  ship.incoming
+        ?.  (~(has by whitelist) from)
+          %-  (slog leaf+"claw: ignoring group invite from {(scow %p from)}" ~)
+          `this
+        %-  (slog leaf+"claw: accepting group invite from {(scow %p from)}" ~)
+        :_  this
+        :~  [%pass /group-join %agent [our.bowl %groups] %poke %group-join !>([group.incoming %.y])]
+        ==
+      ::
+          %post
+        ?.  mention.incoming  `this
+        =/  from=ship  p.id.key.incoming
+        ?:  =(from our.bowl)  `this
+        ?.  (~(has by whitelist) from)  `this
+        =/  text=@t  (story-to-text content.incoming)
+        ?:  =('' text)  `this
+        %-  (slog leaf+"claw: channel mention from {(scow %p from)}: {(trip text)}" ~)
+        =/  hist=(list msg:claw)  (fall (~(get by dm-history) from) ~)
+        =.  hist  (snoc hist ['user' text])
+        =.  dm-history  (~(put by dm-history) from hist)
+        =.  dm-pending  (~(put in dm-pending) from)
+        ?:  =('' api-key)
+          =.  dm-pending  (~(del in dm-pending) from)
+          :_  this
+          :~  (send-dm-card bowl from 'Sorry, no API key configured.')
+          ==
+        =/  base-prompt=@t  (build-prompt bowl context)
+        =/  sys-prompt=@t
+          (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0a' (scot %p from) ' mentioned you in a group channel. Respond to their message.' ~)
+        :_  this
+        :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
+        ==
+      ::
+          %dm-post
+        =/  from=ship  p.id.key.incoming
+        ?:  =(from our.bowl)  `this
+        ?.  (~(has by whitelist) from)  `this
+        =/  text=@t  (story-to-text content.incoming)
+        ?:  =('' text)  `this
+        ?:  (~(has in dm-pending) from)  `this
+        %-  (slog leaf+"claw: dm-post from {(scow %p from)}: {(trip text)}" ~)
+        =/  hist=(list msg:claw)  (fall (~(get by dm-history) from) ~)
+        =.  hist  (snoc hist ['user' text])
+        =.  dm-history  (~(put by dm-history) from hist)
+        =.  dm-pending  (~(put in dm-pending) from)
+        ?:  =('' api-key)
+          =.  dm-pending  (~(del in dm-pending) from)
+          :_  this
+          :~  (send-dm-card bowl from 'Sorry, no API key configured.')
+          ==
+        =/  base-prompt=@t  (build-prompt bowl context)
+        =/  sys-prompt=@t
+          (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM with ' (scot %p from) '. Respond.' ~)
+        :_  this
+        :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
+        ==
+      ==
+      ?~  result
+        %-  (slog leaf+"claw: activity parse failed (mole caught)" ~)
+        `this
+      u.result
+    ==
+  ::
+      [%ch-send ~]  `this
+      [%group-join ~]
+    ?+  -.sign  `this
+        %poke-ack
+      ?~  p.sign
+        %-  (slog leaf+"claw: joined group" ~)
+        `this
+      %-  (slog leaf+"claw: group join failed" ~)
+      `this
+    ==
   ==
 ::
 ++  on-arvo
@@ -618,10 +746,10 @@
     `this
   ::
       [%query ~]
-    (handle-llm-response sign %direct ~ history)
+    (handle-llm-response sign [%direct ~] ~ history)
   ::
       [%query-tools ~]
-    (handle-llm-response sign %direct ~ history)
+    (handle-llm-response sign [%direct ~] ~ history)
   ::
       [%dm-query @ ~]
     =/  who=ship  (slav %p i.t.wire)
@@ -646,6 +774,67 @@
       `this
     =/  tl=tool-pending:claw  u.tool-loop
     =/  tool-name=@t  i.t.wire
+    ::  +finish-tool: complete a tool with result and continue loop
+    ::  this ensures errors never leave the bot stuck
+    ::
+    ::  handle upload_image phase 1: image fetched, now PUT to S3
+    ?:  =('upload_image' tool-name)
+      =/  tc-id=@t
+        =/  found  (skim pending.tl |=([id=@t n=@t a=@t] =(n 'upload_image')))
+        ?~(found 'unknown' id.i.found)
+      ?.  =(200 status-code.response-header.resp)
+        %-  (slog leaf+"claw: image fetch failed {<status-code.response-header.resp>}" ~)
+        (finish-tool tl tc-id 'error: could not fetch image from that URL')
+      ?~  full-file.resp
+        (finish-tool tl tc-id 'error: empty image response')
+      ::  extract content-type
+      =/  ct=@t
+        =/  ct-hdr  (skim headers.response-header.resp |=([k=@t v=@t] =(k 'content-type')))
+        ?~(ct-hdr 'image/jpeg' value.i.ct-hdr)
+      ::  sign and fire S3 PUT
+      =/  s3-result  (make-s3-put:tools bowl data.u.full-file.resp ct)
+      ?~  s3-result
+        %-  (slog leaf+"claw: s3 signing failed" ~)
+        (finish-tool tl tc-id 'error: S3 credentials not configured')
+      ::  fire S3 PUT - phase 2
+      =.  tool-loop  `tl
+      :_  this
+      [card.u.s3-result]~
+    ::
+    ::  handle upload_put phase 2: S3 PUT completed
+    ?:  =('upload_put' tool-name)
+      =/  tc-id=@t
+        =/  found  (skim pending.tl |=([id=@t n=@t a=@t] =(n 'upload_image')))
+        ?~(found 'unknown' id.i.found)
+      =/  s3-ok=?  (lth status-code.response-header.resp 300)
+      %-  (slog leaf+"claw: s3 put status={<status-code.response-header.resp>}" ~)
+      ?.  s3-ok
+        =/  err-body=@t  ?~(full-file.resp '' (crip (scag 200 (trip q.data.u.full-file.resp))))
+        %-  (slog leaf+"claw: s3 error: {(trip err-body)}" ~)
+        (finish-tool tl tc-id 'error: S3 upload failed')
+      ::  compute the public URL for the result
+      =/  conf-result=(each json tang)
+        (mule |.(.^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/json)))
+      =/  pub-base=@t
+        ?:  ?=(%| -.conf-result)  ''
+        =/  top=(unit (map @t json))  (me:tools p.conf-result)
+        ?~  top  ''
+        =/  su=(unit json)  (~(get by u.top) 'storage-update')
+        ?~  su  ''
+        =/  su-map=(unit (map @t json))  (me:tools u.su)
+        ?~  su-map  ''
+        =/  cr=(unit json)  (~(get by u.su-map) 'configuration')
+        ?~  cr  ''
+        =/  cr-map=(unit (map @t json))  (me:tools u.cr)
+        ?~  cr-map  ''
+        (fall (bind (~(get by u.cr-map) 'publicUrlBase') |=(j=json ?:(?=([%s *] j) p.j ''))) '')
+      =/  key=@t  (rap 3 'claw/' (scot %da now.bowl) '.jpg' ~)
+      =/  result=@t
+        ?:  !=('' pub-base)
+          (rap 3 pub-base '/' key ~)
+        (rap 3 'uploaded to S3 as ' key ~)
+      (finish-tool tl tc-id result)
+    ::
     %-  (slog leaf+"claw: tool-http status={<status-code.response-header.resp>}" ~)
     =/  raw-body=@t
       ?~  full-file.resp  ''
@@ -674,20 +863,48 @@
       =/  res=tool-result:tools
         (execute-tool:tools bowl name.next arguments.next brave-key)
       ?.  ?=(%async -.res)
-        =.  tool-loop  `[source.tl hist.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest]
+        =.  tool-loop  `[msg-source.tl hist.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest]
         `this
-      =.  tool-loop  `[source.tl hist.tl new-fmsgs t.rest]
+      =.  tool-loop  `[msg-source.tl hist.tl new-fmsgs t.rest]
       :_  this  [card.res]~
     ::  all done - fire llm follow-up
     =/  sys-prompt=@t  (build-prompt bowl context)
     =/  follow-wire=path
-      ?:  ?=(%direct source.tl)  /query-tools
-      /dm-query-tools/(scot %p ship.source.tl)
+      ?:  =(-.msg-source.tl %direct)  /query-tools
+      /dm-query-tools/(scot %p (src-ship msg-source.tl))
     :_  this(tool-loop ~)
     :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs)
     ==
   ==
 ::
+::  +finish-tool: complete a tool call with result and continue the loop
+::    ensures errors never leave the bot stuck
+::
+++  finish-tool
+  |=  [tl=tool-pending:claw tc-id=@t result=@t]
+  ^-  (quip card _this)
+  =/  new-fmsgs=(list json)  (snoc follow-msgs.tl (tool-result-json tc-id result))
+  =/  rest=(list [id=@t name=@t arguments=@t])
+    ^-  (list [@t @t @t])
+    (skip pending.tl |=([id=@t n=@t a=@t] =(n 'upload_image')))
+  ?^  rest
+    ::  more pending tools - execute next
+    =/  next  i.rest
+    =/  res=tool-result:tools
+      (execute-tool:tools bowl name.next arguments.next brave-key)
+    ?.  ?=(%async -.res)
+      ::  sync - add result and recurse
+      $(tl [msg-source.tl hist.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
+    =.  tool-loop  `[msg-source.tl hist.tl new-fmsgs t.rest]
+    :_  this  [card.res]~
+  ::  all done - fire LLM follow-up
+  =/  sys-prompt=@t  (build-prompt bowl context)
+  =/  follow-wire=path
+    ?:  =(-.msg-source.tl %direct)  /query-tools
+    /dm-query-tools/(scot %p (src-ship msg-source.tl))
+  :_  this(tool-loop ~)
+  :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs)
+  ==
 ::
 ++  tool-result-json
   |=  [id=@t content=@t]
@@ -702,7 +919,7 @@
 ::
 ++  handle-llm-response
   |=  $:  sign=sign-arvo
-          source=?(%direct [%dm =ship])
+          source=msg-source:claw
           dm-who=(unit ship)
           hist=(list msg:claw)
       ==
@@ -716,26 +933,26 @@
     =/  err=@t  ?~(full-file.resp 'http error' q.data.u.full-file.resp)
     %-  (slog leaf+"claw error [{(a-co:co code)}]" ~)
     =.  last-error  err
-    =?  pending  ?=(%direct source)  %.n
-    =?  dm-pending  ?=([%dm *] source)  (~(del in dm-pending) ship.source)
+    =?  pending  =(-.source %direct)  %.n
+    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
     :_  this
-    ?:  ?=(%direct source)
+    ?:  =(-.source %direct)
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error err])]  ==
-    :~  (send-dm-card bowl ship.source 'Sorry, I hit an error talking to the LLM provider.')  ==
+    :~  (send-reply-card bowl source 'Sorry, I hit an error talking to the LLM provider.')  ==
   ?~  full-file.resp
-    =?  pending  ?=(%direct source)  %.n
-    =?  dm-pending  ?=([%dm *] source)  (~(del in dm-pending) ship.source)
+    =?  pending  =(-.source %direct)  %.n
+    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
     `this
   =/  body=@t  q.data.u.full-file.resp
   =/  parsed  (parse-llm-response body)
   ?~  parsed
     %-  (slog leaf+"claw error: parse failed" ~)
     =.  last-error  body
-    =?  pending  ?=(%direct source)  %.n
-    =?  dm-pending  ?=([%dm *] source)  (~(del in dm-pending) ship.source)
+    =?  pending  =(-.source %direct)  %.n
+    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
     :_  this
-    ?:  ?=(%direct source)  ~
-    :~  (send-dm-card bowl ship.source 'Sorry, I had trouble understanding the response from my LLM provider.')  ==
+    ?:  =(-.source %direct)  ~
+    :~  (send-reply-card bowl source 'Sorry, I had trouble understanding the response from my LLM provider.')  ==
   ::
   ?-  -.u.parsed
   ::
@@ -744,19 +961,24 @@
       %text
     =/  content=@t  content.u.parsed
     =.  last-error  ''
-    ?:  ?=(%direct source)
+    ?:  =(-.source %direct)
       =.  history  (snoc history ['assistant' content])
       =.  pending  %.n
       %-  (slog leaf+"< {(trip content)}" ~)
       :_  this
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%response ['assistant' content]])]  ==
-    ::  dm response - send back as dm
-    =/  who  ship.source
+    ::  non-direct response - send back to source
+    =/  who=ship
+      ?-  -.source
+        %dm       ship.source
+        %channel  ship.source
+        %direct   our.bowl
+      ==
     =.  dm-history  (~(put by dm-history) who (snoc hist ['assistant' content]))
-    =.  dm-pending  (~(del in dm-pending) who)
-    %-  (slog leaf+"claw dm to {(scow %p who)}: {(trip content)}" ~)
+    =?  dm-pending  (~(has in dm-pending) who)  (~(del in dm-pending) who)
+    %-  (slog leaf+"claw reply to {(scow %p who)}: {(trip content)}" ~)
     :_  this
-    :~  (send-dm-card bowl who content)
+    :~  (send-reply-card bowl source content)
         [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
     ==
   ::
@@ -806,8 +1028,8 @@
       ::  all sync - fire llm follow-up immediately
       =/  sys-prompt=@t  (build-prompt bowl context)
       =/  follow-wire=path
-        ?:  ?=(%direct source)  /query-tools
-        /dm-query-tools/(scot %p ship.source)
+        ?:  =(-.source %direct)  /query-tools
+        /dm-query-tools/(scot %p (src-ship source))
       :_  this
       %+  weld  (flop tool-cards)
       :~  (make-llm-request bowl api-key model sys-prompt hist follow-wire follow-msgs)

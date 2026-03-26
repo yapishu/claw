@@ -24,10 +24,18 @@
       [%dm-response =ship =msg]
   ==
 ::
+::  message source: where did the message come from
+::
++$  msg-source
+  $%  [%dm =ship]
+      [%channel nest=@t group=@t =ship]
+      [%direct ~]
+  ==
+::
 ::  tool loop state for async tool execution
 ::
 +$  tool-pending
-  $:  source=?(%direct [%dm =ship])
+  $:  =msg-source
       hist=(list msg)
       follow-msgs=(list json)
       pending=(list [id=@t name=@t arguments=@t])
