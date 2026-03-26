@@ -28,7 +28,7 @@
 ::
 +$  msg-source
   $%  [%dm =ship]
-      [%channel nest=@t group=@t =ship]
+      [%channel kind=?(%chat %diary %heap) host=@p name=@tas =ship]
       [%direct ~]
   ==
 ::
@@ -84,6 +84,7 @@
       dm-history=(map ship (list msg))
       dm-pending=(set ship)
       tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
   ==
 ::
 +$  versioned-state

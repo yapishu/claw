@@ -1,0 +1,12 @@
+/-  c=channels
+|_  =a-channels:c
+++  grad  %noun
+++  grow
+  |%
+  ++  noun  a-channels
+  --
+++  grab
+  |%
+  ++  noun  a-channels:c
+  --
+--

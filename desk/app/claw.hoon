@@ -167,8 +167,13 @@
       %direct  [%pass /noop %arvo %b %wait (add now.bowl ~s1)]
       %dm      (send-dm-card bowl ship.msg-source text)
       %channel
-    ::  respond via DM to sender (channel posting in future)
-    (send-dm-card bowl ship.msg-source text)
+    ::  post reply in channel using proper types
+    =/  ch-story=story:d  ~[[%inline `(list inline:d)`~[text]]]
+    =/  ch-memo=memo:d  [content=ch-story author=our.bowl sent=now.bowl]
+    =/  ch-essay=essay:d  [ch-memo /chat ~ ~]
+    =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
+    =/  act=a-channels:d  [%channel nest [%post [%add ch-essay]]]
+    [%pass /ch-send %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]
   ==
 ::
 ++  parse-llm-response
@@ -257,17 +262,17 @@
           "across sessions. You are connected to the Urbit network\0a"
           "and receive direct messages from whitelisted ships.\0a"
           "\0a"
-          "IMPORTANT: When someone DMs you, your text response is\0a"
-          "automatically sent back as a DM reply. You do NOT need\0a"
-          "to call send_dm to reply - just respond with text.\0a"
+          "IMPORTANT: Your text response is automatically routed\0a"
+          "back to wherever the message came from - DM or channel.\0a"
+          "You do NOT need to call any tool to reply. Just respond\0a"
+          "with text and the system handles delivery.\0a"
           "\0a"
           "HOW TO USE TOOLS:\0a"
-          "- To find information: use web_search, then summarize results.\0a"
-          "- To find images: use image_search, pick the best URL from\0a"
-          "  results, then call send_dm with the image_url parameter\0a"
-          "  to send it as a rendered image.\0a"
+          "- To find information: use web_search.\0a"
+          "- To find images: use image_search, pick a URL, then\0a"
+          "  call send_dm with image_url to send as rendered image.\0a"
           "- To change your profile: use update_profile.\0a"
-          "- To send messages to OTHER ships: use send_dm.\0a"
+          "- To send a message to a DIFFERENT ship: use send_dm.\0a"
           "- To fetch a web page: use http_fetch.\0a"
           "\0a"
           "When asked to find/send images, ALWAYS:\0a"
@@ -292,14 +297,14 @@
   ?-  -.old
       %3  `this(state old)
       %2
-    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~])
+    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~])
       %1
-    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~])
+    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~ ~])
       %0
     =/  ctx=(map @tas @t)  *(map @tas @t)
     =?  ctx  !=('' system-prompt.old)
       (~(put by ctx) %agent system-prompt.old)
-    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~])
+    `this(state [%3 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~ ~])
   ==
 ::
 ++  on-poke
@@ -677,7 +682,10 @@
         ?.  (~(has by whitelist) from)  `this
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
-        %-  (slog leaf+"claw: channel mention from {(scow %p from)}: {(trip text)}" ~)
+        =/  =nest:d  channel.incoming
+        %-  (slog leaf+"claw: mention from {(scow %p from)} in {(trip ;;(@t kind.nest))}/{(scow %p ship.nest)}/{(trip ;;(@t name.nest))}: {(trip text)}" ~)
+        =/  src=msg-source:claw  [%channel kind.nest ship.nest name.nest from]
+        =.  pending-src  (~(put by pending-src) from src)
         =/  hist=(list msg:claw)  (fall (~(get by dm-history) from) ~)
         =.  hist  (snoc hist ['user' text])
         =.  dm-history  (~(put by dm-history) from hist)
@@ -685,11 +693,11 @@
         ?:  =('' api-key)
           =.  dm-pending  (~(del in dm-pending) from)
           :_  this
-          :~  (send-dm-card bowl from 'Sorry, no API key configured.')
+          :~  (send-reply-card bowl src 'Sorry, no API key configured.')
           ==
         =/  base-prompt=@t  (build-prompt bowl context)
         =/  sys-prompt=@t
-          (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0a' (scot %p from) ' mentioned you in a group channel. Respond to their message.' ~)
+          (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0a' (scot %p from) ' mentioned you in channel ' kind.nest '/' (scot %p ship.nest) '/' name.nest '. Respond in that channel.' ~)
         :_  this
         :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
         ==
@@ -724,7 +732,16 @@
       u.result
     ==
   ::
-      [%ch-send ~]  `this
+      [%ch-send ~]
+    ?+  -.sign  `this
+        %poke-ack
+      ?~  p.sign
+        %-  (slog leaf+"claw: channel post sent" ~)
+        `this
+      %-  (slog leaf+"claw: channel post FAILED" ~)
+      %-  (slog u.p.sign)
+      `this
+    ==
       [%group-join ~]
     ?+  -.sign  `this
         %poke-ack
@@ -754,12 +771,17 @@
       [%dm-query @ ~]
     =/  who=ship  (slav %p i.t.wire)
     =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
-    (handle-llm-response sign [%dm who] `who hist)
+    ::  use stored source if available (for channel responses)
+    =/  src=msg-source:claw  (fall (~(get by pending-src) who) [%dm who])
+    =.  pending-src  (~(del by pending-src) who)
+    (handle-llm-response sign src `who hist)
   ::
       [%dm-query-tools @ ~]
     =/  who=ship  (slav %p i.t.wire)
     =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
-    (handle-llm-response sign [%dm who] `who hist)
+    =/  src=msg-source:claw  (fall (~(get by pending-src) who) [%dm who])
+    =.  pending-src  (~(del by pending-src) who)
+    (handle-llm-response sign src `who hist)
   ::
       [%tool @ ~]  `this  ::  tool poke-acks
   ::
@@ -968,6 +990,7 @@
       :_  this
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%response ['assistant' content]])]  ==
     ::  non-direct response - send back to source
+    %-  (slog leaf+"claw: response routing via {<-.source>}" ~)
     =/  who=ship
       ?-  -.source
         %dm       ship.source
