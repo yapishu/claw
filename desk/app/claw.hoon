@@ -264,16 +264,17 @@
           "\0a"
           "IMPORTANT: Your text response is automatically routed\0a"
           "back to wherever the message came from - DM or channel.\0a"
-          "You do NOT need to call any tool to reply. Just respond\0a"
-          "with text and the system handles delivery.\0a"
+          "You do NOT need to call any tool to reply. Just respond.\0a"
           "\0a"
-          "HOW TO USE TOOLS:\0a"
-          "- To find information: use web_search.\0a"
-          "- To find images: use image_search, pick a URL, then\0a"
-          "  call send_dm with image_url to send as rendered image.\0a"
-          "- To change your profile: use update_profile.\0a"
-          "- To send a message to a DIFFERENT ship: use send_dm.\0a"
-          "- To fetch a web page: use http_fetch.\0a"
+          "The system prompt includes message IDs and channel info\0a"
+          "for the current conversation. Use these IDs with tools\0a"
+          "like add_reaction. DO NOT ask for IDs you already have.\0a"
+          "\0a"
+          "TOOLS: web_search, image_search, upload_image,\0a"
+          "send_dm, send_channel_message (both support image_url),\0a"
+          "add_reaction, remove_reaction, block_ship, unblock_ship,\0a"
+          "get_contact, list_groups, list_channels,\0a"
+          "read_channel_history, http_fetch, update_profile.\0a"
           "\0a"
           "When asked to find/send images, ALWAYS:\0a"
           "1. Call image_search with a descriptive query\0a"
@@ -695,9 +696,27 @@
           :_  this
           :~  (send-reply-card bowl src 'Sorry, no API key configured.')
           ==
+        =/  msg-id=@t  (scot %da q.id.key.incoming)
+        =/  ch-str=@t  (rap 3 kind.nest '/' (scot %p ship.nest) '/' name.nest ~)
+        %-  (slog leaf+"claw: injecting context: msg_id={<msg-id>} channel={<ch-str>}" ~)
         =/  base-prompt=@t  (build-prompt bowl context)
         =/  sys-prompt=@t
-          (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0a' (scot %p from) ' mentioned you in channel ' kind.nest '/' (scot %p ship.nest) '/' name.nest '. Respond in that channel.' ~)
+          %+  rap  3
+          :~  base-prompt
+              '\0a\0a---\0a\0a# Current Conversation\0a\0a'
+              (scot %p from)
+              ' mentioned you in channel '
+              ch-str
+              '.\0aTheir message ID is: '
+              msg-id
+              '\0aThe channel nest is: '
+              ch-str
+              '\0aYour responses are automatically posted in that channel.'
+              '\0aTo react to their message, use add_reaction with channel='
+              ch-str
+              ' and msg_id='
+              msg-id
+          ==
         :_  this
         :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
         ==
@@ -719,9 +738,17 @@
           :_  this
           :~  (send-dm-card bowl from 'Sorry, no API key configured.')
           ==
+        =/  msg-id=@t  (scot %da q.id.key.incoming)
         =/  base-prompt=@t  (build-prompt bowl context)
         =/  sys-prompt=@t
-          (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM with ' (scot %p from) '. Respond.' ~)
+          %+  rap  3
+          :~  base-prompt
+              '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM with '
+              (scot %p from)
+              '.\0aTheir message ID is: '
+              msg-id
+              '\0aYour text response is automatically sent as a DM reply.'
+          ==
         :_  this
         :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~)
         ==

@@ -38,6 +38,18 @@
       (tool-fn 'upload_image' 'Download an image from a URL and upload it to S3 storage. Returns the permanent S3 URL. Use this when you want to ensure an image is permanently stored. Requires S3 credentials to be configured in the storage agent.' (obj ~[['url' (req-str 'Source image URL to download and upload')]]))
       ::  http fetch
       (tool-fn 'http_fetch' 'Fetch a URL and return its text content. Do NOT use on image/binary URLs.' (obj ~[['url' (req-str 'URL to fetch')]]))
+      ::  reactions
+      (tool-fn 'add_reaction' 'React to a message in a group channel with an emoji.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['msg_id' (req-str 'Message timestamp ID')] ['emoji' (req-str 'Emoji character e.g. a unicode emoji')]]))
+      (tool-fn 'remove_reaction' 'Remove your reaction from a channel message.' (obj ~[['channel' (req-str 'Channel nest')] ['msg_id' (req-str 'Message timestamp ID')]]))
+      ::  blocking
+      (tool-fn 'block_ship' 'Block a ship from sending you direct messages.' (obj ~[['ship' (req-str 'Ship to block e.g. ~sampel-palnet')]]))
+      (tool-fn 'unblock_ship' 'Unblock a previously blocked ship.' (obj ~[['ship' (req-str 'Ship to unblock')]]))
+      ::  reading
+      (tool-fn 'get_contact' 'Get profile information for a ship (nickname, avatar, bio).' (obj ~[['ship' (req-str 'Ship to look up')]]))
+      (tool-fn 'list_groups' 'List all groups you have joined.' (obj ~))
+      (tool-fn 'list_channels' 'List all channels across all groups.' (obj ~))
+      ::  history
+      (tool-fn 'read_channel_history' 'Read recent messages from a channel. Returns message IDs, authors, and content.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['count' (opt-str 'Number of messages (default 10)')]]))
   ==
 ::
 ::  +execute-tool: run a tool, returns sync result or async card
@@ -194,6 +206,115 @@
     %-  (slog leaf+"claw: upload_image: fetching {(trip url)}" ~)
     ::  fetch the source image - bare GET
     [%async [%pass /tool-http/'upload_image' %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+  ::
+  ::
+  ::  add_reaction: react to channel message
+  ::
+  ?:  =('add_reaction' name)
+    =,  dejs:format
+    =/  ch=@t  ((ot ~[channel+so]) u.args)
+    =/  mid=@t  ((ot ~[['msg_id' so]]) u.args)
+    =/  emoji=@t  ((ot ~[emoji+so]) u.args)
+    =/  parsed-nest  (parse-nest ch)
+    ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    =/  msg-time=@da  (slav %da mid)
+    =/  act=a-channels:channels  [%channel u.parsed-nest [%post [%add-react msg-time our.bowl emoji]]]
+    [%sync :~([%pass /tool/react %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) (rap 3 'reacted with ' emoji ~)]
+  ::
+  ::  remove_reaction
+  ::
+  ?:  =('remove_reaction' name)
+    =,  dejs:format
+    =/  ch=@t  ((ot ~[channel+so]) u.args)
+    =/  mid=@t  ((ot ~[['msg_id' so]]) u.args)
+    =/  parsed-nest  (parse-nest ch)
+    ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    =/  msg-time=@da  (slav %da mid)
+    =/  act=a-channels:channels  [%channel u.parsed-nest [%post [%del-react msg-time our.bowl]]]
+    [%sync :~([%pass /tool/unreact %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) 'reaction removed']
+  ::
+  ::  block_ship
+  ::
+  ?:  =('block_ship' name)
+    =,  dejs:format
+    =/  s=@t  ((ot ~[ship+so]) u.args)
+    =/  target=ship  (slav %p s)
+    [%sync :~([%pass /tool/block %agent [our.bowl %chat] %poke %chat-block-ship !>(target)]) (rap 3 'blocked ' s ~)]
+  ::
+  ::  unblock_ship
+  ::
+  ?:  =('unblock_ship' name)
+    =,  dejs:format
+    =/  s=@t  ((ot ~[ship+so]) u.args)
+    =/  target=ship  (slav %p s)
+    [%sync :~([%pass /tool/unblock %agent [our.bowl %chat] %poke %chat-unblock-ship !>(target)]) (rap 3 'unblocked ' s ~)]
+  ::
+  ::  get_contact: scry %contacts for profile info
+  ::
+  ?:  =('get_contact' name)
+    =,  dejs:format
+    =/  s=@t  ((ot ~[ship+so]) u.args)
+    =/  target=ship  (slav %p s)
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  con=contact:ct
+        .^(contact:ct %gx /(scot %p our.bowl)/contacts/(scot %da now.bowl)/v1/contact/(scot %p target)/contact-1)
+      %-  crip
+      %-  zing
+      %+  turn  ~(tap by con)
+      |=  [k=@tas v=value:ct]
+      ^-  tape
+      ?+  -.v  "{(trip k)}: (complex)\0a"
+        %text  "{(trip k)}: {(trip p.v)}\0a"
+        %look  "{(trip k)}: {(trip p.v)}\0a"
+        %tint  "{(trip k)}: {(scow %ux p.v)}\0a"
+        %ship  "{(trip k)}: {(scow %p p.v)}\0a"
+        %numb  "{(trip k)}: {(a-co:co p.v)}\0a"
+      ==
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not fetch contact']
+    [%sync ~ ?:(=('' p.result) 'no profile data found' p.result)]
+  ::
+  ::  list_groups: scry %groups
+  ::
+  ?:  =('list_groups' name)
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  groups-json=json
+        .^(json %gx /(scot %p our.bowl)/groups/(scot %da now.bowl)/v2/groups/json)
+      ::  just return raw json truncated for LLM to parse
+      (crip (scag 4.000 (trip (en:json:html groups-json))))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not list groups']
+    [%sync ~ p.result]
+  ::
+  ::  list_channels: scry %channels
+  ::
+  ?:  =('list_channels' name)
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  ch-json=json
+        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/channels/json)
+      (crip (scag 4.000 (trip (en:json:html ch-json))))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not list channels']
+    [%sync ~ p.result]
+  ::
+  ::
+  ::  read_channel_history: scry %channels for recent posts
+  ::
+  ?:  =('read_channel_history' name)
+    =,  dejs-soft:format
+    =/  ch=(unit @t)  ((ot ~[channel+so]) u.args)
+    ?~  ch  [%sync ~ 'error: channel required']
+    =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
+    =/  n=@ud  (fall (rush (fall cnt '10') dem) 10)
+    =/  parsed-nest  (parse-nest u.ch)
+    ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  history=json
+        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/posts/newest/(scot %ud n)/outline/channel-posts-4)
+      (crip (scag 6.000 (trip (en:json:html history))))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not read channel history']
+    [%sync ~ p.result]
   ::
   ?:  =('http_fetch' name)
     =,  dejs:format
@@ -421,6 +542,21 @@
   =/  hi  (snag (rsh 0^4 c) "0123456789ABCDEF")
   =/  lo  (snag (end 0^4 c) "0123456789ABCDEF")
   ['%' hi lo ~]
+::  +parse-nest: parse "chat/~host/name" into nest:channels
+++  parse-nest
+  |=  ch=@t
+  ^-  (unit nest:channels)
+  %-  mole  |.
+  =/  parts=tape  (trip ch)
+  =/  seg1  (scag (need (find "/" parts)) parts)
+  =/  rest1  (slag +((need (find "/" parts))) parts)
+  =/  seg2  (scag (need (find "/" rest1)) rest1)
+  =/  seg3  (slag +((need (find "/" rest1))) rest1)
+  =/  knd=kind:channels
+    =/  k=@t  (crip seg1)
+    ?+(k %chat %chat %chat, %diary %diary, %heap %heap)
+  [knd (slav %p (crip seg2)) (crip seg3)]
+::
 ++  join-s3
   |=  [sep=tape parts=(list tape)]
   ^-  tape
