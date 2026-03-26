@@ -771,16 +771,15 @@
       [%dm-query @ ~]
     =/  who=ship  (slav %p i.t.wire)
     =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
-    ::  use stored source if available (for channel responses)
+    ::  use stored source (for channel responses) - DON'T delete yet
+    ::  pending-src stays until final text response is sent
     =/  src=msg-source:claw  (fall (~(get by pending-src) who) [%dm who])
-    =.  pending-src  (~(del by pending-src) who)
     (handle-llm-response sign src `who hist)
   ::
       [%dm-query-tools @ ~]
     =/  who=ship  (slav %p i.t.wire)
     =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
     =/  src=msg-source:claw  (fall (~(get by pending-src) who) [%dm who])
-    =.  pending-src  (~(del by pending-src) who)
     (handle-llm-response sign src `who hist)
   ::
       [%tool @ ~]  `this  ::  tool poke-acks
@@ -999,7 +998,8 @@
       ==
     =.  dm-history  (~(put by dm-history) who (snoc hist ['assistant' content]))
     =?  dm-pending  (~(has in dm-pending) who)  (~(del in dm-pending) who)
-    %-  (slog leaf+"claw reply to {(scow %p who)}: {(trip content)}" ~)
+    =.  pending-src  (~(del by pending-src) who)
+    %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
     :_  this
     :~  (send-reply-card bowl source content)
         [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]

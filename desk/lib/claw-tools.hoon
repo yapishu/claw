@@ -32,6 +32,8 @@
       (tool-fn 'web_search' 'Search the web using Brave Search. Returns web results with titles, URLs, and descriptions.' (obj ~[['query' (req-str 'Search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
       ::  image search (GET with token in query string)
       (tool-fn 'image_search' 'Search for images using Brave Image Search. Returns image URLs. Use send_dm with image_url to send found images.' (obj ~[['query' (req-str 'Image search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
+      ::  channel message
+      (tool-fn 'send_channel_message' 'Post a message in a group channel. Can include an image. Use the channel nest format like chat/~host/channel-name.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['message' (req-str 'Message text')] ['image_url' (opt-str 'Optional image URL')]]))
       ::  s3 upload
       (tool-fn 'upload_image' 'Download an image from a URL and upload it to S3 storage. Returns the permanent S3 URL. Use this when you want to ensure an image is permanently stored. Requires S3 credentials to be configured in the storage agent.' (obj ~[['url' (req-str 'Source image URL to download and upload')]]))
       ::  http fetch
@@ -93,6 +95,45 @@
     [%sync :~([%pass /tool/dm %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]) (rap 3 'message sent to ' u.s ?~(img '' ' with image') ~)]
   ::
   ::  web_search: POST to brave (works with Iris)
+  ::
+  ::
+  ::  send_channel_message: post in a group channel
+  ::
+  ?:  =('send_channel_message' name)
+    =,  dejs-soft:format
+    =/  ch=(unit @t)  ((ot ~[channel+so]) u.args)
+    =/  m=(unit @t)  ((ot ~[message+so]) u.args)
+    =/  img=(unit @t)  ((ot ~[['image_url' so]]) u.args)
+    ?~  ch  [%sync ~ 'error: channel required']
+    ?~  m  [%sync ~ 'error: message required']
+    ::  parse nest string "chat/~host/name"
+    =/  parts=tape  (trip u.ch)
+    =/  parsed=(unit [kind=@tas host=@p name=@tas])
+      %-  mole  |.
+      =/  segs=(list @t)
+        %+  rash  u.ch
+        (more fas ;~(pose sym (sear (soft @t) (star ;~(less fas next)))))
+      ?.  ?=([@ @ @ ~] segs)  !!
+      [;;(@tas i.segs) (slav %p i.t.segs) ;;(@tas i.t.t.segs)]
+    ?~  parsed  [%sync ~ 'error: bad channel format, use chat/~host/name']
+    =/  knd=kind:channels
+      ?+  kind.u.parsed  %chat
+        %chat  %chat
+        %diary  %diary
+        %heap  %heap
+      ==
+    =/  =nest:channels  [knd host.u.parsed name.u.parsed]
+    =/  verses=(list verse:story)
+      ?~  img
+        ~[[%inline `(list inline:story)`~[u.m]]]
+      ^-  (list verse:story)
+      :~  [%inline `(list inline:story)`~[u.m]]
+          [%block `block:story`[%image src=u.img height=0 width=0 alt='']]
+      ==
+    =/  ch-memo=memo:channels  [content=verses author=our.bowl sent=now.bowl]
+    =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
+    =/  act=a-channels:channels  [%channel nest [%post [%add ch-essay]]]
+    [%sync :~([%pass /tool/ch-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) (rap 3 'posted in ' u.ch ?~(img '' ' with image') ~)]
   ::
   ?:  =('web_search' name)
     ?:  =('' brave-key)  [%sync ~ 'error: no brave api key configured']
