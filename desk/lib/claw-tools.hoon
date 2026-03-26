@@ -9,6 +9,7 @@
 /-  chat
 /-  channels
 /-  story
+/-  mcp
 ::  s3-auth imported inline to avoid fire-core issues
 ::  only the functions we actually use
 |%
@@ -50,10 +51,9 @@
       (tool-fn 'list_channels' 'List all channels across all groups.' (obj ~))
       ::  history
       (tool-fn 'read_channel_history' 'Read recent messages from a channel. Returns message IDs, authors, and content.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['count' (opt-str 'Number of messages (default 10)')]]))
-      ::  urbit native operations (direct pokes/scries, no MCP needed)
-      (tool-fn 'scry_agent' 'Scry (read) data from any Gall agent. Path must end in /json. Returns JSON.' (obj ~[['agent' (req-str 'Agent name e.g. chat, groups, storage')] ['path' (req-str 'Scry path e.g. /dm/json')]]))
-      (tool-fn 'list_files' 'List files on a Clay desk.' (obj ~[['desk' (req-str 'Desk name e.g. claw, base, groups')] ['path' (opt-str 'Path prefix, default /')]]))
-      (tool-fn 'get_file' 'Read a file from a Clay desk.' (obj ~[['desk' (req-str 'Desk name')] ['path' (req-str 'File path e.g. /app/claw/hoon')]]))
+      ::  MCP tools (call %mcp-server agent via Khan threads)
+      (tool-fn 'local_mcp' 'Execute a local MCP server tool. ALWAYS call local_mcp_list first to get exact names. Key tools: list-files, get-file, insert-file, build-file, scry (for agent scries), poke-our-agent, prod-hoon, commit-desk, mount-desk, install-app, nuke-agent, revive-agent.' (obj ~[['name' (req-str 'Exact MCP tool name from local_mcp_list')] ['arguments' (req-str 'JSON object of arguments as a string')]]))
+      (tool-fn 'local_mcp_list' 'List all available local MCP server tools with descriptions and parameters.' (obj ~))
   ==
 ::
 ::  +execute-tool: run a tool, returns sync result or async card
@@ -321,51 +321,59 @@
     [%sync ~ p.result]
   ::
   ::
-  ::  scry_agent: scry any Gall agent for JSON data
+  ::  mcp_list_tools: scry %mcp-server for available tools
   ::
-  ?:  =('scry_agent' name)
+  ?:  =('local_mcp_list' name)
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  tools-json=json
+        .^(json %gx /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/tools/json)
+      (crip (scag 6.000 (trip (en:json:html tools-json))))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: MCP server not available. Install the %mcp desk to enable MCP tools.']
+    [%sync ~ p.result]
+  ::
+  ::  mcp_tool: build and execute an MCP tool via Khan
+  ::
+  ?:  =('local_mcp' name)
     =,  dejs:format
-    =/  agent=@t  ((ot ~[agent+so]) u.args)
-    =/  pax=@t  ((ot ~[path+so]) u.args)
-    =/  result=(each @t tang)
+    =/  tool-name=@t  ((ot ~[name+so]) u.args)
+    =/  args-str=@t  ((ot ~[arguments+so]) u.args)
+    ::  parse arguments JSON into MCP argument map
+    =/  args-json=(unit json)  (de:json:html args-str)
+    ?~  args-json  [%sync ~ 'error: invalid arguments JSON']
+    =/  args-map=(map name:parameter:tool:mcp argument:tool:mcp)
+      ?+  u.args-json  *(map @t argument:tool:mcp)
+          [%o *]
+        %-  ~(run by p.u.args-json)
+        |=  j=json
+        ^-  argument:tool:mcp
+        ?+  j  ~
+          [%s *]  [%string p.j]
+          [%n *]  [%number (rash p.j dem)]
+          [%b *]  [%boolean p.j]
+        ==
+      ==
+    ::  check if MCP desk and tool file exist before building
+    =/  tool-path=path
+      /(scot %p our.bowl)/mcp/(scot %da now.bowl)/fil/default/mcp/tools/[tool-name]/hoon
+    =/  exists=?
+      =/  check=(each ? tang)  (mule |.(.^(? %cu tool-path)))
+      ?:(?=(%| -.check) %.n p.check)
+    ?.  exists
+      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" not found. Use local_mcp_list to see available tools. Install %mcp desk if not present.' ~)]
+    =/  build-result=(each tool:mcp tang)
       %-  mule  |.
-      =/  =json
-        .^(json %gx /(scot %p our.bowl)/[agent]/(scot %da now.bowl)/[pax])
-      (crip (scag 6.000 (trip (en:json:html json))))
-    ?:  ?=(%| -.result)  [%sync ~ (rap 3 'error: scry failed for ' agent ' at ' pax ~)]
-    [%sync ~ p.result]
-  ::
-  ::  list_files: list Clay files on a desk
-  ::
-  ?:  =('list_files' name)
-    =/  desk=@t  ((ot:dejs:format ~[desk+so:dejs:format]) u.args)
-    =/  pax=(unit @t)  ((ot:dejs-soft:format ~[path+so:dejs-soft:format]) u.args)
-    =/  p=@t  (fall pax '/')
-    =/  result=(each @t tang)
+      !<(tool:mcp .^(vase %ca tool-path))
+    ?:  ?=(%| -.build-result)
+      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" failed to build.' ~)]
+    =/  =tool:mcp  p.build-result
+    ::  execute via Khan thread - wrap in mule to catch arg type mismatches
+    =/  thread-result=(each shed:khan tang)
       %-  mule  |.
-      =/  files=(list path)
-        .^((list path) %ct /(scot %p our.bowl)/[desk]/(scot %da now.bowl)/[p])
-      %-  crip
-      %-  zing
-      %+  turn  files
-      |=(=path "{(spud path)}\0a")
-    ?:  ?=(%| -.result)  [%sync ~ (rap 3 'error: could not list files on ' desk ~)]
-    [%sync ~ p.result]
-  ::
-  ::  get_file: read a Clay file
-  ::
-  ?:  =('get_file' name)
-    =,  dejs:format
-    =/  desk=@t  ((ot ~[desk+so]) u.args)
-    =/  pax=@t  ((ot ~[path+so]) u.args)
-    =/  result=(each @t tang)
-      %-  mule  |.
-      =/  =vase
-        .^(vase %cr /(scot %p our.bowl)/[desk]/(scot %da now.bowl)/[pax])
-      =/  content=@t  ;;(@t q.vase)
-      (crip (scag 8.000 (trip content)))
-    ?:  ?=(%| -.result)  [%sync ~ (rap 3 'error: could not read ' pax ' on ' desk ~)]
-    [%sync ~ p.result]
+      (thread-builder.tool args-map)
+    ?:  ?=(%| -.thread-result)
+      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" rejected arguments. Check argument types and names.' ~)]
+    [%async [%pass /tool-http/'local-mcp' %arvo %k %lard %mcp p.thread-result]]
   ::
   ?:  =('http_fetch' name)
     =,  dejs:format

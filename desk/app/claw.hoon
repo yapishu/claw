@@ -804,6 +804,31 @@
       [%eyre %connect ~]
     `this
   ::
+  ::  Khan thread response (MCP tool execution)
+  ::
+      [%tool-http %local-mcp ~]
+    ?.  ?=([%khan %arow *] sign)  `this
+    ?~  tool-loop
+      %-  (slog leaf+"claw: khan response but no pending loop" ~)
+      `this
+    =/  tl=tool-pending:claw  u.tool-loop
+    =/  tc-id=@t
+      =/  found  (skim pending.tl |=([id=@t n=@t a=@t] =(n 'local_mcp')))
+      ?~(found 'unknown' id.i.found)
+    =/  result=@t
+      ?:  ?=(%| -.p.sign)
+        'error: MCP tool execution failed'
+      ::  extract text from the result vase
+      =/  res-noun  q.p.p.sign
+      ::  try JSON first, then cord, then just describe it
+      =/  as-json=(unit @t)  (mole |.((en:json:html ;;(json res-noun))))
+      ?^  as-json  (crip (scag 6.000 (trip u.as-json)))
+      =/  as-cord=(unit @t)  (mole |.(;;(@t res-noun)))
+      ?^  as-cord  (crip (scag 4.000 (trip u.as-cord)))
+      'MCP tool returned a result (non-text)'
+    %-  (slog leaf+"claw: mcp tool done" ~)
+    (finish-tool tl tc-id result)
+  ::
       [%query ~]
     (handle-llm-response sign [%direct ~] ~ history)
   ::
@@ -898,15 +923,15 @@
       raw-body
     =/  result=@t  (parse-tool-response:tools tool-name body)
     %-  (slog leaf+"claw: tool {(trip tool-name)} done" ~)
-    ::  find the call id for this tool
+    ::  take the first pending tool (we execute sequentially)
     =/  tc-id=@t
-      =/  found  (skim pending.tl |=([id=@t n=@t a=@t] =(n tool-name)))
-      ?~  found  'unknown'
-      id.i.found
+      ?~  pending.tl  'unknown'
+      id.i.pending.tl
     =/  new-fmsgs=(list json)  (snoc follow-msgs.tl (tool-result-json tc-id result))
     =/  rest=(list [id=@t name=@t arguments=@t])
       ^-  (list [@t @t @t])
-      (skip pending.tl |=([id=@t n=@t a=@t] =(n tool-name)))
+      ?~  pending.tl  ~
+      t.pending.tl
     ::  if more pending, fire next
     ?^  rest
       =/  next  i.rest
@@ -934,9 +959,10 @@
   |=  [tl=tool-pending:claw tc-id=@t result=@t]
   ^-  (quip card _this)
   =/  new-fmsgs=(list json)  (snoc follow-msgs.tl (tool-result-json tc-id result))
+  ::  remove the completed tool (first in pending)
   =/  rest=(list [id=@t name=@t arguments=@t])
     ^-  (list [@t @t @t])
-    (skip pending.tl |=([id=@t n=@t a=@t] =(n 'upload_image')))
+    ?~(pending.tl ~ t.pending.tl)
   ?^  rest
     ::  more pending tools - execute next
     =/  next  i.rest
@@ -945,7 +971,8 @@
     ?.  ?=(%async -.res)
       ::  sync - add result and recurse
       $(tl [msg-source.tl hist.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
-    =.  tool-loop  `[msg-source.tl hist.tl new-fmsgs t.rest]
+    ::  keep 'next' as first in pending so khan handler finds its ID
+    =.  tool-loop  `[msg-source.tl hist.tl new-fmsgs rest]
     :_  this  [card.res]~
   ::  all done - fire LLM follow-up
   =/  sys-prompt=@t  (build-prompt bowl context)
