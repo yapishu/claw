@@ -22,12 +22,14 @@
 ++  tool-defs
   ^-  json
   :-  %a
-  :~  ::  profile management
+  :~  ::  profile
       (tool-fn 'update_profile' 'Update bot display name and/or avatar on Urbit.' (obj ~[['nickname' (opt-str 'New display name')] ['avatar' (opt-str 'Avatar image URL')]]))
-      ::  messaging
-      (tool-fn 'send_dm' 'Send a direct message to another Urbit ship.' (obj ~[['ship' (req-str 'Target ship e.g. ~sampel-palnet')] ['message' (req-str 'Message text')]]))
-      ::  web search
-      (tool-fn 'web_search' 'Search the web using Brave Search. Returns titles, URLs, and descriptions. Can also be used to find images by including "images of" in the query.' (obj ~[['query' (req-str 'Search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
+      ::  messaging - text
+      (tool-fn 'send_dm' 'Send a direct message to another Urbit ship. Can include an image.' (obj ~[['ship' (req-str 'Target ship e.g. ~sampel-palnet')] ['message' (req-str 'Message text')] ['image_url' (opt-str 'Optional image URL to attach')]]))
+      ::  web search (POST - works with Iris)
+      (tool-fn 'web_search' 'Search the web using Brave Search. Returns web results with titles, URLs, and descriptions.' (obj ~[['query' (req-str 'Search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
+      ::  image search (GET with token in query string)
+      (tool-fn 'image_search' 'Search for images using Brave Image Search. Returns image URLs. Use send_dm with image_url to send found images.' (obj ~[['query' (req-str 'Image search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
       ::  http fetch
       (tool-fn 'http_fetch' 'Fetch a URL and return its text content. Do NOT use on image/binary URLs.' (obj ~[['url' (req-str 'URL to fetch')]]))
   ==
@@ -61,21 +63,32 @@
       ==
     [%sync :~([%pass /tool/profile %agent [our.bowl %contacts] %poke %contact-action-1 !>(act)]) result]
   ::
-  ::  send_dm: poke %chat
+  ::  send_dm: poke %chat with optional image block
   ::
   ?:  =('send_dm' name)
-    =,  dejs:format
-    =/  [s=@t m=@t]  ((ot ~[ship+so message+so]) u.args)
-    =/  to=ship  (slav %p s)
-    =/  dm-story  `(list verse:story)`~[[%inline `(list inline:story)`~[m]]]
-    =/  dm-memo=memo:channels  [content=dm-story author=our.bowl sent=now.bowl]
+    =,  dejs-soft:format
+    =/  s=(unit @t)  ((ot ~[ship+so]) u.args)
+    =/  m=(unit @t)  ((ot ~[message+so]) u.args)
+    =/  img=(unit @t)  ((ot ~[['image_url' so]]) u.args)
+    ?~  s  [%sync ~ 'error: ship required']
+    ?~  m  [%sync ~ 'error: message required']
+    =/  to=ship  (slav %p u.s)
+    ::  build story: text paragraph + optional image block
+    =/  verses=(list verse:story)
+      ?~  img
+        ~[[%inline `(list inline:story)`~[u.m]]]
+      ^-  (list verse:story)
+      :~  [%inline `(list inline:story)`~[u.m]]
+          [%block `block:story`[%image src=u.img height=0 width=0 alt='']]
+      ==
+    =/  dm-memo=memo:channels  [content=verses author=our.bowl sent=now.bowl]
     =/  dm-essay=essay:chat  [dm-memo [%chat /] ~ ~]
     =/  dm-delta=delta:writs:chat  [%add dm-essay ~]
     =/  dm-diff=diff:writs:chat  [[our.bowl now.bowl] dm-delta]
     =/  dm-act=action:dm:chat  [to dm-diff]
-    [%sync :~([%pass /tool/dm %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]) (rap 3 'message sent to ' s ~)]
+    [%sync :~([%pass /tool/dm %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]) (rap 3 'message sent to ' u.s ?~(img '' ' with image') ~)]
   ::
-  ::  web_search: async brave search api
+  ::  web_search: POST to brave (works with Iris)
   ::
   ?:  =('web_search' name)
     ?:  =('' brave-key)  [%sync ~ 'error: no brave api key configured']
@@ -87,16 +100,14 @@
     =/  post-body=json
       (pairs:enjs:format ~[['q' s+u.q] ['count' (numb:enjs:format (fall (rush n dem) 5))]])
     =/  body-cord=@t  (en:json:html post-body)
-    %-  (slog leaf+"claw: brave search: {(trip u.q)}" ~)
     =/  hed=(list [key=@t value=@t])
       :~  ['Content-Type' 'application/json']
           ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    =/  bod=(unit octs)  `(as-octs:mimes:html body-cord)
-    [%async [%pass /tool-http/'web_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed bod] *outbound-config:iris]]
+    [%async [%pass /tool-http/'web_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
   ::
-  ::  image_search: async brave image search
+  ::  image_search: bare GET (no headers - token in query string)
   ::
   ?:  =('image_search' name)
     ?:  =('' brave-key)  [%sync ~ 'error: no brave api key configured']
@@ -105,13 +116,19 @@
     ?~  q  [%sync ~ 'error: query required']
     =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
     =/  n=@t  (fall cnt '5')
-    ::  image search: GET with no headers first to test
-    =/  encoded-q=@t  (crip (en-urlt:html (trip u.q)))
-    =/  url=@t  (rap 3 'https://api.search.brave.com/res/v1/images/search?q=' encoded-q '&count=' n '&token=' brave-key ~)
-    %-  (slog leaf+"claw: image url={<url>}" ~)
-    [%async [%pass /tool-http/'image_search' %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+    ::  use web search POST (image endpoint rejects our GET)
+    ::  prefix query to bias toward image results
+    =/  post-body=json
+      (pairs:enjs:format ~[['q' s+(rap 3 u.q ' images pictures' ~)] ['count' (numb:enjs:format (fall (rush n dem) 5))]])
+    =/  body-cord=@t  (en:json:html post-body)
+    =/  hed=(list [key=@t value=@t])
+      :~  ['Content-Type' 'application/json']
+          ['Accept' 'application/json']
+          ['X-Subscription-Token' brave-key]
+      ==
+    [%async [%pass /tool-http/'image_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
   ::
-  ::  http_fetch: async generic GET
+  ::  http_fetch: bare GET
   ::
   ?:  =('http_fetch' name)
     =,  dejs:format
@@ -125,20 +142,8 @@
 ++  parse-tool-response
   |=  [name=@t body=@t]
   ^-  @t
-  ::
-  ?:  =('web_search' name)
-    ::  return raw json truncated - llm can parse it
-    (crip (scag 6.000 (trip body)))
-  ::
-  ?:  =('image_search' name)
-    (crip (scag 6.000 (trip body)))
-  ::
-  ?:  =('http_fetch' name)
-    ::  return raw body, truncated
-    =/  body-tape  (trip body)
-    (crip (scag 8.000 body-tape))
-  ::
-  body
+  ::  return raw json/text truncated - llm extracts what it needs
+  (crip (scag 6.000 (trip body)))
 ::
 ::  helpers
 ::
