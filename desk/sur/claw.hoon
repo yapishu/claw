@@ -15,6 +15,7 @@
       [%del-context field=@tas]
       [%add-ship =ship role=ship-role]
       [%del-ship =ship]
+      [%set-channel-perm channel=@t perm=channel-perm]
   ==
 ::
 +$  update
@@ -155,6 +156,26 @@
       pending-src=(map ship msg-source)
   ==
 ::
+::  channel permission: who can talk to the bot in a given channel
+::
++$  channel-perm  ?(%open %whitelist)
+::
+::  state-7: per-channel permissions
++$  state-7
+  $:  %7
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
@@ -163,5 +184,6 @@
       state-4
       state-5
       state-6
+      state-7
   ==
 --

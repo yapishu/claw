@@ -13,7 +13,7 @@
 /+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t)]
@@ -215,7 +215,7 @@
 ++  send-dm-card
   |=  [=bowl:gall to=ship text=@t]
   ^-  card
-  =/  dm-story=story:d  ~[[%inline `(list inline:d)`~[text]]]
+  =/  dm-story=story:d  ~[[%inline (text-to-inlines text)]]
   =/  dm-memo=memo:d  [content=dm-story author=our.bowl sent=now.bowl]
   =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
   =/  dm-delta=delta:writs:c  [%add dm-essay ~]
@@ -259,7 +259,7 @@
       %dm      (send-dm-card bowl ship.msg-source text)
       %channel
     ::  post reply in channel using proper types
-    =/  ch-story=story:d  ~[[%inline `(list inline:d)`~[text]]]
+    =/  ch-story=story:d  ~[[%inline (text-to-inlines text)]]
     =/  ch-memo=memo:d  [content=ch-story author=our.bowl sent=now.bowl]
     =/  ch-essay=essay:d  [ch-memo /chat ~ ~]
     =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
@@ -309,6 +309,53 @@
   ^-  (unit (map @t ^json))
   ?.  ?=([%o *] json)  ~
   `p.json
+::
+::
+::  +text-to-inlines: parse text into inlines with proper ship mentions
+::    converts ~ship-name patterns into [%ship @p] inline elements
+::
+++  text-to-inlines
+  |=  text=@t
+  ^-  (list inline:d)
+  =/  chars=tape  (trip text)
+  =/  out=(list inline:d)  ~
+  =/  buf=tape  ~
+  |-
+  ?~  chars
+    ?~  buf  (flop out)
+    (flop [`inline:d`(crip (flop buf)) out])
+  ?.  =(i.chars '~')
+    $(chars t.chars, buf [i.chars buf])
+  ::  found ~, collect valid ship-name chars
+  =/  rest=tape  t.chars
+  =/  ship-tape=tape  ~
+  |-  ^-  (list inline:d)
+  ?~  rest
+    ::  hit end of string, try to parse what we have
+    =/  name=@t  (crip (weld "~" (flop ship-tape)))
+    =/  parsed=(unit @p)  ?:((lth (lent ship-tape) 3) ~ (slaw %p name))
+    ?~  parsed
+      ::  not valid, put back as text
+      ^$(chars ~, buf (weld (flop (trip name)) buf))
+    =/  pre=(list inline:d)
+      ?~  buf  out
+      [`inline:d`(crip (flop buf)) out]
+    (flop [`inline:d`[%ship u.parsed] pre])
+  =/  c=@tD  i.rest
+  ?:  ?|  =(c '-')
+          ?&((gte c 'a') (lte c 'z'))
+          ?&((gte c '0') (lte c '9'))
+      ==
+    $(rest t.rest, ship-tape [c ship-tape])
+  ::  non-ship char, try to parse what we have
+  =/  name=@t  (crip (weld "~" (flop ship-tape)))
+  =/  parsed=(unit @p)  ?:((lth (lent ship-tape) 3) ~ (slaw %p name))
+  ?~  parsed
+    ^$(chars rest, buf (weld (flop (trip name)) buf))
+  =/  pre=(list inline:d)
+    ?~  buf  out
+    [`inline:d`(crip (flop buf)) out]
+  ^$(chars rest, buf ~, out [`inline:d`[%ship u.parsed] pre])
 ::
 ++  trim-ws
   |=  t=tape
@@ -389,11 +436,36 @@
         "Error: {?:(=('' last-err) "none" (trip (end 3^100 last-err)))}"
       ==
     `[(send-reply-card bowl msg-source status)]~
+  ::  /open <channel> - set channel to allow all (owner only)
+  ?:  &((gte (met 3 cmd) 7) =((end [3 6] cmd) '/open '))
+    =/  ch=@t  (crip (trim-ws (trip (rsh [3 6] cmd))))
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can manage channel permissions.')]~
+    ::  poke self to update channel-perms
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Channel ' ch ' set to open.' ~))
+        [%pass /slash-perm %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-channel-perm ch %open])]
+    ==
+  ::  /restrict <channel> - set channel to whitelist-only (owner only)
+  ?:  &((gte (met 3 cmd) 11) =((end [3 10] cmd) '/restrict '))
+    =/  ch=@t  (crip (trim-ws (trip (rsh [3 10] cmd))))
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can manage channel permissions.')]~
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Channel ' ch ' set to whitelist-only.' ~))
+        [%pass /slash-perm %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-channel-perm ch %whitelist])]
+    ==
   ~
 --
 ::
 %-  agent:dbug
-=|  state-6:claw
+=|  state-7:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -468,24 +540,26 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  =/  new=state-6:claw
+  =/  new=state-7:claw
     ?-  -.old
-        %6  old
+        %7  old
+        %6
+      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~]
         %5
-      [%6 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~]
+      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
         %4
-      [%6 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~]
+      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
         %3
-      [%6 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~]
+      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
         %2
-      [%6 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~]
+      [%7 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
         %1
-      [%6 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~]
+      [%7 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~]
         %0
       =/  ctx=(map @tas @t)  *(map @tas @t)
       =?  ctx  !=('' system-prompt.old)
         (~(put by ctx) %agent system-prompt.old)
-      [%6 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~]
+      [%7 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~]
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -707,6 +781,10 @@
     :~  [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %leave ~]
     ==
   ::
+      %set-channel-perm
+    %-  (slog leaf+"claw: channel '{(trip channel.act)}' set to {<perm.act>}" ~)
+    `this(channel-perms (~(put by channel-perms) channel.act perm.act))
+  ::
       %prompt
     ?:  pending  ~|(%claw-busy !!)
     ?:  =('' api-key)  ~|(%claw-no-api-key !!)
@@ -890,10 +968,16 @@
         ?.  mention.incoming  `this
         =/  from=ship  p.id.key.incoming
         ?:  =(from our.bowl)  `this
-        ?.  (~(has by whitelist) from)  `this
+        ::  check channel permissions: %open allows anyone, %whitelist or missing requires whitelist
+        =/  =nest:d  channel.incoming
+        =/  ch-key=@t  (rap 3 kind.nest '/' (scot %p ship.nest) '/' name.nest ~)
+        =/  ch-perm=(unit channel-perm:claw)  (~(get by channel-perms) ch-key)
+        ?.  ?|  (~(has by whitelist) from)
+                &(?=(^ ch-perm) =(u.ch-perm %open))
+            ==
+          `this
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
-        =/  =nest:d  channel.incoming
         %-  (slog leaf+"claw: mention from {(scow %p from)} in {(trip ;;(@t kind.nest))}/{(scow %p ship.nest)}/{(trip ;;(@t name.nest))}: {(trip text)}" ~)
         =/  src=msg-source:claw  [%channel kind.nest ship.nest name.nest from]
         ::  check for slash commands
