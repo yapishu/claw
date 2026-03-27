@@ -74,7 +74,8 @@ The agent implements the OpenAI tool-calling protocol. When the LLM needs to tak
 | `get_contact` | sync | Look up a ship's profile (nickname, bio, avatar) |
 | `list_groups` | sync | List joined groups |
 | `list_channels` | sync | List all channels |
-| `read_channel_history` | sync | Read recent messages from a channel |
+| `read_channel_history` | sync | Read recent messages from a channel (JSON) |
+| `read_dm_history` | sync | Read recent DMs with a ship (JSON with IDs, authors, content) |
 
 **Memory tools (LCM):**
 
@@ -95,7 +96,15 @@ Escalation pattern: `search_history` first to find relevant content, then `descr
 | `http_fetch` | async | Fetch any URL |
 | `upload_image` | async | Download image, sign, upload to S3, return public URL |
 
-**Ship management tools:**
+**Message management:**
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `delete_message` | sync | Delete a channel message by timestamp ID |
+| `edit_message` | sync | Edit a channel message with new content |
+| `delete_dm` | sync | Delete a DM by its id field from `read_dm_history` |
+
+**Ship & group management:**
 
 | Tool | Type | Description |
 |------|------|-------------|
@@ -103,6 +112,8 @@ Escalation pattern: `search_history` first to find relevant content, then `descr
 | `block_ship` / `unblock_ship` | sync | Block/unblock ships from DMs |
 | `join_group` | sync | Join a group (owner only) |
 | `leave_group` | sync | Leave a group (owner only) |
+| `invite_to_group` | sync | Invite a ship to a group (owner only) |
+| `kick_from_group` | sync | Remove a ship from a group (owner only) |
 
 **Scheduled tasks (cron):**
 
@@ -265,7 +276,7 @@ desk/
 │   ├── story.hoon             # Rich text types (inline, block, verse)
 │   └── ...
 ├── lib/
-│   ├── claw-tools.hoon        # Tool dispatcher (27 tools)
+│   ├── claw-tools.hoon        # Tool dispatcher (34 tools)
 │   ├── story-parse.hoon       # Markdown ↔ Tlon story (reusable)
 │   ├── cron.hoon              # Cron expression parser (reusable)
 │   ├── s3-client.hoon         # AWS SigV4 S3 upload client (reusable)
