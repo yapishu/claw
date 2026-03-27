@@ -78,6 +78,15 @@
       (tool-fn 'unban_from_group' 'Unban a ship from a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['ship' (req-str 'Ship to unban')]]))
       (tool-fn 'create_group' 'Create a new group. Owner only.' (obj ~[['name' (req-str 'Group name (term, no spaces, e.g. my-group)')] ['title' (req-str 'Display title')] ['description' (opt-str 'Group description')] ['privacy' (opt-str 'public, private, or secret (default public)')]]))
       (tool-fn 'update_group' 'Update a group title and/or description. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['title' (opt-str 'New title')] ['description' (opt-str 'New description')] ['image' (opt-str 'New image URL')] ['cover' (opt-str 'New cover URL')]]))
+      ::  channel management
+      (tool-fn 'add_channel' 'Add a chat channel to a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['name' (req-str 'Channel name (term, no spaces)')] ['title' (req-str 'Channel display title')] ['description' (opt-str 'Channel description')]]))
+      (tool-fn 'delete_channel' 'Delete a channel from a group. Owner only.' (obj ~[['group' (req-str 'Group flag')] ['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')]]))
+      ::  role management
+      (tool-fn 'add_role' 'Create a new role in a group. Owner only.' (obj ~[['group' (req-str 'Group flag')] ['role' (req-str 'Role name (term)')] ['title' (req-str 'Role display title')]]))
+      (tool-fn 'delete_role' 'Delete a role from a group. Owner only.' (obj ~[['group' (req-str 'Group flag')] ['role' (req-str 'Role name')]]))
+      (tool-fn 'assign_role' 'Assign a role to a ship in a group. Owner only.' (obj ~[['group' (req-str 'Group flag')] ['ship' (req-str 'Ship to assign role to')] ['role' (req-str 'Role name')]]))
+      (tool-fn 'remove_role' 'Remove a role from a ship in a group. Owner only.' (obj ~[['group' (req-str 'Group flag')] ['ship' (req-str 'Ship')] ['role' (req-str 'Role name')]]))
+
       ::  contacts
       (tool-fn 'list_contacts' 'List all known contacts with their profile info.' (obj ~))
       ::  channel search
@@ -618,6 +627,115 @@
     =/  met=[title=@t description=@t image=@t cover=@t]  [(fall gtitle '') (fall gdesc '') (fall gimage '') (fall gcover '')]
     =/  act=a-groups:gp  [%group grp-flag [%meta met]]
     [%sync :~([%pass /tool/update-group %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'updated group ' u.group-str ~)]
+  ::
+  ::  add_channel: add a chat channel to a group (owner only)
+  ::
+  ?:  =('add_channel' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  cname=(unit @t)  ((ot ~[name+so]) u.args)
+    =/  ctitle=(unit @t)  ((ot ~[title+so]) u.args)
+    =/  cdesc=(unit @t)  ((ot ~[description+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    ?~  cname  [%sync ~ 'error: channel name required']
+    ?~  ctitle  [%sync ~ 'error: channel title required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    ::  channel creation goes through %channels agent
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  cc=create-channel:channels
+      [%chat `@tas`u.cname grp-flag u.ctitle (fall cdesc '') ~ ~ ~]
+    =/  act=a-channels:channels  [%create cc]
+    [%sync :~([%pass /tool/add-channel %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) (rap 3 'added channel ' u.cname ' to ' u.group-str ~)]
+  ::
+  ::  delete_channel: delete a channel from a group (owner only)
+  ::
+  ?:  =('delete_channel' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  ch-str=(unit @t)  ((ot ~[channel+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    ?~  ch-str  [%sync ~ 'error: channel required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    =/  parsed-nest  (parse-nest u.ch-str)
+    ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  act=a-groups:gp  [%group grp-flag [%channel u.parsed-nest [%del ~]]]
+    [%sync :~([%pass /tool/del-channel %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'deleted channel from ' u.group-str ~)]
+  ::
+  ::  add_role: create a role in a group (owner only)
+  ::
+  ?:  =('add_role' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  rname=(unit @t)  ((ot ~[role+so]) u.args)
+    =/  rtitle=(unit @t)  ((ot ~[title+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    ?~  rname  [%sync ~ 'error: role name required']
+    ?~  rtitle  [%sync ~ 'error: role title required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  met=[title=@t description=@t image=@t cover=@t]  [u.rtitle '' '' '']
+    =/  act=a-groups:gp  [%group grp-flag [%role (silt ~[`@tas`u.rname]) [%add met]]]
+    [%sync :~([%pass /tool/add-role %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'created role ' u.rname ' in ' u.group-str ~)]
+  ::
+  ::  delete_role: delete a role from a group (owner only)
+  ::
+  ?:  =('delete_role' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  rname=(unit @t)  ((ot ~[role+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    ?~  rname  [%sync ~ 'error: role name required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  act=a-groups:gp  [%group grp-flag [%role (silt ~[`@tas`u.rname]) [%del ~]]]
+    [%sync :~([%pass /tool/del-role %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'deleted role ' u.rname ' from ' u.group-str ~)]
+  ::
+  ::  assign_role: assign a role to a ship (owner only)
+  ::
+  ?:  =('assign_role' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  who=(unit @t)  ((ot ~[ship+so]) u.args)
+    =/  rname=(unit @t)  ((ot ~[role+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    ?~  who  [%sync ~ 'error: ship required']
+    ?~  rname  [%sync ~ 'error: role required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    =/  target=(unit @p)  (slaw %p u.who)
+    ?~  target  [%sync ~ 'error: bad ship']
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  act=a-groups:gp  [%group grp-flag [%seat (silt ~[u.target]) [%add-roles (silt ~[`@tas`u.rname])]]]
+    [%sync :~([%pass /tool/assign-role %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'assigned ' u.rname ' to ' u.who ' in ' u.group-str ~)]
+  ::
+  ::  remove_role: remove a role from a ship (owner only)
+  ::
+  ?:  =('remove_role' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  who=(unit @t)  ((ot ~[ship+so]) u.args)
+    =/  rname=(unit @t)  ((ot ~[role+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    ?~  who  [%sync ~ 'error: ship required']
+    ?~  rname  [%sync ~ 'error: role required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    =/  target=(unit @p)  (slaw %p u.who)
+    ?~  target  [%sync ~ 'error: bad ship']
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  act=a-groups:gp  [%group grp-flag [%seat (silt ~[u.target]) [%del-roles (silt ~[`@tas`u.rname])]]]
+    [%sync :~([%pass /tool/remove-role %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'removed ' u.rname ' from ' u.who ' in ' u.group-str ~)]
   ::
   ::  list_contacts: scry %contacts for all contacts
   ::
