@@ -8,10 +8,12 @@
 /-  c=chat
 /-  d=channels
 /-  a=activity
+/-  lcm
+/-  ct=contacts
 /+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t)]
@@ -99,15 +101,6 @@
 ::
 ::  +estimate-tokens: rough token count for a message list
 ::
-++  estimate-tokens
-  |=  msgs=(list msg:claw)
-  ^-  @ud
-  %+  roll  msgs
-  |=  [m=msg:claw acc=@ud]
-  (add acc (div (add (met 3 content.m) 3) 4))
-::
-::  +model-budget: conservative token budget for a model
-::
 ++  model-budget
   |=  mod=@t
   ^-  @ud
@@ -119,67 +112,20 @@
 ::
 ::  +assemble-context: build message list from summaries + fresh tail
 ::
-++  assemble-context
-  |=  [msgs=(list msg:claw) sums=(map @ud summary:claw) budget=@ud]
-  ^-  (list msg:claw)
-  ::  always include fresh tail (last 10 messages)
-  =/  len  (lent msgs)
-  =/  fresh-n=@ud  (min len 10)
-  =/  fresh=(list msg:claw)  (slag (sub len fresh-n) msgs)
-  =/  fresh-tok=@ud  (estimate-tokens fresh)
-  =/  remaining=@ud  ?:((gth fresh-tok budget) 0 (sub budget fresh-tok))
-  ::  add summaries (highest depth first = most condensed)
-  =/  sorted=(list summary:claw)
-    %+  sort  ~(val by sums)
-    |=  [a=summary:claw b=summary:claw]
-    (gth depth.a depth.b)
-  =/  sum-msgs=(list msg:claw)  ~
-  |-
-  ?~  sorted  (weld sum-msgs fresh)
-  ?:  (gth token-est.i.sorted remaining)
-    (weld sum-msgs fresh)
-  %=  $
-    sorted     t.sorted
-    remaining  (sub remaining token-est.i.sorted)
-    sum-msgs   (snoc sum-msgs ['system' (rap 3 '[Summary of messages ' (scot %ud from.msg-range.i.sorted) '-' (scot %ud to.msg-range.i.sorted) ']\0a' content.i.sorted ~)])
-  ==
-::
-::  +make-compact-request: summarize old messages via LLM
-::
-++  make-compact-request
-  |=  [=bowl:gall api-key=@t model=@t msgs=(list msg:claw) =wire]
-  ^-  card
-  =/  sys=@t  'You are a conversation summarizer. Compress the following messages into a concise summary of about 300 words. Preserve: key facts, decisions, user preferences, names/ships mentioned, topics, and action items. Output ONLY the summary text.'
-  =/  msg-text=@t
-    %-  crip
-    %-  zing
-    %+  turn  msgs
-    |=  m=msg:claw
-    "{(trip role.m)}: {(trip content.m)}\0a"
-  =/  api-msgs=json
-    :-  %a
-    :~  (pairs:enjs:format ~[['role' s+'system'] ['content' s+sys]])
-        (pairs:enjs:format ~[['role' s+'user'] ['content' s+msg-text]])
-    ==
-  =/  body=json
-    (pairs:enjs:format ~[['model' s+model] ['messages' api-msgs]])
-  =/  body-cord=@t  (en:json:html body)
-  =/  hed=(list [key=@t value=@t])
-    :~  ['Content-Type' 'application/json']
-        ['Authorization' (crip "Bearer {(trip api-key)}")]
-    ==
-  [%pass wire %arvo %i %request [%'POST' 'https://openrouter.ai/api/v1/chat/completions' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]
-::
 ++  make-llm-request
   |=  $:  =bowl:gall  api-key=@t  model=@t  sys-prompt=@t
-          msgs=(list msg:claw)  =wire
+          key=@t  =wire
           extra-msgs=(list json)
-          sums=(map @ud summary:claw)
+          pending-msg=(unit msg:claw)
       ==
   ^-  card
-  ::  assemble context from summaries + fresh tail within token budget
+  ::  scry lcm for assembled context
   =/  budget=@ud  (model-budget model)
-  =/  trimmed=(list msg:claw)  (assemble-context msgs sums budget)
+  =/  trimmed=(list msg:claw)
+    =/  ctx  (lcm-context bowl key budget)
+    ::  append pending msg if set (not yet ingested into lcm)
+    ?~  pending-msg  ctx
+    (snoc ctx u.pending-msg)
   =/  api-msgs=json
     :-  %a
     %+  weld
@@ -213,10 +159,63 @@
 ::
 ::  +send-dm-card: build a card to send a dm to a ship
 ::
+::
+::  +lcm-key: convert msg-source to lcm conversation key
+::
+++  lcm-key
+  |=  =msg-source:claw
+  ^-  @t
+  ?-  -.msg-source
+    %direct   'direct'
+    %dm       (rap 3 'dm/' (scot %p ship.msg-source) ~)
+    %channel  (rap 3 'channel/' kind.msg-source '/' (scot %p host.msg-source) '/' name.msg-source ~)
+  ==
+::
+::  +lcm-ingest: build a card to ingest a message into lcm
+::
+++  lcm-ingest
+  |=  [=bowl:gall key=@t role=@t content=@t]
+  ^-  card
+  [%pass /lcm-ingest %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%ingest key role content])]
+::
+::  +lcm-sync-config: sync api key and model to lcm
+::
+++  lcm-sync-config
+  |=  [=bowl:gall api-key=@t model=@t]
+  ^-  card
+  [%pass /lcm-config %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%set-config [api-key model 75 16 20.000 1.200 2.000 8 4 0]])]
+::
+::  +lcm-context: scry lcm for assembled context
+::
+++  lcm-context
+  |=  [=bowl:gall key=@t budget=@ud]
+  ^-  (list msg:claw)
+  =/  result=(each (list msg:claw) tang)
+    %-  mule  |.
+    =/  j=json
+      .^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/assemble/[key]/(scot %ud budget)/json)
+    ?.  ?=([%a *] j)  ~
+    %+  turn  p.j
+    |=  item=json
+    ^-  msg:claw
+    ?.  ?=([%o *] item)  ['system' '']
+    =/  m=(map @t json)  p.item
+    =/  role=@t
+      =/  r  (~(get by m) 'role')
+      ?~  r  'system'
+      ?.  ?=([%s *] u.r)  'system'
+      p.u.r
+    =/  con=@t
+      =/  c  (~(get by m) 'content')
+      ?~  c  ''
+      ?.  ?=([%s *] u.c)  ''
+      p.u.c
+    [role con]
+  ?:(?=(%| -.result) ~ p.result)
 ++  send-dm-card
   |=  [=bowl:gall to=ship text=@t]
   ^-  card
-  =/  dm-story=story:d  ~[[%inline `(list inline:d)`~[text]]]
+  =/  dm-story=story:d  ~[[%inline (text-to-inlines text)]]
   =/  dm-memo=memo:d  [content=dm-story author=our.bowl sent=now.bowl]
   =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
   =/  dm-delta=delta:writs:c  [%add dm-essay ~]
@@ -235,6 +234,21 @@
     %direct   *ship
   ==
 ::
+::  +get-nickname: scry %contacts for a ship's nickname
+::
+++  get-nickname
+  |=  [=bowl:gall who=ship]
+  ^-  @t
+  =/  result=(each @t tang)
+    %-  mule  |.
+    =/  con=contact:ct
+      .^(contact:ct %gx /(scot %p our.bowl)/contacts/(scot %da now.bowl)/v1/contact/(scot %p who)/contact-1)
+    =/  nick=(unit value:ct)  (~(get by con) %nickname)
+    ?~  nick  ''
+    ?.  ?=([%text *] u.nick)  ''
+    p.u.nick
+  ?:(?=(%| -.result) '' p.result)
+::
 ::  +send-reply-card: send a response based on message source
 ::
 ++  send-reply-card
@@ -245,7 +259,7 @@
       %dm      (send-dm-card bowl ship.msg-source text)
       %channel
     ::  post reply in channel using proper types
-    =/  ch-story=story:d  ~[[%inline `(list inline:d)`~[text]]]
+    =/  ch-story=story:d  ~[[%inline (text-to-inlines text)]]
     =/  ch-memo=memo:d  [content=ch-story author=our.bowl sent=now.bowl]
     =/  ch-essay=essay:d  [ch-memo /chat ~ ~]
     =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
@@ -295,10 +309,163 @@
   ^-  (unit (map @t ^json))
   ?.  ?=([%o *] json)  ~
   `p.json
+::
+::
+::  +text-to-inlines: parse text into inlines with proper ship mentions
+::    converts ~ship-name patterns into [%ship @p] inline elements
+::
+++  text-to-inlines
+  |=  text=@t
+  ^-  (list inline:d)
+  =/  chars=tape  (trip text)
+  =/  out=(list inline:d)  ~
+  =/  buf=tape  ~
+  |-
+  ?~  chars
+    ?~  buf  (flop out)
+    (flop [`inline:d`(crip (flop buf)) out])
+  ?.  =(i.chars '~')
+    $(chars t.chars, buf [i.chars buf])
+  ::  found ~, collect valid ship-name chars
+  =/  rest=tape  t.chars
+  =/  ship-tape=tape  ~
+  |-  ^-  (list inline:d)
+  ?~  rest
+    ::  hit end of string, try to parse what we have
+    =/  name=@t  (crip (weld "~" (flop ship-tape)))
+    =/  parsed=(unit @p)  ?:((lth (lent ship-tape) 3) ~ (slaw %p name))
+    ?~  parsed
+      ::  not valid, put back as text
+      ^$(chars ~, buf (weld (flop (trip name)) buf))
+    =/  pre=(list inline:d)
+      ?~  buf  out
+      [`inline:d`(crip (flop buf)) out]
+    (flop [`inline:d`[%ship u.parsed] pre])
+  =/  c=@tD  i.rest
+  ?:  ?|  =(c '-')
+          ?&((gte c 'a') (lte c 'z'))
+          ?&((gte c '0') (lte c '9'))
+      ==
+    $(rest t.rest, ship-tape [c ship-tape])
+  ::  non-ship char, try to parse what we have
+  =/  name=@t  (crip (weld "~" (flop ship-tape)))
+  =/  parsed=(unit @p)  ?:((lth (lent ship-tape) 3) ~ (slaw %p name))
+  ?~  parsed
+    ^$(chars rest, buf (weld (flop (trip name)) buf))
+  =/  pre=(list inline:d)
+    ?~  buf  out
+    [`inline:d`(crip (flop buf)) out]
+  ^$(chars rest, buf ~, out [`inline:d`[%ship u.parsed] pre])
+::
+++  trim-ws
+  |=  t=tape
+  ^-  tape
+  ?~  t  ~
+  ?:  |(=(i.t ' ') =(i.t 10) =(i.t 13))  $(t t.t)
+  t
+::
+++  slash-help-text
+  ^-  @t
+  %-  crip
+  ;:  weld
+    "Available commands:\0a"
+    "/model - show current model\0a"
+    "/model <name> - set model (owner only)\0a"
+    "/clear - clear conversation history\0a"
+    "/status - show agent status\0a"
+    "/help - show this help\0a"
+    "\0aAvailable tools:\0a"
+    "web_search, image_search, upload_image, send_dm,\0a"
+    "send_channel_message, add_reaction, remove_reaction,\0a"
+    "get_contact, list_groups, list_channels,\0a"
+    "read_channel_history, http_fetch, update_profile,\0a"
+    "join_group, leave_group, local_mcp, local_mcp_list"
+  ==
+::
+++  handle-slash
+  |=  $:  =bowl:gall  text=@t  from=ship  =msg-source:claw
+          mod=@t  pend=?  api=@t  last-err=@t
+          wl=(map ship ship-role:claw)  ctx=(map @tas @t)
+      ==
+  ^-  (unit (list card))
+  ::  trim both leading and trailing whitespace
+  =/  txt=tape
+    =/  raw=tape  (trip text)
+    (flop (trim-ws (flop (trim-ws raw))))
+  ?~  txt  ~
+  ?.  =(i.txt '/')  ~
+  =/  cmd=@t  (crip txt)
+  ?:  =(cmd '/help')
+    `[(send-reply-card bowl msg-source slash-help-text)]~
+  ::  /model or /model <name>
+  ?:  =(cmd '/model')
+    =/  ctx-win=@t  (fall (~(get by ctx) %model-context-window) 'unknown')
+    =/  info=@t
+      %-  crip
+      ;:  weld
+        "Model: {(trip mod)}\0a"
+        "Context window: {(trip ctx-win)} tokens"
+      ==
+    `[(send-reply-card bowl msg-source info)]~
+  ?:  &((gte (met 3 cmd) 8) =((end [3 7] cmd) '/model '))
+    =/  new-model=@t  (crip (trim-ws (trip (rsh [3 7] cmd))))
+    ?:  =('' new-model)
+      `[(send-reply-card bowl msg-source (rap 3 'Model: ' mod ~))]~
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can change the model.')]~
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Model set to: ' new-model ~))
+        [%pass /slash-model %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-model new-model])]
+    ==
+  ?:  =(cmd '/clear')
+    =/  key=@t  (lcm-key msg-source)
+    %-  some
+    :~  (send-reply-card bowl msg-source 'Conversation cleared.')
+        [%pass /lcm-clear %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%clear key])]
+    ==
+  ?:  =(cmd '/status')
+    =/  status=@t
+      %-  crip
+      ;:  weld
+        "Model: {(trip mod)}\0a"
+        "Pending: {?:(pend "yes" "no")}\0a"
+        "Ships: {(a-co:co ~(wyt by wl))}\0a"
+        "Error: {?:(=('' last-err) "none" (trip (end 3^100 last-err)))}"
+      ==
+    `[(send-reply-card bowl msg-source status)]~
+  ::  /open <channel> - set channel to allow all (owner only)
+  ?:  &((gte (met 3 cmd) 7) =((end [3 6] cmd) '/open '))
+    =/  ch=@t  (crip (trim-ws (trip (rsh [3 6] cmd))))
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can manage channel permissions.')]~
+    ::  poke self to update channel-perms
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Channel ' ch ' set to open.' ~))
+        [%pass /slash-perm %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-channel-perm ch %open])]
+    ==
+  ::  /restrict <channel> - set channel to whitelist-only (owner only)
+  ?:  &((gte (met 3 cmd) 11) =((end [3 10] cmd) '/restrict '))
+    =/  ch=@t  (crip (trim-ws (trip (rsh [3 10] cmd))))
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can manage channel permissions.')]~
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Channel ' ch ' set to whitelist-only.' ~))
+        [%pass /slash-perm %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-channel-perm ch %whitelist])]
+    ==
+  ~
 --
 ::
 %-  agent:dbug
-=|  state-5:claw
+=|  state-7:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -351,7 +518,8 @@
           "send_dm, send_channel_message (both support image_url),\0a"
           "add_reaction, remove_reaction, block_ship, unblock_ship,\0a"
           "get_contact, list_groups, list_channels,\0a"
-          "read_channel_history, http_fetch, update_profile.\0a"
+          "read_channel_history, http_fetch, update_profile,\0a"
+          "join_group, leave_group.\0a"
           "\0a"
           "When asked to find/send images, ALWAYS:\0a"
           "1. Call image_search with a descriptive query\0a"
@@ -372,22 +540,26 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  =/  new=state-5:claw
+  =/  new=state-7:claw
     ?-  -.old
-        %5  old
+        %7  old
+        %6
+      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~]
+        %5
+      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
         %4
-      [%5 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~ ~ ~ 0 [%idle ~]]
+      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
         %3
-      [%5 api-key.old brave-key.old model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~ ~ ~ 0 [%idle ~]]
+      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
         %2
-      [%5 api-key.old '' model.old history.old pending.old last-error.old context.old whitelist.old dm-history.old dm-pending.old ~ ~ ~ ~ 0 [%idle ~]]
+      [%7 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
         %1
-      [%5 api-key.old '' model.old history.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ 0 [%idle ~]]
+      [%7 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~]
         %0
       =/  ctx=(map @tas @t)  *(map @tas @t)
       =?  ctx  !=('' system-prompt.old)
         (~(put by ctx) %agent system-prompt.old)
-      [%5 api-key.old '' model.old history.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ 0 [%idle ~]]
+      [%7 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~]
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -399,8 +571,14 @@
     %+  turn  ~(tap by whitelist.new)
     |=  [s=ship r=ship-role:claw]
     [%pass /dm-watch/(scot %p s) %agent [our.bowl %chat] %watch /dm/(scot %p s)]
+  ::  sync config to lcm when migrating from older state
+  =/  migrate-cards=(list card)
+    ?.  =(-.old %6)
+      :~  (lcm-sync-config bowl api-key.new model.new)
+      ==
+    ~
   :_  this(state new)
-  (weld sub-cards dm-cards)
+  :(weld sub-cards dm-cards migrate-cards)
 ::
 ++  on-poke
   |=  [=mark =vase]
@@ -516,20 +694,14 @@
     ::
         [%history ~]
       =/  j=json
-        :-  %a
-        %+  turn  history
-        |=  =msg:claw
-        (pairs:enjs:format ~[['role' s+role.msg] ['content' s+content.msg]])
+        (fall (mole |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/assemble/'direct'/(scot %ud 999.999)/json))) a+~)
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::
         [%dm-history @ ~]
       =/  who=ship  (slav %p i.t.api-path)
-      =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
+      =/  key=@t  (rap 3 'dm/' (scot %p who) ~)
       =/  j=json
-        :-  %a
-        %+  turn  hist
-        |=  =msg:claw
-        (pairs:enjs:format ~[['role' s+role.msg] ['content' s+content.msg]])
+        (fall (mole |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/assemble/[key]/(scot %ud 999.999)/json))) a+~)
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::
         [%prompt ~]
@@ -543,11 +715,26 @@
   ?-  -.act
       %set-key
     %-  (slog leaf+"claw: api key set" ~)
-    `this(api-key key.act)
+    :_  this(api-key key.act)
+    :~  (lcm-sync-config bowl key.act model)
+    ==
   ::
       %set-model
+    ?:  =('' model.act)
+      %-  (slog leaf+"claw: ignoring empty model" ~)
+      `this
     %-  (slog leaf+"claw: model set to {(trip model.act)}" ~)
-    `this(model model.act)
+    ::  fetch model info from OpenRouter to get context window
+    :_  this(model model.act)
+    =/  sync-card=card  (lcm-sync-config bowl api-key model.act)
+    ::  fetch model list from OpenRouter if we have an api key
+    ?:  =('' api-key)  [sync-card]~
+    =/  hed=(list [key=@t value=@t])
+      :~  ['Authorization' (crip "Bearer {(trip api-key)}")]
+      ==
+    :~  sync-card
+        [%pass /model-info/(scot %da now.bowl) %arvo %i %request [%'GET' 'https://openrouter.ai/api/v1/models' hed ~] *outbound-config:iris]
+    ==
   ::
       %set-brave-key
     %-  (slog leaf+"claw: brave api key set" ~)
@@ -571,7 +758,9 @@
   ::
       %clear
     %-  (slog leaf+"claw: history cleared" ~)
-    `this(history ~, pending %.n)
+    :_  this(pending %.n)
+    :~  [%pass /lcm-clear %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%clear 'direct'])]
+    ==
   ::
       %add-ship
     %-  (slog leaf+"claw: added {(scow %p ship.act)} as {(trip ?:(=(%owner role.act) 'owner' 'allowed'))}" ~)
@@ -586,22 +775,26 @@
       %del-ship
     %-  (slog leaf+"claw: removed {(scow %p ship.act)}" ~)
     =.  whitelist  (~(del by whitelist) ship.act)
-    =.  dm-history  (~(del by dm-history) ship.act)
+    ::  dm-history managed by lcm
     =.  dm-pending  (~(del in dm-pending) ship.act)
     :_  this
     :~  [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %leave ~]
     ==
   ::
+      %set-channel-perm
+    %-  (slog leaf+"claw: channel '{(trip channel.act)}' set to {<perm.act>}" ~)
+    `this(channel-perms (~(put by channel-perms) channel.act perm.act))
+  ::
       %prompt
     ?:  pending  ~|(%claw-busy !!)
     ?:  =('' api-key)  ~|(%claw-no-api-key !!)
     =/  new-msg=msg:claw  ['user' content.act]
-    =.  history  (snoc history new-msg)
     =.  pending  %.y
     =/  sys-prompt=@t  (build-prompt bowl context)
     %-  (slog leaf+"claw: sending prompt..." ~)
     :_  this
-    :~  (make-llm-request bowl api-key model sys-prompt history /query ~ summaries)
+    :~  (lcm-ingest bowl 'direct' 'user' content.act)
+        (make-llm-request bowl api-key model sys-prompt 'direct' /query ~ `new-msg)
     ==
   ==
   ==
@@ -622,16 +815,10 @@
   ?+  path  ~
       [%x %history ~]
     =/  j=json
-      :-  %a
-      %+  turn  history
-      |=  =msg:claw
-      %-  pairs:enjs:format
-      :~  ['role' s+role.msg]  ['content' s+content.msg]  ==
+      (fall (mole |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/assemble/'direct'/(scot %ud 999.999)/json))) a+~)
     ``json+!>(j)
       [%x %last ~]
-    ?~  history  ``json+!>(s+'no messages yet')
-    =/  lst=msg:claw  (rear history)
-    ``json+!>((pairs:enjs:format ~[['role' s+role.lst] ['content' s+content.lst]]))
+    ``json+!>(s+'use /history for conversation data')
       [%x %config ~]
     =/  j=json
       %-  pairs:enjs:format
@@ -655,8 +842,10 @@
     ``json+!>(s+(build-prompt bowl context))
       [%x %dm-history @ ~]
     =/  who=ship  (slav %p i.t.t.path)
-    =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
-    ``json+!>(a+(turn hist |=(=msg:claw (pairs:enjs:format ~[['role' s+role.msg] ['content' s+content.msg]]))))
+    =/  key=@t  (rap 3 'dm/' (scot %p who) ~)
+    =/  j=json
+      (fall (mole |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/assemble/[key]/(scot %ud 999.999)/json))) a+~)
+    ``json+!>(j)
   ==
 ::
 ++  on-agent
@@ -699,10 +888,11 @@
       =/  text=@t  (story-to-text ;;(story:d content-noun))
       ?:  =('' text)  `this
       %-  (slog leaf+"claw: dm from {(scow %p from)}: {(trip text)}" ~)
-      ::  add to history and send to llm
-      =/  hist=(list msg:claw)  (fall (~(get by dm-history) from) ~)
-      =.  hist  (snoc hist ['user' text])
-      =.  dm-history  (~(put by dm-history) from hist)
+      ::  check for slash commands
+      =/  src=msg-source:claw  [%dm from]
+      =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
+      ?^  slash-result  [u.slash-result this]
+      ::  send to llm, history managed by lcm
       =.  dm-pending  (~(put in dm-pending) from)
       ?:  =('' api-key)
         =.  dm-pending  (~(del in dm-pending) from)
@@ -711,10 +901,14 @@
         ==
       =/  base-prompt=@t  (build-prompt bowl context)
       ::  inject sender context so LLM knows who it's talking to
+      =/  nick=@t  (get-nickname bowl from)
+      =/  nick-str=@t
+        ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
       =/  sys-prompt=@t
-        (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM conversation with ' (scot %p from) '. Their ship name is ' (scot %p from) '. When they ask you to send them something, use ship=' (scot %p from) ' in the send_dm tool.' ~)
+        (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM conversation with ' (scot %p from) nick-str '. When they ask you to send them something, use ship=' (scot %p from) ' in the send_dm tool.' ~)
       :_  this
-      :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~ (fall (~(get by dm-summaries) from) ~))
+      :~  (lcm-ingest bowl (lcm-key src) 'user' text)
+          (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
       ==
     ==
   ::
@@ -774,16 +968,22 @@
         ?.  mention.incoming  `this
         =/  from=ship  p.id.key.incoming
         ?:  =(from our.bowl)  `this
-        ?.  (~(has by whitelist) from)  `this
+        ::  check channel permissions: %open allows anyone, %whitelist or missing requires whitelist
+        =/  =nest:d  channel.incoming
+        =/  ch-key=@t  (rap 3 kind.nest '/' (scot %p ship.nest) '/' name.nest ~)
+        =/  ch-perm=(unit channel-perm:claw)  (~(get by channel-perms) ch-key)
+        ?.  ?|  (~(has by whitelist) from)
+                &(?=(^ ch-perm) =(u.ch-perm %open))
+            ==
+          `this
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
-        =/  =nest:d  channel.incoming
         %-  (slog leaf+"claw: mention from {(scow %p from)} in {(trip ;;(@t kind.nest))}/{(scow %p ship.nest)}/{(trip ;;(@t name.nest))}: {(trip text)}" ~)
         =/  src=msg-source:claw  [%channel kind.nest ship.nest name.nest from]
+        ::  check for slash commands
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
+        ?^  slash-result  [u.slash-result this]
         =.  pending-src  (~(put by pending-src) from src)
-        =/  hist=(list msg:claw)  (fall (~(get by dm-history) from) ~)
-        =.  hist  (snoc hist ['user' text])
-        =.  dm-history  (~(put by dm-history) from hist)
         =.  dm-pending  (~(put in dm-pending) from)
         ?:  =('' api-key)
           =.  dm-pending  (~(del in dm-pending) from)
@@ -794,11 +994,15 @@
         =/  ch-str=@t  (rap 3 kind.nest '/' (scot %p ship.nest) '/' name.nest ~)
         %-  (slog leaf+"claw: injecting context: msg_id={<msg-id>} channel={<ch-str>}" ~)
         =/  base-prompt=@t  (build-prompt bowl context)
+        =/  nick=@t  (get-nickname bowl from)
+        =/  nick-str=@t
+          ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
         =/  sys-prompt=@t
           %+  rap  3
           :~  base-prompt
               '\0a\0a---\0a\0a# Current Conversation\0a\0a'
               (scot %p from)
+              nick-str
               ' mentioned you in channel '
               ch-str
               '.\0aTheir message ID is: '
@@ -812,7 +1016,8 @@
               msg-id
           ==
         :_  this
-        :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~ (fall (~(get by dm-summaries) from) ~))
+        :~  (lcm-ingest bowl (lcm-key src) 'user' text)
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
         ==
       ::
           %dm-post
@@ -823,9 +1028,10 @@
         ?:  =('' text)  `this
         ?:  (~(has in dm-pending) from)  `this
         %-  (slog leaf+"claw: dm-post from {(scow %p from)}: {(trip text)}" ~)
-        =/  hist=(list msg:claw)  (fall (~(get by dm-history) from) ~)
-        =.  hist  (snoc hist ['user' text])
-        =.  dm-history  (~(put by dm-history) from hist)
+        =/  src=msg-source:claw  [%dm from]
+        ::  check for slash commands
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
+        ?^  slash-result  [u.slash-result this]
         =.  dm-pending  (~(put in dm-pending) from)
         ?:  =('' api-key)
           =.  dm-pending  (~(del in dm-pending) from)
@@ -834,17 +1040,22 @@
           ==
         =/  msg-id=@t  (scot %da q.id.key.incoming)
         =/  base-prompt=@t  (build-prompt bowl context)
+        =/  nick=@t  (get-nickname bowl from)
+        =/  nick-str=@t
+          ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
         =/  sys-prompt=@t
           %+  rap  3
           :~  base-prompt
               '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM with '
               (scot %p from)
+              nick-str
               '.\0aTheir message ID is: '
               msg-id
               '\0aYour text response is automatically sent as a DM reply.'
           ==
         :_  this
-        :~  (make-llm-request bowl api-key model sys-prompt hist /dm-query/(scot %p from) ~ (fall (~(get by dm-summaries) from) ~))
+        :~  (lcm-ingest bowl (lcm-key src) 'user' text)
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
         ==
       ==
       ?~  result
@@ -872,6 +1083,10 @@
       %-  (slog leaf+"claw: group join failed" ~)
       `this
     ==
+      [%slash-model ~]
+    ?+  -.sign  `this
+        %poke-ack  `this
+    ==
   ==
 ::
 ++  on-arvo
@@ -883,53 +1098,44 @@
       [%eyre %connect ~]
     `this
   ::
+  ::  model info response from OpenRouter
+  ::
+      [%model-info *]
+    ?.  ?=([%iris %http-response *] sign)  `this
+    =/  resp=client-response:iris  client-response.sign
+    ?.  ?=(%finished -.resp)  `this
+    ?.  =(200 status-code.response-header.resp)
+      %-  (slog leaf+"claw: model info fetch failed" ~)
+      `this
+    ?~  full-file.resp  `this
+    =/  body=@t  q.data.u.full-file.resp
+    =/  jon=(unit json)  (de:json:html body)
+    ?~  jon
+      %-  (slog leaf+"claw: model info parse failed" ~)
+      `this
+    ::  search data array for our model
+    =/  ctx-len=(unit @ud)
+      %-  mole  |.
+      =/  data=json  (~(got by (need (me u.jon))) 'data')
+      ?.  ?=([%a *] data)  !!
+      =/  items  p.data
+      |-
+      ?~  items  !!
+      =/  item=(map @t json)  (need (me i.items))
+      =/  mid=@t  (so:dejs:format (~(got by item) 'id'))
+      ?.  =(mid model)  $(items t.items)
+      (ni:dejs:format (~(got by item) 'context_length'))
+    ?~  ctx-len
+      %-  (slog leaf+"claw: model '{(trip model)}' not found in OpenRouter" ~)
+      `this
+    %-  (slog leaf+"claw: context window for {(trip model)}: {(a-co:co u.ctx-len)}" ~)
+    =.  context  (~(put by context) %model-context-window (crip (a-co:co u.ctx-len)))
+    :_  this
+    :~  [%pass /lcm-config %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%set-config [api-key model 75 16 20.000 1.200 2.000 8 4 u.ctx-len]])]
+    ==
+  ::
   ::  compaction response
   ::
-      [%compact @ ~]
-    ?.  ?=([%iris %http-response *] sign)
-      =.  compact  [%idle ~]
-      `this
-    =/  resp=client-response:iris  client-response.sign
-    ?.  ?=(%finished -.resp)
-      =.  compact  [%idle ~]
-      `this
-    =/  who=ship  (slav %p i.t.wire)
-    ?.  =(200 status-code.response-header.resp)
-      %-  (slog leaf+"claw: compaction failed, will retry" ~)
-      =.  compact  [%idle ~]
-      `this
-    ?~  full-file.resp
-      =.  compact  [%idle ~]
-      `this
-    =/  parsed  (parse-llm-response q.data.u.full-file.resp)
-    ?~  parsed
-      =.  compact  [%idle ~]
-      `this
-    ?.  ?=(%text -.u.parsed)
-      =.  compact  [%idle ~]
-      `this
-    =/  summary-text=@t  content.u.parsed
-    =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
-    =/  hist-len=@ud  (lent hist)
-    ::  create summary covering the oldest 10 messages
-    =/  compacted-n=@ud  (min 10 (sub hist-len 10))
-    =/  =summary:claw
-      :*  next-sum-id  0  (div (met 3 summary-text) 4)
-          now.bowl  [0 compacted-n]  summary-text
-      ==
-    ::  remove compacted messages from history (keep fresh tail)
-    =/  new-hist=(list msg:claw)  (slag compacted-n hist)
-    =.  dm-history  (~(put by dm-history) who new-hist)
-    ::  store summary
-    =/  ship-sums=(map @ud summary:claw)  (fall (~(get by dm-summaries) who) ~)
-    =.  ship-sums  (~(put by ship-sums) next-sum-id summary)
-    =.  dm-summaries  (~(put by dm-summaries) who ship-sums)
-    =.  next-sum-id  +(next-sum-id)
-    =.  compact  [%idle ~]
-    %-  (slog leaf+"claw: compacted {(a-co:co compacted-n)} messages for {(scow %p who)}" ~)
-    `this
-  ::
-  ::  Khan thread response (MCP tool execution)
   ::
       [%tool-http %local-mcp ~]
     ?.  ?=([%khan %arow *] sign)  `this
@@ -955,24 +1161,22 @@
     (finish-tool tl tc-id result)
   ::
       [%query ~]
-    (handle-llm-response sign [%direct ~] ~ history)
+    (handle-llm-response sign [%direct ~] ~)
   ::
       [%query-tools ~]
-    (handle-llm-response sign [%direct ~] ~ history)
+    (handle-llm-response sign [%direct ~] ~)
   ::
       [%dm-query @ ~]
     =/  who=ship  (slav %p i.t.wire)
-    =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
     ::  use stored source (for channel responses) - DON'T delete yet
     ::  pending-src stays until final text response is sent
     =/  src=msg-source:claw  (fall (~(get by pending-src) who) [%dm who])
-    (handle-llm-response sign src `who hist)
+    (handle-llm-response sign src `who)
   ::
       [%dm-query-tools @ ~]
     =/  who=ship  (slav %p i.t.wire)
-    =/  hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
     =/  src=msg-source:claw  (fall (~(get by pending-src) who) [%dm who])
-    (handle-llm-response sign src `who hist)
+    (handle-llm-response sign src `who)
   ::
       [%tool @ ~]  `this  ::  tool poke-acks
   ::
@@ -1060,12 +1264,16 @@
     ::  if more pending, fire next
     ?^  rest
       =/  next  i.rest
+      =/  tl-owner=?
+        ?:  =(-.msg-source.tl %direct)  %.y
+        =/  r=(unit ship-role:claw)  (~(get by whitelist) (src-ship msg-source.tl))
+        &(?=(^ r) =(u.r %owner))
       =/  res=tool-result:tools
-        (execute-tool:tools bowl name.next arguments.next brave-key)
+        (execute-tool:tools bowl name.next arguments.next brave-key tl-owner)
       ?.  ?=(%async -.res)
-        =.  tool-loop  `[msg-source.tl hist.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest]
+        =.  tool-loop  `[msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest]
         `this
-      =.  tool-loop  `[msg-source.tl hist.tl new-fmsgs t.rest]
+      =.  tool-loop  `[msg-source.tl conv-key.tl new-fmsgs t.rest]
       :_  this  [card.res]~
     ::  all done - fire llm follow-up
     =/  sys-prompt=@t  (build-prompt bowl context)
@@ -1073,7 +1281,7 @@
       ?:  =(-.msg-source.tl %direct)  /query-tools
       /dm-query-tools/(scot %p (src-ship msg-source.tl))
     :_  this(tool-loop ~)
-    :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs ~)
+    :~  (make-llm-request bowl api-key model sys-prompt conv-key.tl follow-wire new-fmsgs ~)
     ==
   ==
 ::
@@ -1091,13 +1299,17 @@
   ?^  rest
     ::  more pending tools - execute next
     =/  next  i.rest
+    =/  tl-owner=?
+      ?:  =(-.msg-source.tl %direct)  %.y
+      =/  r=(unit ship-role:claw)  (~(get by whitelist) (src-ship msg-source.tl))
+      &(?=(^ r) =(u.r %owner))
     =/  res=tool-result:tools
-      (execute-tool:tools bowl name.next arguments.next brave-key)
+      (execute-tool:tools bowl name.next arguments.next brave-key tl-owner)
     ?.  ?=(%async -.res)
       ::  sync - add result and recurse
-      $(tl [msg-source.tl hist.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
+      $(tl [msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
     ::  keep 'next' as first in pending so khan handler finds its ID
-    =.  tool-loop  `[msg-source.tl hist.tl new-fmsgs rest]
+    =.  tool-loop  `[msg-source.tl conv-key.tl new-fmsgs rest]
     :_  this  [card.res]~
   ::  all done - fire LLM follow-up
   =/  sys-prompt=@t  (build-prompt bowl context)
@@ -1105,7 +1317,7 @@
     ?:  =(-.msg-source.tl %direct)  /query-tools
     /dm-query-tools/(scot %p (src-ship msg-source.tl))
   :_  this(tool-loop ~)
-  :~  (make-llm-request bowl api-key model sys-prompt hist.tl follow-wire new-fmsgs ~)
+  :~  (make-llm-request bowl api-key model sys-prompt conv-key.tl follow-wire new-fmsgs ~)
   ==
 ::
 ++  tool-result-json
@@ -1123,7 +1335,6 @@
   |=  $:  sign=sign-arvo
           source=msg-source:claw
           dm-who=(unit ship)
-          hist=(list msg:claw)
       ==
   ^-  (quip card _this)
   ?.  ?=([%iris %http-response *] sign)  `this
@@ -1146,6 +1357,11 @@
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
     `this
   =/  body=@t  q.data.u.full-file.resp
+  =/  is-owner=?
+    ?:  =(-.source %direct)  %.y
+    =/  who=ship  (src-ship source)
+    =/  role=(unit ship-role:claw)  (~(get by whitelist) who)
+    &(?=(^ role) =(u.role %owner))
   =/  parsed  (parse-llm-response body)
   ?~  parsed
     %-  (slog leaf+"claw error: parse failed" ~)
@@ -1164,11 +1380,12 @@
     =/  content=@t  content.u.parsed
     =.  last-error  ''
     ?:  =(-.source %direct)
-      =.  history  (snoc history ['assistant' content])
       =.  pending  %.n
       %-  (slog leaf+"< {(trip content)}" ~)
       :_  this
-      :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%response ['assistant' content]])]  ==
+      :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%response ['assistant' content]])]
+          (lcm-ingest bowl 'direct' 'assistant' content)
+      ==
     ::  non-direct response - send back to source
     %-  (slog leaf+"claw: response routing via {<-.source>}" ~)
     =/  who=ship
@@ -1177,34 +1394,15 @@
         %channel  ship.source
         %direct   our.bowl
       ==
-    =.  dm-history  (~(put by dm-history) who (snoc hist ['assistant' content]))
+    ::  assistant response ingested into lcm via card below
     =?  dm-pending  (~(has in dm-pending) who)  (~(del in dm-pending) who)
     =.  pending-src  (~(del by pending-src) who)
     %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
     ::  check if compaction needed: history tokens > 60% of model budget
-    =/  ship-hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
-    =/  hist-tokens=@ud  (estimate-tokens ship-hist)
-    =/  budget=@ud  (model-budget model)
-    =/  threshold=@ud  (div (mul budget 60) 100)  ::  60% of budget
-    =/  do-compact=?
-      &(?=([%idle ~] compact) (gth hist-tokens threshold) (gth (lent ship-hist) 12) !=('' api-key))
-    ::  compact oldest half (minus fresh tail of 10)
-    =/  to-compact=(list msg:claw)
-      ?.  do-compact  ~
-      =/  compactable  (sub (lent ship-hist) 10)
-      =/  chunk  (min (div compactable 2) 20)  ::  half, max 20 at a time
-      ?:((lth chunk 3) ~ (scag chunk ship-hist))
-    =?  compact  &(do-compact !=(~ to-compact))
-      [%running `who]
-    =?  .  &(do-compact !=(~ to-compact))
-      %-  (slog leaf+"claw: triggering compaction" ~)  .
     :_  this
-    %+  weld
-      :~  (send-reply-card bowl source content)
-          [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
-      ==
-    ?.  &(do-compact !=(~ to-compact))  ~
-    :~  (make-compact-request bowl api-key model to-compact /compact/(scot %p who))
+    :~  (send-reply-card bowl source content)
+        [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
+        (lcm-ingest bowl (lcm-key source) 'assistant' content)
     ==
   ::
   ::  tool call response - execute tools and loop back
@@ -1242,12 +1440,12 @@
         =/  first  i.async-pending
         %-  (slog leaf+"claw: async tool {(trip name.first)}" ~)
         =/  res=tool-result:tools
-          (execute-tool:tools bowl name.first arguments.first brave-key)
+          (execute-tool:tools bowl name.first arguments.first brave-key is-owner)
         ?.  ?=(%async -.res)
           ::  shouldn't happen, but handle gracefully
           $(async-pending t.async-pending, follow-msgs (snoc follow-msgs (tool-result-json id.first 'unexpected sync')))
         =.  tool-loop
-          `[source hist follow-msgs async-pending]
+          `[source (lcm-key source) follow-msgs async-pending]
         :_  this
         (weld (flop tool-cards) [card.res]~)
       ::  all sync - fire llm follow-up immediately
@@ -1257,13 +1455,13 @@
         /dm-query-tools/(scot %p (src-ship source))
       :_  this
       %+  weld  (flop tool-cards)
-      :~  (make-llm-request bowl api-key model sys-prompt hist follow-wire follow-msgs ~)
+      :~  (make-llm-request bowl api-key model sys-prompt (lcm-key source) follow-wire follow-msgs ~)
       ==
     ::  execute this tool
     =/  tc  i.remaining
     %-  (slog leaf+"claw: tool {(trip name.tc)}" ~)
     =/  res=tool-result:tools
-      (execute-tool:tools bowl name.tc arguments.tc brave-key)
+      (execute-tool:tools bowl name.tc arguments.tc brave-key is-owner)
     ?:  ?=(%async -.res)
       ::  queue async tool for later
       %=  $
