@@ -278,12 +278,9 @@
 ++  has-own-nickname
   |=  [=bowl:gall text=@t]
   ^-  ?
-  =/  nick=@t  (get-nickname bowl our.bowl)
-  ?:  =('' nick)  %.n
-  =/  low-text=tape  (cass (trip text))
-  =/  low-nick=tape  (cass (trip nick))
-  ?:  (lth (lent low-text) (lent low-nick))  %.n
-  !=(~ (find low-nick low-text))
+  ::  disabled: contacts scry crashes on some ships
+  ::  TODO: cache own nickname on init instead of scrying per-message
+  %.n
 ::
 ::  +send-reply-card: send a response based on message source
 ::
@@ -358,72 +355,138 @@
   `p.json
 ::
 ::
-::  +text-to-story: convert markdown text to a story (list of verses)
-::    handles code blocks as block verses, inline markdown as inline verses
+::  +text-to-story: split on double-newlines into paragraph verses
+::    handles headers (#) and blockquotes (>) as special verse types
 ::
 ++  text-to-story
   |=  text=@t
   ^-  story:d
-  ::  split on triple-backtick code blocks
-  =/  chars=tape  (trip text)
+  =/  paragraphs=(list @t)  (split-paragraphs text)
   =/  verses=(list verse:d)  ~
-  =/  buf=tape  ~
-  |-  ^-  story:d
-  ?~  chars
-    ::  flush remaining buffer as inline verse
-    =/  final=(list verse:d)
-      ?~  buf  verses
-      =/  ils=(list inline:d)  (parse-inlines (crip (flop buf)))
-      ?~  ils  verses
-      [[%inline ils] verses]
-    (flop final)
-  ::  detect ``` (triple backtick)
-  ?.  ?=([%'`' %'`' %'`' *] chars)
-    $(chars t.chars, buf [i.chars buf])
-  ::  found opening ```, flush buffer first
-  =/  pre-verses=(list verse:d)
-    ?~  buf  verses
-    =/  ils=(list inline:d)  (parse-inlines (crip (flop buf)))
-    ?~  ils  verses
-    [[%inline ils] verses]
-  ::  skip the opening ``` and collect until closing ```
-  =/  after=tape  t.t.t.chars
-  ::  collect optional language tag (until newline)
-  =/  lang-buf=tape  ~
-  =/  code-rest=tape  after
-  |-  ^-  story:d
-  ?~  code-rest
-    ::  no closing ``` found, treat as text
-    ^$(chars ~, buf (weld "```" (weld (flop lang-buf) (flop buf))), verses pre-verses)
-  ?:  =(i.code-rest 10)
-    ::  newline ends lang tag, now collect code body
-    =/  lang=@t  (crip (flop lang-buf))
-    =/  code-buf=tape  ~
-    =/  cr2=tape  t.code-rest
-    |-  ^-  story:d
-    ?~  cr2
-      ::  no closing ```, emit what we have as code
-      =/  code-text=@t  (crip (flop code-buf))
-      ^^$(chars ~, buf ~, verses [[%block [%code code-text lang]] pre-verses])
-    ?:  ?=([%'`' %'`' %'`' *] cr2)
-      ::  closing ``` found
-      =/  code-text=@t  (crip (flop code-buf))
-      ::  skip closing ``` and optional trailing newline
-      =/  remaining=tape  t.t.t.cr2
-      =?  remaining  &(?=(^ remaining) =(i.remaining 10))  t.remaining
-      ^^$(chars remaining, buf ~, verses [[%block [%code code-text lang]] pre-verses])
-    $(cr2 t.cr2, code-buf [i.cr2 code-buf])
-  $(code-rest t.code-rest, lang-buf [i.code-rest lang-buf])
+  |-
+  ?~  paragraphs  (flop verses)
+  =/  para=tape  (trip i.paragraphs)
+  ::  header: # through ######
+  ?:  ?&(?=(^ para) =(i.para '#'))
+    =/  lvl=@ud  1
+    =/  rest=tape  t.para
+    |-
+    ?~  rest
+      ^$(paragraphs t.paragraphs)
+    ?:  &(=(i.rest '#') (lth lvl 6))
+      $(rest t.rest, lvl +(lvl))
+    ::  skip the space after #
+    =/  hrest=tape  ?:(=(i.rest ' ') t.rest rest)
+    =/  htxt=@t  (crip hrest)
+    =/  ils=(list inline:d)  (parse-inlines htxt)
+    ?~  ils
+      ^$(paragraphs t.paragraphs)
+    =/  tag=?(%h1 %h2 %h3 %h4 %h5 %h6)
+      ?:  =(1 lvl)  %h1
+      ?:  =(2 lvl)  %h2
+      ?:  =(3 lvl)  %h3
+      ?:  =(4 lvl)  %h4
+      ?:  =(5 lvl)  %h5
+      %h6
+    ^$(paragraphs t.paragraphs, verses [[%block [%header tag ils]] verses])
+  ::  blockquote: > text
+  ?:  ?&(?=(^ para) =(i.para '>'))
+    =/  rest=tape  t.para
+    =?  rest  &(?=(^ rest) =(i.rest ' '))  t.rest
+    =/  qtxt=@t  (crip rest)
+    =/  ils=(list inline:d)  (parse-inlines qtxt)
+    ?~  ils
+      $(paragraphs t.paragraphs)
+    $(paragraphs t.paragraphs, verses [[%inline `(list inline:d)`~[`inline:d`[%blockquote ils]]] verses])
+  ::  regular paragraph
+  =/  ils=(list inline:d)  (parse-inlines i.paragraphs)
+  ?~  ils  $(paragraphs t.paragraphs)
+  $(paragraphs t.paragraphs, verses [[%inline ils] verses])
 ::
-::  +text-to-inlines: parse text into inlines (wrapper for parse-inlines)
+::  +split-paragraphs: split text on double-newlines
+::
+++  split-paragraphs
+  |=  text=@t
+  ^-  (list @t)
+  =/  chars=tape  (trip text)
+  =/  out=(list @t)  ~
+  =/  buf=tape  ~
+  |-
+  ?~  chars
+    ?~  buf  (flop out)
+    (flop [(crip (flop buf)) out])
+  ?:  ?&(=(i.chars 10) ?=(^ t.chars) =(i.t.chars 10))
+    ::  double newline: emit paragraph, skip both newlines
+    =/  rest=tape  t.t.chars
+    ::  skip any additional newlines
+    |-
+    ?~  rest  ^$(chars ~)
+    ?.  =(i.rest 10)
+      ?~  buf  ^$(chars rest)
+      ^$(chars rest, out [(crip (flop buf)) out], buf ~)
+    $(rest t.rest)
+  $(chars t.chars, buf [i.chars buf])
+::
+::  +text-to-inlines: wrapper for parse-inlines
 ::
 ++  text-to-inlines
   |=  text=@t
   ^-  (list inline:d)
   (parse-inlines text)
 ::
-::  +parse-inlines: parse inline markdown patterns from text
-::    handles: ~ship, `code`, **bold**, *italic*, ~~strike~~, [text](url)
+::  +flush-buf: flush text buffer into inline list
+::
+++  flush-buf
+  |=  [buf=tape out=(list inline:d)]
+  ^-  (list inline:d)
+  ?~  buf  out
+  [`inline:d`(crip (flop buf)) out]
+::
+::  +try-delimited: try to match text between delimiters
+::    returns (unit [matched=tape rest=tape]) or ~ if no closing delimiter
+::
+++  try-delimited
+  |=  [delim=tape chars=tape]
+  ^-  (unit [tape tape])
+  =/  dlen=@ud  (lent delim)
+  =/  collected=tape  ~
+  =/  rest=tape  chars
+  |-
+  ?~  rest  ~
+  ::  check if rest starts with delimiter
+  =/  prefix=tape  (scag dlen `(list @)`rest)
+  ?:  =(prefix delim)
+    `[(flop collected) (slag dlen `(list @)`rest)]
+  $(rest t.rest, collected [i.rest collected])
+::
+::  +try-ship: try to parse a ship mention starting after ~
+::
+++  try-ship
+  |=  chars=tape
+  ^-  (unit [@p tape])
+  =/  ship-buf=tape  ~
+  =/  rest=tape  chars
+  |-
+  ?~  rest
+    ::  end of string, try to parse
+    ?:  (lth (lent ship-buf) 3)  ~
+    =/  sname=@t  (crip (weld "~" (flop ship-buf)))
+    (bind (slaw %p sname) |=(p=@p [p ~]))
+  =/  c=@tD  i.rest
+  ?:  ?|  =(c '-')
+          ?&((gte c 'a') (lte c 'z'))
+          ?&((gte c '0') (lte c '9'))
+      ==
+    $(rest t.rest, ship-buf [c ship-buf])
+  ::  non-ship char, try to parse what we have
+  ?:  (lth (lent ship-buf) 3)  ~
+  =/  sname=@t  (crip (weld "~" (flop ship-buf)))
+  =/  parsed=(unit @p)  (slaw %p sname)
+  ?~  parsed  ~
+  `[u.parsed rest]
+::
+::  +parse-inlines: parse text into inlines with markdown support
+::    handles: ~ship mentions, `inline-code`, **bold**, \n breaks
 ::
 ++  parse-inlines
   |=  text=@t
@@ -433,141 +496,51 @@
   =/  buf=tape  ~
   |-  ^-  (list inline:d)
   ?~  chars
-    ?~  buf  (flop out)
-    (flop [`inline:d`(crip (flop buf)) out])
-  ::
-  ::  inline code: `...`
-  ::
-  ?:  =(i.chars '`')
-    =/  code-buf=tape  ~
-    =/  cr=tape  t.chars
-    |-  ^-  (list inline:d)
-    ?~  cr
-      ::  no closing backtick, treat as text
-      ^$(chars ~, buf (weld (flop code-buf) ['`' buf]))
-    ?:  =(i.cr '`')
-      ::  closing backtick found
-      =/  pre=(list inline:d)
-        ?~  buf  out
-        [`inline:d`(crip (flop buf)) out]
-      ^$(chars t.cr, buf ~, out [`inline:d`[%inline-code (crip (flop code-buf))] pre])
-    $(cr t.cr, code-buf [i.cr code-buf])
-  ::
-  ::  bold: **...**
-  ::
-  ?:  ?=([%'*' %'*' *] chars)
-    =/  bold-buf=tape  ~
-    =/  cr=tape  t.t.chars
-    |-  ^-  (list inline:d)
-    ?~  cr
-      ^$(chars t.chars, buf [i.chars buf])
-    ?:  ?=([%'*' %'*' *] cr)
-      =/  inner-text=@t  (crip (flop bold-buf))
-      =/  inner-ils=(list inline:d)  ~[`inline:d`inner-text]
-      =/  pre=(list inline:d)
-        ?~  buf  out
-        [`inline:d`(crip (flop buf)) out]
-      ^$(chars t.t.cr, buf ~, out [`inline:d`[%bold inner-ils] pre])
-    $(cr t.cr, bold-buf [i.cr bold-buf])
-  ::
-  ::  strikethrough: ~~...~~
-  ::
+    (flop (flush-buf buf out))
+  ::  newline → break
+  ?:  =(i.chars 10)
+    =/  flushed  (flush-buf buf out)
+    $(chars t.chars, buf ~, out [`inline:d`[%break ~] flushed])
+  ::  strikethrough: ~~...~~ (before ship check)
   ?:  ?=([%'~' %'~' *] chars)
-    ?.  ?=([* *] t.t.chars)  $(chars t.chars, buf [i.chars buf])
-    ::  only if next char is not ~ (avoid ~~~)
-    ?:  =('~' i.t.t.chars)  $(chars t.chars, buf [i.chars buf])
-    =/  str-buf=tape  ~
-    =/  cr=tape  t.t.chars
-    |-  ^-  (list inline:d)
-    ?~  cr
-      ^$(chars t.chars, buf ['~' buf])
-    ?:  ?=([%'~' %'~' *] cr)
-      =/  inner-text=@t  (crip (flop str-buf))
-      =/  inner-ils=(list inline:d)  ~[`inline:d`inner-text]
-      =/  pre=(list inline:d)
-        ?~  buf  out
-        [`inline:d`(crip (flop buf)) out]
-      ^$(chars t.t.cr, buf ~, out [`inline:d`[%strike inner-ils] pre])
-    $(cr t.cr, str-buf [i.cr str-buf])
-  ::
-  ::  italic: *...* (single asterisk, not **)
-  ::
-  ?:  &(=(i.chars '*') ?=(^ t.chars) !=(i.t.chars '*') !=(i.t.chars ' '))
-    =/  ital-buf=tape  ~
-    =/  cr=tape  t.chars
-    |-  ^-  (list inline:d)
-    ?~  cr
-      ^$(chars t.chars, buf [i.chars buf])
-    ?:  &(=(i.cr '*') !=(~ (flop ital-buf)))
-      =/  inner-text=@t  (crip (flop ital-buf))
-      =/  inner-ils=(list inline:d)  ~[`inline:d`inner-text]
-      =/  pre=(list inline:d)
-        ?~  buf  out
-        [`inline:d`(crip (flop buf)) out]
-      ^$(chars t.cr, buf ~, out [`inline:d`[%italics inner-ils] pre])
-    $(cr t.cr, ital-buf [i.cr ital-buf])
-  ::
-  ::  link: [text](url)
-  ::
-  ?:  =(i.chars '[')
-    =/  link-text=tape  ~
-    =/  cr=tape  t.chars
-    |-  ^-  (list inline:d)
-    ?~  cr
-      ^$(chars t.chars, buf [i.chars buf])
-    ?:  =(i.cr ']')
-      ::  check for (url) immediately after
-      ?.  ?=([* *] t.cr)
-        ^$(chars t.chars, buf [i.chars buf])
-      ?.  =(i.t.cr '(')
-        ^$(chars t.chars, buf [i.chars buf])
-      =/  url-buf=tape  ~
-      =/  cr2=tape  t.t.cr
-      |-  ^-  (list inline:d)
-      ?~  cr2
-        ^^$(chars t.chars, buf [i.chars buf])
-      ?:  =(i.cr2 ')')
-        =/  url=@t  (crip (flop url-buf))
-        =/  ltxt=@t  (crip (flop link-text))
-        =/  pre=(list inline:d)
-          ?~  buf  out
-          [`inline:d`(crip (flop buf)) out]
-        ^^$(chars t.cr2, buf ~, out [`inline:d`[%link url ltxt] pre])
-      $(cr2 t.cr2, url-buf [i.cr2 url-buf])
-    $(cr t.cr, link-text [i.cr link-text])
-  ::
-  ::  ship mention: ~ship-name
-  ::
+    =/  result  (try-delimited "~~" t.t.chars)
+    ?~  result
+      $(chars t.chars, buf [i.chars buf])
+    =/  flushed  (flush-buf buf out)
+    =/  inner=@t  (crip -.u.result)
+    $(chars +.u.result, buf ~, out [`inline:d`[%strike `(list inline:d)`~[`inline:d`inner]] flushed])
+  ::  ship mention: ~
   ?:  =(i.chars '~')
-    =/  rest=tape  t.chars
-    =/  ship-tape=tape  ~
-    |-  ^-  (list inline:d)
-    ?~  rest
-      =/  sname=@t  (crip (weld "~" (flop ship-tape)))
-      =/  parsed=(unit @p)  ?:((lth (lent ship-tape) 3) ~ (slaw %p sname))
-      ?~  parsed
-        ^$(chars ~, buf (weld (flop (trip sname)) buf))
-      =/  pre=(list inline:d)
-        ?~  buf  out
-        [`inline:d`(crip (flop buf)) out]
-      (flop [`inline:d`[%ship u.parsed] pre])
-    =/  c=@tD  i.rest
-    ?:  ?|  =(c '-')
-            ?&((gte c 'a') (lte c 'z'))
-            ?&((gte c '0') (lte c '9'))
-        ==
-      $(rest t.rest, ship-tape [c ship-tape])
-    =/  sname=@t  (crip (weld "~" (flop ship-tape)))
-    =/  parsed=(unit @p)  ?:((lth (lent ship-tape) 3) ~ (slaw %p sname))
-    ?~  parsed
-      ^$(chars rest, buf (weld (flop (trip sname)) buf))
-    =/  pre=(list inline:d)
-      ?~  buf  out
-      [`inline:d`(crip (flop buf)) out]
-    ^$(chars rest, buf ~, out [`inline:d`[%ship u.parsed] pre])
-  ::
-  ::  default: accumulate into buffer
-  ::
+    =/  result  (try-ship t.chars)
+    ?~  result
+      $(chars t.chars, buf ['~' buf])
+    =/  flushed  (flush-buf buf out)
+    $(chars +.u.result, buf ~, out [`inline:d`[%ship -.u.result] flushed])
+  ::  inline code: `...`
+  ?:  =(i.chars '`')
+    =/  result  (try-delimited "`" t.chars)
+    ?~  result
+      $(chars t.chars, buf ['`' buf])
+    =/  flushed  (flush-buf buf out)
+    =/  code-text=@t  (crip -.u.result)
+    $(chars +.u.result, buf ~, out [`inline:d`[%inline-code code-text] flushed])
+  ::  bold: **...**
+  ?:  ?=([%'*' %'*' *] chars)
+    =/  result  (try-delimited "**" t.t.chars)
+    ?~  result
+      $(chars t.chars, buf [i.chars buf])
+    =/  flushed  (flush-buf buf out)
+    =/  inner=@t  (crip -.u.result)
+    $(chars +.u.result, buf ~, out [`inline:d`[%bold `(list inline:d)`~[`inline:d`inner]] flushed])
+  ::  italic: *...* (single asterisk, not **)
+  ?:  =(i.chars '*')
+    =/  result  (try-delimited "*" t.chars)
+    ?~  result
+      $(chars t.chars, buf ['*' buf])
+    =/  flushed  (flush-buf buf out)
+    =/  inner=@t  (crip -.u.result)
+    $(chars +.u.result, buf ~, out [`inline:d`[%italics `(list inline:d)`~[`inline:d`inner]] flushed])
+  ::  default: accumulate
   $(chars t.chars, buf [i.chars buf])
 ::
 ++  trim-ws

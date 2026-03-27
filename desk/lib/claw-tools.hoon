@@ -321,7 +321,7 @@
     =/  result=(each @t tang)
       %-  mule  |.
       =/  history=json
-        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/posts/newest/(scot %ud n)/outline/channel-posts-4)
+        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/posts/newest/(scot %ud n)/outline/json)
       (crip (scag 6.000 (trip (en:json:html history))))
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not read channel history']
     [%sync ~ p.result]
