@@ -310,6 +310,13 @@
   ?.  ?=([%o *] json)  ~
   `p.json
 ::
+++  trim-ws
+  |=  t=tape
+  ^-  tape
+  ?~  t  ~
+  ?:  |(=(i.t ' ') =(i.t 10) =(i.t 13))  $(t t.t)
+  t
+::
 ++  slash-help-text
   ^-  @t
   %-  crip
@@ -331,34 +338,48 @@
 ++  handle-slash
   |=  $:  =bowl:gall  text=@t  from=ship  =msg-source:claw
           mod=@t  pend=?  api=@t  last-err=@t
-          wl=(map ship ship-role:claw)
+          wl=(map ship ship-role:claw)  ctx=(map @tas @t)
       ==
   ^-  (unit (list card))
-  =/  txt=tape  (trip text)
+  ::  trim both leading and trailing whitespace
+  =/  txt=tape
+    =/  raw=tape  (trip text)
+    (flop (trim-ws (flop (trim-ws raw))))
   ?~  txt  ~
   ?.  =(i.txt '/')  ~
-  ?:  =(txt "/help")
+  =/  cmd=@t  (crip txt)
+  ?:  =(cmd '/help')
     `[(send-reply-card bowl msg-source slash-help-text)]~
-  ?:  =(txt "/model")
-    `[(send-reply-card bowl msg-source (rap 3 'Model: ' mod ~))]~
-  ?:  &((gte (met 3 text) 8) =((end [3 7] text) '/model '))
-      =/  new-model=@t  (rsh [3 7] text)
-      =/  is-owner=?
-        =/  role=(unit ship-role:claw)  (~(get by wl) from)
-        &(?=(^ role) =(u.role %owner))
-      ?.  is-owner
-        `[(send-reply-card bowl msg-source 'Only owners can change the model.')]~
-      %-  some
-      :~  (send-reply-card bowl msg-source (rap 3 'Model set to: ' new-model ~))
-          [%pass /slash-model %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-model new-model])]
+  ::  /model or /model <name>
+  ?:  =(cmd '/model')
+    =/  ctx-win=@t  (fall (~(get by ctx) %model-context-window) 'unknown')
+    =/  info=@t
+      %-  crip
+      ;:  weld
+        "Model: {(trip mod)}\0a"
+        "Context window: {(trip ctx-win)} tokens"
       ==
-  ?:  =(txt "/clear")
+    `[(send-reply-card bowl msg-source info)]~
+  ?:  &((gte (met 3 cmd) 8) =((end [3 7] cmd) '/model '))
+    =/  new-model=@t  (crip (trim-ws (trip (rsh [3 7] cmd))))
+    ?:  =('' new-model)
+      `[(send-reply-card bowl msg-source (rap 3 'Model: ' mod ~))]~
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can change the model.')]~
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Model set to: ' new-model ~))
+        [%pass /slash-model %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-model new-model])]
+    ==
+  ?:  =(cmd '/clear')
     =/  key=@t  (lcm-key msg-source)
     %-  some
     :~  (send-reply-card bowl msg-source 'Conversation cleared.')
         [%pass /lcm-clear %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%clear key])]
     ==
-  ?:  =(txt "/status")
+  ?:  =(cmd '/status')
     =/  status=@t
       %-  crip
       ;:  weld
@@ -791,7 +812,7 @@
       %-  (slog leaf+"claw: dm from {(scow %p from)}: {(trip text)}" ~)
       ::  check for slash commands
       =/  src=msg-source:claw  [%dm from]
-      =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist)
+      =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
       ?^  slash-result  [u.slash-result this]
       ::  send to llm, history managed by lcm
       =.  dm-pending  (~(put in dm-pending) from)
@@ -876,7 +897,7 @@
         %-  (slog leaf+"claw: mention from {(scow %p from)} in {(trip ;;(@t kind.nest))}/{(scow %p ship.nest)}/{(trip ;;(@t name.nest))}: {(trip text)}" ~)
         =/  src=msg-source:claw  [%channel kind.nest ship.nest name.nest from]
         ::  check for slash commands
-        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist)
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
         ?^  slash-result  [u.slash-result this]
         =.  pending-src  (~(put by pending-src) from src)
         =.  dm-pending  (~(put in dm-pending) from)
@@ -925,7 +946,7 @@
         %-  (slog leaf+"claw: dm-post from {(scow %p from)}: {(trip text)}" ~)
         =/  src=msg-source:claw  [%dm from]
         ::  check for slash commands
-        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist)
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
         ?^  slash-result  [u.slash-result this]
         =.  dm-pending  (~(put in dm-pending) from)
         ?:  =('' api-key)
@@ -1008,15 +1029,23 @@
     ?~  jon
       %-  (slog leaf+"claw: model info parse failed" ~)
       `this
-    ::  per-model endpoint returns single object with context_length
+    ::  search data array for our model
     =/  ctx-len=(unit @ud)
       %-  mole  |.
-      =/  obj=(map @t json)  (need (me u.jon))
-      (ni:dejs:format (~(got by obj) 'context_length'))
+      =/  data=json  (~(got by (need (me u.jon))) 'data')
+      ?.  ?=([%a *] data)  !!
+      =/  items  p.data
+      |-
+      ?~  items  !!
+      =/  item=(map @t json)  (need (me i.items))
+      =/  mid=@t  (so:dejs:format (~(got by item) 'id'))
+      ?.  =(mid model)  $(items t.items)
+      (ni:dejs:format (~(got by item) 'context_length'))
     ?~  ctx-len
-      %-  (slog leaf+"claw: model not found in OpenRouter response" ~)
+      %-  (slog leaf+"claw: model '{(trip model)}' not found in OpenRouter" ~)
       `this
-    %-  (slog leaf+"claw: model context window: {(a-co:co u.ctx-len)}" ~)
+    %-  (slog leaf+"claw: context window for {(trip model)}: {(a-co:co u.ctx-len)}" ~)
+    =.  context  (~(put by context) %model-context-window (crip (a-co:co u.ctx-len)))
     :_  this
     :~  [%pass /lcm-config %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%set-config [api-key model 75 16 20.000 1.200 2.000 8 4 u.ctx-len]])]
     ==
