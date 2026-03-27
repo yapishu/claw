@@ -19,9 +19,13 @@ The desk ships three agents:
 ### Messaging Integration
 - **DM responses**: Whitelisted ships can DM the bot and get LLM-powered responses
 - **Channel mentions**: When mentioned (@) in a group channel, responds in that channel
+- **Thread replies**: Responds to replies on its own posts in channels; routes responses back into the same thread
+- **DM thread replies**: Handles thread replies in DMs
 - **Group invites**: Auto-accepts group invitations from whitelisted ships
-- **Rich content**: Sends messages with image blocks, not just plain text
-- **Counterparty context**: Automatically includes the sender's @p and nickname (from %contacts) in the system prompt
+- **Rich content**: Sends messages with proper Tlon inline formatting (bold, italic, code, headers, mentions)
+- **Counterparty context**: Includes sender's @p and nickname (from %contacts) in the system prompt
+- **Participated thread tracking**: Auto-responds in threads/channels the bot has already participated in, without requiring @mention
+- **Message deduplication**: Tracks processed message IDs (up to 1000) to prevent double-processing
 
 ### Slash Commands
 Messages starting with `/` are intercepted before the LLM:
@@ -29,44 +33,101 @@ Messages starting with `/` are intercepted before the LLM:
 | Command | Description | Access |
 |---------|-------------|--------|
 | `/help` | Show available commands and tools | All |
-| `/model` | Show current model | All |
+| `/model` | Show current model and context window | All |
 | `/model <name>` | Set model (fetches context window from OpenRouter) | Owner |
 | `/clear` | Clear conversation history for this chat | All |
-| `/status` | Show model, pending state, whitelist count, last error | All |
+| `/status` | Show model, pending state, whitelist count, last error, owner last-seen | All |
+| `/open <channel>` | Set channel to allow all users (not just whitelisted) | Owner |
+| `/restrict <channel>` | Set channel back to whitelist-only | Owner |
+| `/approve ~ship` | Approve a pending ship (adds to whitelist as %allowed) | Owner |
+| `/deny ~ship` | Deny a pending approval request | Owner |
+| `/pending` | List ships awaiting approval | Owner |
 
-### Context System
-- **Identity, Soul, Agent, User, Memory** files that shape the bot's personality and knowledge
-- Context files persist across conversations and restarts
-- Editable via the web GUI or pokes
-- Per-conversation context injection (who you're talking to, which channel, message IDs)
+### Per-Channel Permissions
+- Each channel can be set to `%open` (anyone can interact) or `%whitelist` (only whitelisted ships, default)
+- Whitelisted ships can always interact regardless of channel setting
+- Owner always has access everywhere
+- Manage via `/open` and `/restrict` slash commands
+
+### Approval Workflow
+- When a non-whitelisted ship DMs or mentions the bot, an approval request is created
+- All owner ships are notified via DM with the requester's @p and context
+- Owners can `/approve ~ship` or `/deny ~ship` to manage access
+- `/pending` lists all outstanding approval requests
 
 ### Tool Calling
-The agent implements the OpenAI tool-calling protocol. When the LLM needs to take an action, it returns tool calls which the agent executes and loops back with results. Tools are defined in `lib/claw-tools.hoon` and are modular.
+The agent implements the OpenAI tool-calling protocol. When the LLM needs to take an action, it returns tool calls which the agent executes and loops back with results.
 
-**Built-in tools:**
+**Communication tools:**
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `update_profile` | sync | Change bot nickname/avatar via %contacts |
 | `send_dm` | sync | Send DM with optional image to any ship |
 | `send_channel_message` | sync | Post in a group channel with optional image |
 | `add_reaction` | sync | React to a channel message with emoji |
 | `remove_reaction` | sync | Remove a reaction |
-| `block_ship` / `unblock_ship` | sync | Block/unblock ships from DMs |
-| `get_contact` | sync | Look up a ship's profile |
+
+**Information tools:**
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `get_contact` | sync | Look up a ship's profile (nickname, bio, avatar) |
 | `list_groups` | sync | List joined groups |
 | `list_channels` | sync | List all channels |
 | `read_channel_history` | sync | Read recent messages from a channel |
-| `join_group` | sync | Join a group (owner only) |
-| `leave_group` | sync | Leave a group (owner only) |
+
+**Memory tools (LCM):**
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `search_history` | sync | Search ALL conversations for a keyword/topic. Returns matching snippets with summary IDs |
+| `describe_summary` | sync | Get full content and metadata for a summary ID (kind, depth, tokens, time range, source messages) |
+| `list_conversations` | sync | List all conversation keys with message/summary counts |
+
+Escalation pattern: `search_history` first to find relevant content, then `describe_summary` for full details on specific summaries.
+
+**Web tools:**
+
+| Tool | Type | Description |
+|------|------|-------------|
 | `web_search` | async | Brave web search (POST) |
 | `image_search` | async | Brave image search |
 | `http_fetch` | async | Fetch any URL |
 | `upload_image` | async | Download image, sign, upload to S3, return public URL |
+
+**Ship management tools:**
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `update_profile` | sync | Change bot nickname/avatar via %contacts |
+| `block_ship` / `unblock_ship` | sync | Block/unblock ships from DMs |
+| `join_group` | sync | Join a group (owner only) |
+| `leave_group` | sync | Leave a group (owner only) |
+
+**MCP tools:**
+
+| Tool | Type | Description |
+|------|------|-------------|
 | `local_mcp` | async | Execute any MCP server tool via Khan threads |
 | `local_mcp_list` | sync | List available MCP tools |
 | `install_local_mcp` | sync | Install the %mcp desk from ~matwet |
-| `search_history` | sync | Search conversation history and summaries |
+
+### Markdown Rendering
+LLM responses are parsed into proper Tlon rich text:
+- `# Header` through `###### Header` → header block elements
+- `> quoted text` → blockquote inlines
+- `**bold**` → bold inlines
+- `*italic*` → italic inlines
+- `` `inline code` `` → inline-code elements
+- `~~strikethrough~~` → strike inlines
+- `~ship-name` → clickable ship mention inlines
+- `\n` → line break inlines
+- `\n\n` → paragraph separation (separate verses)
+
+### Bot Safety
+- **Bot-to-bot rate limiting**: Tracks consecutive bot responses per channel (max 3), resets when a human messages. Prevents bot loop escalation.
+- **Owner heartbeat**: Tracks when the owner last sent a message, shown in `/status`
+- **Media extraction**: Extracts image blocks from incoming messages as `[Image: alt - src]` for LLM context
 
 ### Lossless Context Management (LCM)
 
@@ -157,10 +218,12 @@ Or via DM slash commands (from an owner ship):
 /model anthropic/claude-sonnet-4
 /status
 /clear
+/open chat/~host/channel-name
+/approve ~new-ship
 ```
 
 ### Whitelist roles
-- `%owner` — full access, can change model, use owner-only tools
+- `%owner` — full access, can change model, use owner-only tools, manage permissions
 - `%allowed` — can chat with the bot
 
 ### Context files
@@ -175,21 +238,22 @@ Or via DM slash commands (from an owner ship):
 ```
 desk/
 ├── app/
-│   ├── claw.hoon              # Main agent — messaging, LLM, tools, slash commands
-│   ├── lcm.hoon               # LCM agent — conversation storage, DAG summarization
+│   ├── claw.hoon              # Main agent — messaging, LLM, tools, slash commands (~1800 lines)
+│   ├── lcm.hoon               # LCM agent — conversation storage, DAG summarization (~900 lines)
 │   ├── claw-fileserver.hoon   # Static file server for GUI
 │   └── fileserver/config.hoon
 ├── sur/
-│   ├── claw.hoon              # Agent types (state-6, actions, updates, tool-pending)
+│   ├── claw.hoon              # Agent types (state-9, actions, msg-source, channel-perm)
 │   ├── lcm.hoon               # LCM types (state-1, conversation, summary, lcm-config)
 │   ├── mcp.hoon               # MCP tool types
 │   ├── chat.hoon              # Groups chat types
 │   ├── channels.hoon          # Groups channel types
 │   ├── activity.hoon          # Activity/notification types
 │   ├── contacts.hoon          # Contact types
+│   ├── story.hoon             # Rich text types (inline, block, verse)
 │   └── ...
 ├── lib/
-│   ├── claw-tools.hoon        # Modular tool system (20 tools, ~700 lines)
+│   ├── claw-tools.hoon        # Modular tool system (24 tools, ~800 lines)
 │   ├── test.hoon              # Unit test library
 │   └── ...
 ├── mar/
@@ -211,18 +275,21 @@ desk/
 ### Data flow
 
 ```
-DM/mention arrives
+DM/mention/thread-reply arrives
     → %activity subscription (on-agent)
-    → whitelist check
-    → slash command check (intercept /model, /clear, /help, /status)
+    → message deduplication check (seen-msgs)
+    → whitelist + channel permission check
+    → slash command check (/model, /clear, /help, /status, /open, /approve, etc.)
+    → approval workflow for non-whitelisted ships
     → extract sender, content, channel, message ID
     → look up sender nickname from %contacts
     → ingest user message into %lcm
-    → build system prompt (context files + sender info)
+    → build system prompt (context files + sender info + owner heartbeat)
     → scry %lcm for assembled context (summaries + fresh tail within budget)
     → POST to OpenRouter with tools
     → parse response
-    ├── text response → ingest into %lcm → route to source (DM or channel)
+    ├── text response → markdown-to-story → ingest into %lcm → route to source
+    │   (DM, channel, or thread) → track participated → update bot-counts
     └── tool_calls → execute tools → loop back to LLM
         ├── sync tools: poke/scry, return immediately
         └── async tools: fire Iris/Khan, wait for response, continue
@@ -238,19 +305,24 @@ Compaction (automatic):
 
 ### State
 
-**claw (state-6):**
+**claw (state-9):**
 ```hoon
 api-key, brave-key, model, pending, last-error,
 context (map @tas @t), whitelist (map ship ship-role),
 dm-pending (set ship), tool-loop (unit tool-pending),
-pending-src (map ship msg-source)
+pending-src (map ship msg-source),
+channel-perms (map @t channel-perm),
+participated (set @t), seen-msgs (set @t),
+bot-counts (map @t @ud),
+pending-approvals (map ship @t),
+owner-last-msg @da
 ```
 
 **lcm (state-1):**
 ```hoon
 conversations (map @t conversation), lcm-config, compact-state
 ```
-Each conversation contains messages (never deleted), summaries (DAG nodes), context-items (ordering), and sequence counters.
+Each conversation contains messages (never deleted), summaries (DAG nodes with descendant tracking), context-items (ordering), and sequence counters.
 
 ## Running Tests
 
@@ -292,4 +364,4 @@ For owner-only tools, check `?.  owner  [%sync ~ 'error: only the owner can use 
 
 ## Credits
 
-Vibecoded with Opus 4.5 and [%mcp](https://github.com/gwbtc/urbit-mcp) by the GroundWire crew. Inspired by [picoclaw](https://github.com/user/picoclaw) and [openclaw-tlon](https://github.com/user/openclaw-tlon). LCM compaction prompts ported from [lossless-claw](https://github.com/user/lossless-claw). Built as a native Urbit alternative that doesn't require external infrastructure.
+Vibecoded with Opus 4.6 and [%mcp](https://github.com/gwbtc/urbit-mcp) by the GroundWire crew. Inspired by [picoclaw](https://github.com/user/picoclaw) and [openclaw-tlon](https://github.com/user/openclaw-tlon). LCM compaction prompts ported from [lossless-claw](https://github.com/user/lossless-claw). Built as a native Urbit alternative that doesn't require external infrastructure.

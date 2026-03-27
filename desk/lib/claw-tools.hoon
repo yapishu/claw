@@ -55,8 +55,10 @@
       (tool-fn 'local_mcp' 'Execute a local MCP server tool. ALWAYS call local_mcp_list first to get exact names. Requires the %mcp desk to be installed - use install_local_mcp if not present. Key tools: list-files, get-file, insert-file, build-file, scry (for agent scries), poke-our-agent, prod-hoon, commit-desk, mount-desk, install-app, nuke-agent, revive-agent.' (obj ~[['name' (req-str 'Exact MCP tool name from local_mcp_list')] ['arguments' (req-str 'JSON object of arguments as a string')]]))
       (tool-fn 'local_mcp_list' 'List all available local MCP server tools. Requires %mcp desk - use install_local_mcp if not present.' (obj ~))
       (tool-fn 'install_local_mcp' 'Install the %mcp desk from ~matwet. This enables local_mcp and local_mcp_list tools for file management, agent control, code execution, and more.' (obj ~))
-      ::  history search
-      (tool-fn 'search_history' 'Search past conversation history including compacted summaries. Use when you need to recall something from earlier in the conversation.' (obj ~[['query' (req-str 'Search terms or topic')]]))
+      ::  LCM history tools
+      (tool-fn 'search_history' 'Search compacted conversation history using text search. Searches across messages AND summaries stored by LCM. Returns matching snippets with IDs. Use to find specific content that may have been compacted away. Follow up with describe_summary for full details.' (obj ~[['query' (req-str 'Search terms or topic to find')]]))
+      (tool-fn 'describe_summary' 'Look up full metadata and content for an LCM summary by ID. Returns: kind (leaf/condensed), depth, token count, descendant count, time range, source messages, parent summaries, and full content text. Use after search_history to inspect a specific summary.' (obj ~[['id' (req-str 'Summary ID number from search_history results')]]))
+      (tool-fn 'list_conversations' 'List all LCM conversations with their message counts and summary counts. Shows which conversations have history available for searching.' (obj ~))
       ::  group management
       (tool-fn 'join_group' 'Join an Urbit group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')]]))
       (tool-fn 'leave_group' 'Leave an Urbit group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')]]))
@@ -321,7 +323,7 @@
     =/  result=(each @t tang)
       %-  mule  |.
       =/  history=json
-        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/posts/newest/(scot %ud n)/outline/channel-posts-4)
+        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/posts/newest/(scot %ud n)/outline/json)
       (crip (scag 6.000 (trip (en:json:html history))))
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not read channel history']
     [%sync ~ p.result]
@@ -408,6 +410,78 @@
     ?~  parsed  [%sync ~ 'error: bad group flag, use ~host/group-name']
     =/  grp=[p=ship q=@tas]  [host.u.parsed name.u.parsed]
     [%sync :~([%pass /tool/leave-group %agent [our.bowl %groups] %poke %group-leave !>(grp)]) (rap 3 'leaving group ' group-str ~)]
+  ::
+  ::  search_history: search LCM conversation history
+  ::
+  ?:  =('search_history' name)
+    =,  dejs-soft:format
+    =/  query=(unit @t)  ((ot ~[query+so]) u.args)
+    ?~  query  [%sync ~ 'error: query required']
+    ::  search all conversations
+    =/  result=(each @t tang)
+      %-  mule  |.
+      ::  get conversation list first
+      =/  convs=json
+        .^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/conversations/json)
+      ?.  ?=([%a *] convs)  'no conversations'
+      =/  all-results=tape  ~
+      =/  items  p.convs
+      |-
+      ?~  items  (crip (scag 6.000 all-results))
+      =/  conv-map=(map @t json)
+        ?:(?=([%o *] i.items) p.i.items ~)
+      =/  conv-key=@t
+        =/  k  (~(get by conv-map) 'key')
+        ?~(k '' ?:(?=([%s *] u.k) p.u.k ''))
+      ?:  =('' conv-key)  $(items t.items)
+      =/  hits=json
+        .^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/grep/[conv-key]/[u.query]/json)
+      ?.  ?=([%a *] hits)  $(items t.items)
+      ?~  p.hits  $(items t.items)
+      =/  section=tape
+        (weld "--- conversation: {(trip conv-key)} ---\0a" (scag 2.000 (trip (en:json:html hits))))
+      $(items t.items, all-results (weld all-results (weld section "\0a")))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not search history']
+    [%sync ~ ?:(=('' p.result) 'no matches found' p.result)]
+  ::
+  ::  describe_summary: look up LCM summary details
+  ::
+  ?:  =('describe_summary' name)
+    =,  dejs-soft:format
+    =/  sid=(unit @t)  ((ot ~[id+so]) u.args)
+    ?~  sid  [%sync ~ 'error: summary_id required']
+    ::  search all conversations for this summary
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  convs=json
+        .^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/conversations/json)
+      ?.  ?=([%a *] convs)  'no conversations'
+      =/  items  p.convs
+      |-
+      ?~  items  'summary not found'
+      =/  conv-map=(map @t json)
+        ?:(?=([%o *] i.items) p.i.items ~)
+      =/  conv-key=@t
+        =/  k  (~(get by conv-map) 'key')
+        ?~(k '' ?:(?=([%s *] u.k) p.u.k ''))
+      ?:  =('' conv-key)  $(items t.items)
+      =/  desc=json
+        .^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/describe/[conv-key]/[u.sid]/json)
+      ?:  ?=(~ desc)  $(items t.items)
+      (crip (scag 6.000 (trip (en:json:html desc))))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not describe summary']
+    [%sync ~ p.result]
+  ::
+  ::  list_conversations: list all LCM conversations
+  ::
+  ?:  =('list_conversations' name)
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  convs=json
+        .^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/conversations/json)
+      (crip (scag 4.000 (trip (en:json:html convs))))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not list conversations']
+    [%sync ~ p.result]
   ::
   ?:  =('http_fetch' name)
     =,  dejs:format

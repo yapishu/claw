@@ -13,10 +13,10 @@
 /+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw)
 ::
 ++  build-prompt
-  |=  [=bowl:gall context=(map @tas @t)]
+  |=  [=bowl:gall context=(map @tas @t) owner-ts=@da]
   ^-  @t
   =/  sections=(list [@t @tas])
     :~  ['Identity' %identity]
@@ -51,7 +51,10 @@
     ;:  weld
       "# System\0a\0a"
       "Ship: {(scow %p our.bowl)}\0a"
-      "Time: {(scow %da now.bowl)}"
+      "Time: {(scow %da now.bowl)}\0a"
+      ?:  =(0 owner-ts)
+        "Owner last seen: never"
+      "Owner last seen: {(scow %da owner-ts)}"
     ==
   ?~  parts  ''
   =/  out=@t  i.parts
@@ -61,6 +64,7 @@
   $(rem t.rem, out (rap 3 out '\0a\0a---\0a\0a' i.rem ~))
 ::
 ::  +story-to-text: extract plain text from a story
+::    handles both inline and block verses (code, citations, headers)
 ::
 ++  story-to-text
   |=  =story:d
@@ -68,10 +72,23 @@
   =/  parts=(list @t)
     %+  murn  story
     |=  =verse:d
-    ?.  ?=([%inline *] verse)  ~
-    =/  text=@t  (inlines-to-text p.verse)
-    ?:  =('' text)  ~
-    `text
+    ?:  ?=([%inline *] verse)
+      =/  text=@t  (inlines-to-text p.verse)
+      ?:  =('' text)  ~
+      `text
+    ::  block verse handling
+    =/  blk  p.verse
+    ?+  -.blk  ~
+      %code  `(rap 3 '```' lang.blk '\0a' code.blk '\0a```' ~)
+      %header  `(inlines-to-text q.blk)
+      %rule  `'---'
+      %cite  `'[citation]'
+      %image
+        ?:  =('' alt.blk)
+          `(rap 3 '[Image: ' src.blk ']' ~)
+        `(rap 3 '[Image: ' alt.blk ' - ' src.blk ']' ~)
+      %link  `(rap 3 '[Link: ' url.blk ']' ~)
+    ==
   ?~  parts  ''
   =/  out=@t  i.parts
   =/  rem=(list @t)  t.parts
@@ -92,6 +109,8 @@
       %blockquote   $(ils p.i.ils)
       %inline-code  p.i.ils
       %code         p.i.ils
+      %ship         (scot %p p.i.ils)
+      %link         (rap 3 q.i.ils ' (' p.i.ils ')' ~)
       %break        '\0a'
     ==
   =/  rest=@t  $(ils t.ils)
@@ -166,9 +185,11 @@
   |=  =msg-source:claw
   ^-  @t
   ?-  -.msg-source
-    %direct   'direct'
-    %dm       (rap 3 'dm/' (scot %p ship.msg-source) ~)
-    %channel  (rap 3 'channel/' kind.msg-source '/' (scot %p host.msg-source) '/' name.msg-source ~)
+    %direct     'direct'
+    %dm         (rap 3 'dm/' (scot %p ship.msg-source) ~)
+    %dm-thread  (rap 3 'dm/' (scot %p ship.msg-source) ~)
+    %channel    (rap 3 'channel/' kind.msg-source '/' (scot %p host.msg-source) '/' name.msg-source ~)
+    %thread     (rap 3 'thread/' kind.msg-source '/' (scot %p host.msg-source) '/' name.msg-source '/' (scot %da parent-id.msg-source) ~)
   ==
 ::
 ::  +lcm-ingest: build a card to ingest a message into lcm
@@ -215,7 +236,7 @@
 ++  send-dm-card
   |=  [=bowl:gall to=ship text=@t]
   ^-  card
-  =/  dm-story=story:d  ~[[%inline (text-to-inlines text)]]
+  =/  dm-story=story:d  (text-to-story text)
   =/  dm-memo=memo:d  [content=dm-story author=our.bowl sent=now.bowl]
   =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
   =/  dm-delta=delta:writs:c  [%add dm-essay ~]
@@ -229,9 +250,11 @@
   |=  =msg-source:claw
   ^-  ship
   ?-  -.msg-source
-    %dm       ship.msg-source
-    %channel  ship.msg-source
-    %direct   *ship
+    %dm         ship.msg-source
+    %dm-thread  ship.msg-source
+    %channel    ship.msg-source
+    %thread     ship.msg-source
+    %direct     *ship
   ==
 ::
 ::  +get-nickname: scry %contacts for a ship's nickname
@@ -249,6 +272,16 @@
     p.u.nick
   ?:(?=(%| -.result) '' p.result)
 ::
+::  +has-own-nickname: check if text contains bot's own nickname
+::    case-insensitive word check
+::
+++  has-own-nickname
+  |=  [=bowl:gall text=@t]
+  ^-  ?
+  ::  disabled: contacts scry crashes on some ships
+  ::  TODO: cache own nickname on init instead of scrying per-message
+  %.n
+::
 ::  +send-reply-card: send a response based on message source
 ::
 ++  send-reply-card
@@ -257,13 +290,24 @@
   ?-  -.msg-source
       %direct  [%pass /noop %arvo %b %wait (add now.bowl ~s1)]
       %dm      (send-dm-card bowl ship.msg-source text)
+      %dm-thread
+    ::  DM thread replies: send as regular DM for now
+    ::  (activity message-key IDs don't reliably match chat writ IDs)
+    (send-dm-card bowl ship.msg-source text)
       %channel
-    ::  post reply in channel using proper types
-    =/  ch-story=story:d  ~[[%inline (text-to-inlines text)]]
+    ::  post in channel as top-level message
+    =/  ch-story=story:d  (text-to-story text)
     =/  ch-memo=memo:d  [content=ch-story author=our.bowl sent=now.bowl]
     =/  ch-essay=essay:d  [ch-memo /chat ~ ~]
     =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
     =/  act=a-channels:d  [%channel nest [%post [%add ch-essay]]]
+    [%pass /ch-send %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]
+      %thread
+    ::  post as reply in a thread
+    =/  th-story=story:d  (text-to-story text)
+    =/  th-memo=memo:d  [content=th-story author=our.bowl sent=now.bowl]
+    =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
+    =/  act=a-channels:d  [%channel nest [%post [%reply parent-id.msg-source [%add th-memo]]]]
     [%pass /ch-send %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]
   ==
 ::
@@ -311,51 +355,193 @@
   `p.json
 ::
 ::
-::  +text-to-inlines: parse text into inlines with proper ship mentions
-::    converts ~ship-name patterns into [%ship @p] inline elements
+::  +text-to-story: split on double-newlines into paragraph verses
+::    handles headers (#) and blockquotes (>) as special verse types
 ::
-++  text-to-inlines
+++  text-to-story
   |=  text=@t
-  ^-  (list inline:d)
+  ^-  story:d
+  =/  paragraphs=(list @t)  (split-paragraphs text)
+  =/  verses=(list verse:d)  ~
+  |-
+  ?~  paragraphs  (flop verses)
+  =/  para=tape  (trip i.paragraphs)
+  ::  header: # through ######
+  ?:  ?&(?=(^ para) =(i.para '#'))
+    =/  lvl=@ud  1
+    =/  rest=tape  t.para
+    |-
+    ?~  rest
+      ^$(paragraphs t.paragraphs)
+    ?:  &(=(i.rest '#') (lth lvl 6))
+      $(rest t.rest, lvl +(lvl))
+    ::  skip the space after #
+    =/  hrest=tape  ?:(=(i.rest ' ') t.rest rest)
+    =/  htxt=@t  (crip hrest)
+    =/  ils=(list inline:d)  (parse-inlines htxt)
+    ?~  ils
+      ^$(paragraphs t.paragraphs)
+    =/  tag=?(%h1 %h2 %h3 %h4 %h5 %h6)
+      ?:  =(1 lvl)  %h1
+      ?:  =(2 lvl)  %h2
+      ?:  =(3 lvl)  %h3
+      ?:  =(4 lvl)  %h4
+      ?:  =(5 lvl)  %h5
+      %h6
+    ^$(paragraphs t.paragraphs, verses [[%block [%header tag ils]] verses])
+  ::  blockquote: > text
+  ?:  ?&(?=(^ para) =(i.para '>'))
+    =/  rest=tape  t.para
+    =?  rest  &(?=(^ rest) =(i.rest ' '))  t.rest
+    =/  qtxt=@t  (crip rest)
+    =/  ils=(list inline:d)  (parse-inlines qtxt)
+    ?~  ils
+      $(paragraphs t.paragraphs)
+    $(paragraphs t.paragraphs, verses [[%inline `(list inline:d)`~[`inline:d`[%blockquote ils]]] verses])
+  ::  regular paragraph
+  =/  ils=(list inline:d)  (parse-inlines i.paragraphs)
+  ?~  ils  $(paragraphs t.paragraphs)
+  $(paragraphs t.paragraphs, verses [[%inline ils] verses])
+::
+::  +split-paragraphs: split text on double-newlines
+::
+++  split-paragraphs
+  |=  text=@t
+  ^-  (list @t)
   =/  chars=tape  (trip text)
-  =/  out=(list inline:d)  ~
+  =/  out=(list @t)  ~
   =/  buf=tape  ~
   |-
   ?~  chars
     ?~  buf  (flop out)
-    (flop [`inline:d`(crip (flop buf)) out])
-  ?.  =(i.chars '~')
-    $(chars t.chars, buf [i.chars buf])
-  ::  found ~, collect valid ship-name chars
-  =/  rest=tape  t.chars
-  =/  ship-tape=tape  ~
-  |-  ^-  (list inline:d)
+    (flop [(crip (flop buf)) out])
+  ?:  ?&(=(i.chars 10) ?=(^ t.chars) =(i.t.chars 10))
+    ::  double newline: emit paragraph, skip both newlines
+    =/  rest=tape  t.t.chars
+    ::  skip any additional newlines
+    |-
+    ?~  rest  ^$(chars ~)
+    ?.  =(i.rest 10)
+      ?~  buf  ^$(chars rest)
+      ^$(chars rest, out [(crip (flop buf)) out], buf ~)
+    $(rest t.rest)
+  $(chars t.chars, buf [i.chars buf])
+::
+::  +text-to-inlines: wrapper for parse-inlines
+::
+++  text-to-inlines
+  |=  text=@t
+  ^-  (list inline:d)
+  (parse-inlines text)
+::
+::  +flush-buf: flush text buffer into inline list
+::
+++  flush-buf
+  |=  [buf=tape out=(list inline:d)]
+  ^-  (list inline:d)
+  ?~  buf  out
+  [`inline:d`(crip (flop buf)) out]
+::
+::  +try-delimited: try to match text between delimiters
+::    returns (unit [matched=tape rest=tape]) or ~ if no closing delimiter
+::
+++  try-delimited
+  |=  [delim=tape chars=tape]
+  ^-  (unit [tape tape])
+  =/  dlen=@ud  (lent delim)
+  =/  collected=tape  ~
+  =/  rest=tape  chars
+  |-
+  ?~  rest  ~
+  ::  check if rest starts with delimiter
+  =/  prefix=tape  (scag dlen `(list @)`rest)
+  ?:  =(prefix delim)
+    `[(flop collected) (slag dlen `(list @)`rest)]
+  $(rest t.rest, collected [i.rest collected])
+::
+::  +try-ship: try to parse a ship mention starting after ~
+::
+++  try-ship
+  |=  chars=tape
+  ^-  (unit [@p tape])
+  =/  ship-buf=tape  ~
+  =/  rest=tape  chars
+  |-
   ?~  rest
-    ::  hit end of string, try to parse what we have
-    =/  name=@t  (crip (weld "~" (flop ship-tape)))
-    =/  parsed=(unit @p)  ?:((lth (lent ship-tape) 3) ~ (slaw %p name))
-    ?~  parsed
-      ::  not valid, put back as text
-      ^$(chars ~, buf (weld (flop (trip name)) buf))
-    =/  pre=(list inline:d)
-      ?~  buf  out
-      [`inline:d`(crip (flop buf)) out]
-    (flop [`inline:d`[%ship u.parsed] pre])
+    ::  end of string, try to parse
+    ?:  (lth (lent ship-buf) 3)  ~
+    =/  sname=@t  (crip (weld "~" (flop ship-buf)))
+    (bind (slaw %p sname) |=(p=@p [p ~]))
   =/  c=@tD  i.rest
   ?:  ?|  =(c '-')
           ?&((gte c 'a') (lte c 'z'))
           ?&((gte c '0') (lte c '9'))
       ==
-    $(rest t.rest, ship-tape [c ship-tape])
+    $(rest t.rest, ship-buf [c ship-buf])
   ::  non-ship char, try to parse what we have
-  =/  name=@t  (crip (weld "~" (flop ship-tape)))
-  =/  parsed=(unit @p)  ?:((lth (lent ship-tape) 3) ~ (slaw %p name))
-  ?~  parsed
-    ^$(chars rest, buf (weld (flop (trip name)) buf))
-  =/  pre=(list inline:d)
-    ?~  buf  out
-    [`inline:d`(crip (flop buf)) out]
-  ^$(chars rest, buf ~, out [`inline:d`[%ship u.parsed] pre])
+  ?:  (lth (lent ship-buf) 3)  ~
+  =/  sname=@t  (crip (weld "~" (flop ship-buf)))
+  =/  parsed=(unit @p)  (slaw %p sname)
+  ?~  parsed  ~
+  `[u.parsed rest]
+::
+::  +parse-inlines: parse text into inlines with markdown support
+::    handles: ~ship mentions, `inline-code`, **bold**, \n breaks
+::
+++  parse-inlines
+  |=  text=@t
+  ^-  (list inline:d)
+  =/  chars=tape  (trip text)
+  =/  out=(list inline:d)  ~
+  =/  buf=tape  ~
+  |-  ^-  (list inline:d)
+  ?~  chars
+    (flop (flush-buf buf out))
+  ::  newline → break
+  ?:  =(i.chars 10)
+    =/  flushed  (flush-buf buf out)
+    $(chars t.chars, buf ~, out [`inline:d`[%break ~] flushed])
+  ::  strikethrough: ~~...~~ (before ship check)
+  ?:  ?=([%'~' %'~' *] chars)
+    =/  result  (try-delimited "~~" t.t.chars)
+    ?~  result
+      $(chars t.chars, buf [i.chars buf])
+    =/  flushed  (flush-buf buf out)
+    =/  inner=@t  (crip -.u.result)
+    $(chars +.u.result, buf ~, out [`inline:d`[%strike `(list inline:d)`~[`inline:d`inner]] flushed])
+  ::  ship mention: ~
+  ?:  =(i.chars '~')
+    =/  result  (try-ship t.chars)
+    ?~  result
+      $(chars t.chars, buf ['~' buf])
+    =/  flushed  (flush-buf buf out)
+    $(chars +.u.result, buf ~, out [`inline:d`[%ship -.u.result] flushed])
+  ::  inline code: `...`
+  ?:  =(i.chars '`')
+    =/  result  (try-delimited "`" t.chars)
+    ?~  result
+      $(chars t.chars, buf ['`' buf])
+    =/  flushed  (flush-buf buf out)
+    =/  code-text=@t  (crip -.u.result)
+    $(chars +.u.result, buf ~, out [`inline:d`[%inline-code code-text] flushed])
+  ::  bold: **...**
+  ?:  ?=([%'*' %'*' *] chars)
+    =/  result  (try-delimited "**" t.t.chars)
+    ?~  result
+      $(chars t.chars, buf [i.chars buf])
+    =/  flushed  (flush-buf buf out)
+    =/  inner=@t  (crip -.u.result)
+    $(chars +.u.result, buf ~, out [`inline:d`[%bold `(list inline:d)`~[`inline:d`inner]] flushed])
+  ::  italic: *...* (single asterisk, not **)
+  ?:  =(i.chars '*')
+    =/  result  (try-delimited "*" t.chars)
+    ?~  result
+      $(chars t.chars, buf ['*' buf])
+    =/  flushed  (flush-buf buf out)
+    =/  inner=@t  (crip -.u.result)
+    $(chars +.u.result, buf ~, out [`inline:d`[%italics `(list inline:d)`~[`inline:d`inner]] flushed])
+  ::  default: accumulate
+  $(chars t.chars, buf [i.chars buf])
 ::
 ++  trim-ws
   |=  t=tape
@@ -373,6 +559,9 @@
     "/model <name> - set model (owner only)\0a"
     "/clear - clear conversation history\0a"
     "/status - show agent status\0a"
+    "/approve ~ship - approve a pending ship (owner only)\0a"
+    "/deny ~ship - deny a pending ship (owner only)\0a"
+    "/pending - list pending approval requests (owner only)\0a"
     "/help - show this help\0a"
     "\0aAvailable tools:\0a"
     "web_search, image_search, upload_image, send_dm,\0a"
@@ -386,6 +575,7 @@
   |=  $:  =bowl:gall  text=@t  from=ship  =msg-source:claw
           mod=@t  pend=?  api=@t  last-err=@t
           wl=(map ship ship-role:claw)  ctx=(map @tas @t)
+          pa=(map ship @t)  owner-ts=@da
       ==
   ^-  (unit (list card))
   ::  trim both leading and trailing whitespace
@@ -427,12 +617,24 @@
         [%pass /lcm-clear %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%clear key])]
     ==
   ?:  =(cmd '/status')
+    =/  owner-ago=@t
+      ?:  =(0 owner-ts)  'never'
+      =/  diff=@dr  (sub now.bowl owner-ts)
+      =/  mins=@ud  (div diff ~m1)
+      ?:  (lth mins 60)
+        (rap 3 (scot %ud mins) 'm ago' ~)
+      =/  hrs=@ud  (div mins 60)
+      ?:  (lth hrs 24)
+        (rap 3 (scot %ud hrs) 'h ago' ~)
+      (rap 3 (scot %ud (div hrs 24)) 'd ago' ~)
     =/  status=@t
       %-  crip
       ;:  weld
         "Model: {(trip mod)}\0a"
         "Pending: {?:(pend "yes" "no")}\0a"
         "Ships: {(a-co:co ~(wyt by wl))}\0a"
+        "Pending approvals: {(a-co:co ~(wyt by pa))}\0a"
+        "Owner last seen: {(trip owner-ago)}\0a"
         "Error: {?:(=('' last-err) "none" (trip (end 3^100 last-err)))}"
       ==
     `[(send-reply-card bowl msg-source status)]~
@@ -461,11 +663,59 @@
     :~  (send-reply-card bowl msg-source (rap 3 'Channel ' ch ' set to whitelist-only.' ~))
         [%pass /slash-perm %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-channel-perm ch %whitelist])]
     ==
+  ::  /approve ~ship - approve a pending ship (owner only)
+  ?:  &((gte (met 3 cmd) 10) =((end [3 9] cmd) '/approve '))
+    =/  ship-str=@t  (crip (trim-ws (trip (rsh [3 9] cmd))))
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can approve ships.')]~
+    =/  parsed=(unit ship)  (slaw %p ship-str)
+    ?~  parsed
+      `[(send-reply-card bowl msg-source 'Invalid ship name.')]~
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Approved ' ship-str ' and added to whitelist.' ~))
+        [%pass /slash-approve %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%approve u.parsed])]
+    ==
+  ::  /deny ~ship - deny a pending ship (owner only)
+  ?:  &((gte (met 3 cmd) 7) =((end [3 6] cmd) '/deny '))
+    =/  ship-str=@t  (crip (trim-ws (trip (rsh [3 6] cmd))))
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can deny ships.')]~
+    =/  parsed=(unit ship)  (slaw %p ship-str)
+    ?~  parsed
+      `[(send-reply-card bowl msg-source 'Invalid ship name.')]~
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Denied ' ship-str '.' ~))
+        [%pass /slash-deny %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%deny u.parsed])]
+    ==
+  ::  /pending - list pending approval requests (owner only)
+  ?:  =(cmd '/pending')
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner
+      `[(send-reply-card bowl msg-source 'Only owners can view pending approvals.')]~
+    ?:  =(~ pa)
+      `[(send-reply-card bowl msg-source 'No pending approval requests.')]~
+    =/  lines=(list @t)
+      %+  turn  ~(tap by pa)
+      |=  [s=ship reason=@t]
+      (rap 3 '- ' (scot %p s) ': ' reason ~)
+    =/  body=@t
+      %+  roll  lines
+      |=  [line=@t acc=@t]
+      ?:(=('' acc) line (rap 3 acc '\0a' line ~))
+    `[(send-reply-card bowl msg-source (rap 3 'Pending approvals:\0a' body ~))]~
   ~
 --
 ::
 %-  agent:dbug
-=|  state-7:claw
+=|  state-9:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -521,6 +771,14 @@
           "read_channel_history, http_fetch, update_profile,\0a"
           "join_group, leave_group.\0a"
           "\0a"
+          "MEMORY TOOLS (for recalling compacted history):\0a"
+          "- search_history: search ALL conversations for a keyword/topic.\0a"
+          "  Returns matching snippets with summary IDs.\0a"
+          "- describe_summary: get full content and metadata for a summary ID.\0a"
+          "  Use after search_history to read compressed context.\0a"
+          "- list_conversations: see all conversation keys and sizes.\0a"
+          "Escalation: search_history first, then describe_summary for details.\0a"
+          "\0a"
           "When asked to find/send images, ALWAYS:\0a"
           "1. Call image_search with a descriptive query\0a"
           "2. Pick the best image URL from the results\0a"
@@ -540,26 +798,30 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  =/  new=state-7:claw
+  =/  new=state-9:claw
     ?-  -.old
-        %7  old
+        %9  old
+        %8
+      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da]
+        %7
+      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da]
         %6
-      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~]
+      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da]
         %5
-      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
+      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da]
         %4
-      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
+      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da]
         %3
-      [%7 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
+      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da]
         %2
-      [%7 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~]
+      [%9 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da]
         %1
-      [%7 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~]
+      [%9 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da]
         %0
       =/  ctx=(map @tas @t)  *(map @tas @t)
       =?  ctx  !=('' system-prompt.old)
         (~(put by ctx) %agent system-prompt.old)
-      [%7 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~]
+      [%9 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da]
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -573,7 +835,9 @@
     [%pass /dm-watch/(scot %p s) %agent [our.bowl %chat] %watch /dm/(scot %p s)]
   ::  sync config to lcm when migrating from older state
   =/  migrate-cards=(list card)
-    ?.  =(-.old %6)
+    ?.  ?|  =(-.old %6)
+            =(-.old %9)
+        ==
       :~  (lcm-sync-config bowl api-key.new model.new)
       ==
     ~
@@ -642,6 +906,10 @@
           ^-  action:claw  [%clear ~]
             %'prompt'
           ^-  action:claw  [%prompt `@t`((ot ~[content+so]) u.jon)]
+            %'approve'
+          ^-  action:claw  [%approve `@p`((ot ~[ship+(se %p)]) u.jon)]
+            %'deny'
+          ^-  action:claw  [%deny `@p`((ot ~[ship+(se %p)]) u.jon)]
         ==
       ?~  act
         :_  this
@@ -675,6 +943,11 @@
             [(scot %p s) s+?:(=(r %owner) 'owner' 'allowed')]
             :-  'context-keys'
             a+(turn ~(tap in ~(key by context)) |=(k=@tas s+(scot %tas k)))
+            :-  'pending-approvals'
+            %-  pairs:enjs:format
+            %+  turn  ~(tap by pending-approvals)
+            |=  [s=ship reason=@t]
+            [(scot %p s) s+reason]
         ==
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::
@@ -705,7 +978,7 @@
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::
         [%prompt ~]
-      [[200 cors-headers] `(as-octs:mimes:html (en:json:html s+(build-prompt bowl context)))]
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html s+(build-prompt bowl context owner-last-msg)))]
     ::
     ==
   ::
@@ -785,12 +1058,27 @@
     %-  (slog leaf+"claw: channel '{(trip channel.act)}' set to {<perm.act>}" ~)
     `this(channel-perms (~(put by channel-perms) channel.act perm.act))
   ::
+      %approve
+    %-  (slog leaf+"claw: approved {(scow %p ship.act)}" ~)
+    =.  pending-approvals  (~(del by pending-approvals) ship.act)
+    =.  whitelist  (~(put by whitelist) ship.act %allowed)
+    :_  this
+    :~  [%pass /dm-rsvp/(scot %p ship.act) %agent [our.bowl %chat] %poke %chat-dm-rsvp !>([ship.act %.y])]
+        [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %leave ~]
+        [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %watch /dm/(scot %p ship.act)]
+        (send-dm-card bowl ship.act 'Your access has been approved. You can now talk to me!')
+    ==
+  ::
+      %deny
+    %-  (slog leaf+"claw: denied {(scow %p ship.act)}" ~)
+    `this(pending-approvals (~(del by pending-approvals) ship.act))
+  ::
       %prompt
     ?:  pending  ~|(%claw-busy !!)
     ?:  =('' api-key)  ~|(%claw-no-api-key !!)
     =/  new-msg=msg:claw  ['user' content.act]
     =.  pending  %.y
-    =/  sys-prompt=@t  (build-prompt bowl context)
+    =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
     %-  (slog leaf+"claw: sending prompt..." ~)
     :_  this
     :~  (lcm-ingest bowl 'direct' 'user' content.act)
@@ -828,6 +1116,11 @@
           %+  turn  ~(tap by whitelist)
           |=  [s=ship r=ship-role:claw]
           [(scot %p s) s+?:(=(r %owner) 'owner' 'allowed')]
+          :-  'pending-approvals'
+          %-  pairs:enjs:format
+          %+  turn  ~(tap by pending-approvals)
+          |=  [s=ship reason=@t]
+          [(scot %p s) s+reason]
       ==
     ``json+!>(j)
       [%x %context @ ~]
@@ -839,7 +1132,7 @@
     %-  some  %-  some
     json+!>((pairs:enjs:format (turn ~(tap by context) |=([k=@tas v=@t] [(scot %tas k) s+v]))))
       [%x %prompt ~]
-    ``json+!>(s+(build-prompt bowl context))
+    ``json+!>(s+(build-prompt bowl context owner-last-msg))
       [%x %dm-history @ ~]
     =/  who=ship  (slav %p i.t.t.path)
     =/  key=@t  (rap 3 'dm/' (scot %p who) ~)
@@ -887,10 +1180,22 @@
       ::  extract text from story content
       =/  text=@t  (story-to-text ;;(story:d content-noun))
       ?:  =('' text)  `this
+      ::  dedup: use ship+text-hash
+      =/  evt-id=@t  (rap 3 'dmw/' (scot %p from) '/' (scot %uv (mug text)) ~)
+      ?:  (~(has in seen-msgs) evt-id)  `this
+      =.  seen-msgs  (~(put in seen-msgs) evt-id)
+      =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
+      ::  owner heartbeat tracking
+      =/  dmw-role=(unit ship-role:claw)  (~(get by whitelist) from)
+      =?  owner-last-msg  &(?=(^ dmw-role) =(u.dmw-role %owner))
+        now.bowl
+      ::  bot rate limiting: reset count (human DM received)
+      =/  dmw-rl-key=@t  (rap 3 'dm/' (scot %p from) ~)
+      =.  bot-counts  (~(put by bot-counts) dmw-rl-key 0)
       %-  (slog leaf+"claw: dm from {(scow %p from)}: {(trip text)}" ~)
       ::  check for slash commands
       =/  src=msg-source:claw  [%dm from]
-      =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
+      =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
       ?^  slash-result  [u.slash-result this]
       ::  send to llm, history managed by lcm
       =.  dm-pending  (~(put in dm-pending) from)
@@ -899,7 +1204,7 @@
         :_  this
         :~  (send-dm-card bowl from 'Sorry, I don\'t have an API key configured yet. My owner needs to set one up.')
         ==
-      =/  base-prompt=@t  (build-prompt bowl context)
+      =/  base-prompt=@t  (build-prompt bowl context owner-last-msg)
       ::  inject sender context so LLM knows who it's talking to
       =/  nick=@t  (get-nickname bowl from)
       =/  nick-str=@t
@@ -965,7 +1270,6 @@
         ==
       ::
           %post
-        ?.  mention.incoming  `this
         =/  from=ship  p.id.key.incoming
         ?:  =(from our.bowl)  `this
         ::  check channel permissions: %open allows anyone, %whitelist or missing requires whitelist
@@ -975,14 +1279,49 @@
         ?.  ?|  (~(has by whitelist) from)
                 &(?=(^ ch-perm) =(u.ch-perm %open))
             ==
-          `this
+          ::  approval workflow: notify owner if mentioned by unknown ship
+          =/  post-text=@t  (story-to-text content.incoming)
+          =/  post-nick=?  (has-own-nickname bowl post-text)
+          ?.  |(mention.incoming post-nick)  `this
+          ?:  (~(has by pending-approvals) from)  `this
+          %-  (slog leaf+"claw: access request from {(scow %p from)}" ~)
+          =/  reason=@t  (rap 3 'mentioned in ' ch-key ': ' (end 3^100 post-text) ~)
+          =.  pending-approvals  (~(put by pending-approvals) from reason)
+          ::  notify all owners
+          =/  owner-cards=(list card)
+            %+  murn  ~(tap by whitelist)
+            |=  [s=ship r=ship-role:claw]
+            ?.  =(r %owner)  ~
+            `(send-dm-card bowl s (rap 3 'Access request from ' (scot %p from) ': ' reason '\0a\0aUse /approve ' (scot %p from) ' or /deny ' (scot %p from) ~))
+          [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
+        ::  respond if mentioned OR if text contains our nickname
+        =/  nick-match=?  (has-own-nickname bowl text)
+        ?.  |(mention.incoming nick-match)  `this
         ?:  =('' text)  `this
+        ::  dedup: skip if already seen
+        =/  evt-id=@t  (rap 3 'post/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
+        ?:  (~(has in seen-msgs) evt-id)  `this
+        =.  seen-msgs  (~(put in seen-msgs) evt-id)
+        =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
+        ::  owner heartbeat tracking
+        =/  post-from-role=(unit ship-role:claw)  (~(get by whitelist) from)
+        =?  owner-last-msg  &(?=(^ post-from-role) =(u.post-from-role %owner))
+          now.bowl
+        ::  bot rate limiting: reset count (human message in channel)
+        =.  bot-counts  (~(put by bot-counts) ch-key 0)
         %-  (slog leaf+"claw: mention from {(scow %p from)} in {(trip ;;(@t kind.nest))}/{(scow %p ship.nest)}/{(trip ;;(@t name.nest))}: {(trip text)}" ~)
         =/  src=msg-source:claw  [%channel kind.nest ship.nest name.nest from]
+        ::  track participated channel
+        =.  participated  (~(put in participated) ch-key)
         ::  check for slash commands
-        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
         ?^  slash-result  [u.slash-result this]
+        ::  bot rate limiting: check before responding
+        =/  ch-bot-count=@ud  (~(gut by bot-counts) ch-key 0)
+        ?:  (gth ch-bot-count 3)
+          %-  (slog leaf+"claw: rate limited in {(trip ch-key)} (count={<ch-bot-count>})" ~)
+          `this
         =.  pending-src  (~(put by pending-src) from src)
         =.  dm-pending  (~(put in dm-pending) from)
         ?:  =('' api-key)
@@ -993,7 +1332,7 @@
         =/  msg-id=@t  (scot %da q.id.key.incoming)
         =/  ch-str=@t  (rap 3 kind.nest '/' (scot %p ship.nest) '/' name.nest ~)
         %-  (slog leaf+"claw: injecting context: msg_id={<msg-id>} channel={<ch-str>}" ~)
-        =/  base-prompt=@t  (build-prompt bowl context)
+        =/  base-prompt=@t  (build-prompt bowl context owner-last-msg)
         =/  nick=@t  (get-nickname bowl from)
         =/  nick-str=@t
           ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
@@ -1023,14 +1362,39 @@
           %dm-post
         =/  from=ship  p.id.key.incoming
         ?:  =(from our.bowl)  `this
-        ?.  (~(has by whitelist) from)  `this
+        ?.  (~(has by whitelist) from)
+          ::  approval workflow: notify owner of DM from unknown ship
+          =/  dm-text=@t  (story-to-text content.incoming)
+          ?:  =('' dm-text)  `this
+          ?:  (~(has by pending-approvals) from)  `this
+          %-  (slog leaf+"claw: access request via DM from {(scow %p from)}" ~)
+          =/  reason=@t  (rap 3 'DM: ' (end 3^100 dm-text) ~)
+          =.  pending-approvals  (~(put by pending-approvals) from reason)
+          =/  owner-cards=(list card)
+            %+  murn  ~(tap by whitelist)
+            |=  [s=ship r=ship-role:claw]
+            ?.  =(r %owner)  ~
+            `(send-dm-card bowl s (rap 3 'Access request from ' (scot %p from) ': ' reason '\0a\0aUse /approve ' (scot %p from) ' or /deny ' (scot %p from) ~))
+          [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
         ?:  (~(has in dm-pending) from)  `this
+        ::  dedup
+        =/  evt-id=@t  (rap 3 'dmp/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
+        ?:  (~(has in seen-msgs) evt-id)  `this
+        =.  seen-msgs  (~(put in seen-msgs) evt-id)
+        =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
+        ::  owner heartbeat tracking
+        =/  dmp-role=(unit ship-role:claw)  (~(get by whitelist) from)
+        =?  owner-last-msg  &(?=(^ dmp-role) =(u.dmp-role %owner))
+          now.bowl
+        ::  bot rate limiting: reset count (human DM received)
+        =/  dmp-rl-key=@t  (rap 3 'dm/' (scot %p from) ~)
+        =.  bot-counts  (~(put by bot-counts) dmp-rl-key 0)
         %-  (slog leaf+"claw: dm-post from {(scow %p from)}: {(trip text)}" ~)
         =/  src=msg-source:claw  [%dm from]
         ::  check for slash commands
-        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context)
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
         ?^  slash-result  [u.slash-result this]
         =.  dm-pending  (~(put in dm-pending) from)
         ?:  =('' api-key)
@@ -1039,7 +1403,7 @@
           :~  (send-dm-card bowl from 'Sorry, no API key configured.')
           ==
         =/  msg-id=@t  (scot %da q.id.key.incoming)
-        =/  base-prompt=@t  (build-prompt bowl context)
+        =/  base-prompt=@t  (build-prompt bowl context owner-last-msg)
         =/  nick=@t  (get-nickname bowl from)
         =/  nick-str=@t
           ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
@@ -1052,6 +1416,125 @@
               '.\0aTheir message ID is: '
               msg-id
               '\0aYour text response is automatically sent as a DM reply.'
+          ==
+        :_  this
+        :~  (lcm-ingest bowl (lcm-key src) 'user' text)
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
+        ==
+      ::
+          %dm-reply
+        =/  from=ship  p.id.key.incoming
+        ?:  =(from our.bowl)  `this
+        ?.  (~(has by whitelist) from)  `this
+        =/  text=@t  (story-to-text content.incoming)
+        ?:  =('' text)  `this
+        ?:  (~(has in dm-pending) from)  `this
+        ::  dedup
+        =/  evt-id=@t  (rap 3 'dmr/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
+        ?:  (~(has in seen-msgs) evt-id)  `this
+        =.  seen-msgs  (~(put in seen-msgs) evt-id)
+        =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
+        ::  owner heartbeat tracking
+        =/  dmr-role=(unit ship-role:claw)  (~(get by whitelist) from)
+        =?  owner-last-msg  &(?=(^ dmr-role) =(u.dmr-role %owner))
+          now.bowl
+        =/  pid=[p=@p q=@da]  [p.id.parent.incoming q.id.parent.incoming]
+        %-  (slog leaf+"claw: dm-reply from {(scow %p from)} parent={<pid>}: {(trip text)}" ~)
+        ::  DM thread reply: route response back to the same thread
+        =/  src=msg-source:claw  [%dm-thread from pid]
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
+        ?^  slash-result  [u.slash-result this]
+        =.  dm-pending  (~(put in dm-pending) from)
+        ?:  =('' api-key)
+          =.  dm-pending  (~(del in dm-pending) from)
+          :_  this
+          :~  (send-dm-card bowl from 'Sorry, no API key configured.')
+          ==
+        =/  base-prompt=@t  (build-prompt bowl context owner-last-msg)
+        =/  nick=@t  (get-nickname bowl from)
+        =/  nick-str=@t
+          ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
+        =/  sys-prompt=@t
+          %+  rap  3
+          :~  base-prompt
+              '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM thread with '
+              (scot %p from)
+              nick-str
+              '.\0aYour response will be posted in the same thread.'
+          ==
+        =.  pending-src  (~(put by pending-src) from src)
+        :_  this
+        :~  (lcm-ingest bowl (lcm-key src) 'user' text)
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
+        ==
+      ::
+          %reply
+        ::  respond if mentioned, replying to our post, nickname match, or participated thread
+        =/  parent-author=ship  p.id.parent.incoming
+        =/  from=ship  p.id.key.incoming
+        ?:  =(from our.bowl)  `this
+        =/  =nest:d  channel.incoming
+        =/  ch-key=@t  (rap 3 kind.nest '/' (scot %p ship.nest) '/' name.nest ~)
+        =/  ch-perm=(unit channel-perm:claw)  (~(get by channel-perms) ch-key)
+        ?.  ?|  (~(has by whitelist) from)
+                &(?=(^ ch-perm) =(u.ch-perm %open))
+            ==
+          `this
+        =/  text=@t  (story-to-text content.incoming)
+        ?:  =('' text)  `this
+        ::  build thread key for participated check
+        =/  parent-time=@da  q.id.parent.incoming
+        =/  thread-key=@t  (rap 3 'thread/' kind.nest '/' (scot %p ship.nest) '/' name.nest '/' (scot %da parent-time) ~)
+        =/  nick-match=?  (has-own-nickname bowl text)
+        =/  in-participated=?  (~(has in participated) thread-key)
+        ?.  ?|  mention.incoming
+                =(parent-author our.bowl)
+                nick-match
+                in-participated
+            ==
+          `this
+        ::  dedup
+        =/  evt-id=@t  (rap 3 'rpl/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
+        ?:  (~(has in seen-msgs) evt-id)  `this
+        =.  seen-msgs  (~(put in seen-msgs) evt-id)
+        =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
+        ::  owner heartbeat tracking
+        =/  rpl-role=(unit ship-role:claw)  (~(get by whitelist) from)
+        =?  owner-last-msg  &(?=(^ rpl-role) =(u.rpl-role %owner))
+          now.bowl
+        ::  bot rate limiting: reset count (human message in thread)
+        =.  bot-counts  (~(put by bot-counts) thread-key 0)
+        ::  track participated thread
+        =.  participated  (~(put in participated) thread-key)
+        %-  (slog leaf+"claw: reply from {(scow %p from)} in thread {(scow %p ship.nest)}/{(trip name.nest)}" ~)
+        =/  src=msg-source:claw  [%thread kind.nest ship.nest name.nest parent-time from]
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
+        ?^  slash-result  [u.slash-result this]
+        ::  bot rate limiting: check before responding
+        =/  thr-bot-count=@ud  (~(gut by bot-counts) thread-key 0)
+        ?:  (gth thr-bot-count 3)
+          %-  (slog leaf+"claw: rate limited in thread (count={<thr-bot-count>})" ~)
+          `this
+        =.  pending-src  (~(put by pending-src) from src)
+        =.  dm-pending  (~(put in dm-pending) from)
+        ?:  =('' api-key)
+          =.  dm-pending  (~(del in dm-pending) from)
+          :_  this
+          :~  (send-reply-card bowl src 'Sorry, no API key configured.')
+          ==
+        =/  base-prompt=@t  (build-prompt bowl context owner-last-msg)
+        =/  nick=@t  (get-nickname bowl from)
+        =/  nick-str=@t
+          ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
+        =/  sys-prompt=@t
+          %+  rap  3
+          :~  base-prompt
+              '\0a\0a---\0a\0a# Current Conversation\0a\0a'
+              (scot %p from)
+              nick-str
+              ' replied in a thread in channel '
+              ch-key
+              '.\0aYour response will be posted in the same thread.'
           ==
         :_  this
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
@@ -1084,6 +1567,18 @@
       `this
     ==
       [%slash-model ~]
+    ?+  -.sign  `this
+        %poke-ack  `this
+    ==
+      [%slash-perm ~]
+    ?+  -.sign  `this
+        %poke-ack  `this
+    ==
+      [%slash-approve ~]
+    ?+  -.sign  `this
+        %poke-ack  `this
+    ==
+      [%slash-deny ~]
     ?+  -.sign  `this
         %poke-ack  `this
     ==
@@ -1276,7 +1771,7 @@
       =.  tool-loop  `[msg-source.tl conv-key.tl new-fmsgs t.rest]
       :_  this  [card.res]~
     ::  all done - fire llm follow-up
-    =/  sys-prompt=@t  (build-prompt bowl context)
+    =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
     =/  follow-wire=path
       ?:  =(-.msg-source.tl %direct)  /query-tools
       /dm-query-tools/(scot %p (src-ship msg-source.tl))
@@ -1312,7 +1807,7 @@
     =.  tool-loop  `[msg-source.tl conv-key.tl new-fmsgs rest]
     :_  this  [card.res]~
   ::  all done - fire LLM follow-up
-  =/  sys-prompt=@t  (build-prompt bowl context)
+  =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
   =/  follow-wire=path
     ?:  =(-.msg-source.tl %direct)  /query-tools
     /dm-query-tools/(scot %p (src-ship msg-source.tl))
@@ -1390,15 +1885,26 @@
     %-  (slog leaf+"claw: response routing via {<-.source>}" ~)
     =/  who=ship
       ?-  -.source
-        %dm       ship.source
-        %channel  ship.source
-        %direct   our.bowl
+        %dm         ship.source
+        %dm-thread  ship.source
+        %channel    ship.source
+        %thread     ship.source
+        %direct     our.bowl
       ==
     ::  assistant response ingested into lcm via card below
     =?  dm-pending  (~(has in dm-pending) who)  (~(del in dm-pending) who)
     =.  pending-src  (~(del by pending-src) who)
+    ::  track participated: mark channel/thread so we respond to follow-ups
+    =.  participated
+      ?+  -.source  participated
+        %channel  (~(put in participated) (rap 3 kind.source '/' (scot %p host.source) '/' name.source ~))
+        %thread   (~(put in participated) (lcm-key source))
+      ==
+    ::  bot rate limiting: increment count for this conversation key
+    =/  resp-rl-key=@t  (lcm-key source)
+    =/  cur-bot-count=@ud  (~(gut by bot-counts) resp-rl-key 0)
+    =.  bot-counts  (~(put by bot-counts) resp-rl-key +(cur-bot-count))
     %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
-    ::  check if compaction needed: history tokens > 60% of model budget
     :_  this
     :~  (send-reply-card bowl source content)
         [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
@@ -1449,7 +1955,7 @@
         :_  this
         (weld (flop tool-cards) [card.res]~)
       ::  all sync - fire llm follow-up immediately
-      =/  sys-prompt=@t  (build-prompt bowl context)
+      =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
       =/  follow-wire=path
         ?:  =(-.source %direct)  /query-tools
         /dm-query-tools/(scot %p (src-ship source))
