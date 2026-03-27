@@ -16,6 +16,8 @@
       [%add-ship =ship role=ship-role]
       [%del-ship =ship]
       [%set-channel-perm channel=@t perm=channel-perm]
+      [%approve =ship]
+      [%deny =ship]
   ==
 ::
 +$  update
@@ -29,7 +31,9 @@
 ::
 +$  msg-source
   $%  [%dm =ship]
+      [%dm-thread =ship parent-id=[p=@p q=@da]]
       [%channel kind=?(%chat %diary %heap) host=@p name=@tas =ship]
+      [%thread kind=?(%chat %diary %heap) host=@p name=@tas parent-id=@da =ship]
       [%direct ~]
   ==
 ::
@@ -176,6 +180,45 @@
       channel-perms=(map @t channel-perm)
   ==
 ::
+::  state-8: participated threads + dedup
++$  state-8
+  $:  %8
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+      participated=(set @t)
+      seen-msgs=(set @t)
+  ==
+::
+::  state-9: bot rate limiting, approval workflow, owner heartbeat
++$  state-9
+  $:  %9
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+      participated=(set @t)
+      seen-msgs=(set @t)
+      bot-counts=(map @t @ud)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
@@ -185,5 +228,7 @@
       state-5
       state-6
       state-7
+      state-8
+      state-9
   ==
 --
