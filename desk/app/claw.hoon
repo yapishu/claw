@@ -13,7 +13,7 @@
 /+  dbug, default-agent, server, tools=claw-tools
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t) owner-ts=@da]
@@ -128,6 +128,122 @@
   ?:  !=(~ (find "gpt-4" m))   100.000
   ?:  !=(~ (find "gemini" m))  800.000
   50.000
+::
+::  +split-on-space: split cord on spaces into list of cords
+::
+++  split-on-space
+  |=  txt=@t
+  ^-  (list @t)
+  =/  chars=tape  (trip txt)
+  =/  out=(list @t)  ~
+  =/  buf=tape  ~
+  |-
+  ?~  chars
+    ?~  buf  (flop out)
+    (flop [(crip (flop buf)) out])
+  ?:  =(i.chars ' ')
+    ?~  buf  $(chars t.chars)
+    $(chars t.chars, out [(crip (flop buf)) out], buf ~)
+  $(chars t.chars, buf [i.chars buf])
+::
+::  +split-on-comma: split cord on commas into list of cords
+::
+++  split-on-comma
+  |=  txt=@t
+  ^-  (list @t)
+  =/  chars=tape  (trip txt)
+  =/  out=(list @t)  ~
+  =/  buf=tape  ~
+  |-
+  ?~  chars
+    ?~  buf  (flop out)
+    (flop [(crip (flop buf)) out])
+  ?:  =(i.chars ',')
+    ?~  buf  $(chars t.chars)
+    $(chars t.chars, out [(crip (flop buf)) out], buf ~)
+  $(chars t.chars, buf [i.chars buf])
+::
+::  +parse-cron-field: parse one cron field into a set of matching values
+::    field: one of the 5 cron fields (e.g. '*', '*/5', '3', '1,15')
+::    lo: minimum value for this field (e.g. 0 for minutes)
+::    hi: maximum value for this field (e.g. 59 for minutes)
+::
+++  parse-cron-field
+  |=  [field=@t lo=@ud hi=@ud]
+  ^-  (set @ud)
+  ::  wildcard: all values
+  ?:  =(field '*')
+    (silt (gulf lo hi))
+  ::  step: */N
+  =/  flen=@ud  (met 3 field)
+  ?:  &((gte flen 3) =((end [3 2] field) '*/'))
+    =/  step-cord=@t  (rsh [3 2] field)
+    =/  step=@ud  (fall (rush step-cord dem) 1)
+    ?:  =(0 step)  (silt (gulf lo hi))
+    =/  vals=(list @ud)
+      =/  n=@ud  0
+      =/  acc=(list @ud)  ~
+      |-
+      =/  v=@ud  (add lo (mul n step))
+      ?:  (gth v hi)  (flop acc)
+      $(n +(n), acc [v acc])
+    (silt vals)
+  ::  comma-separated list or single number
+  =/  parts=(list @t)  (split-on-comma field)
+  =/  vals=(list @ud)
+    %+  murn  parts
+    |=  p=@t
+    (rush p dem)
+  (silt vals)
+::
+::  +next-cron-fire: compute next fire time from cron expression
+::    cron format: "min hour dom month dow" (5 fields)
+::    each field: * (any), */N (every N), N (specific), N,M (list)
+::    dow: 0=Sunday, 1=Monday, ..., 6=Saturday
+::
+++  next-cron-fire
+  |=  [expr=@t now=@da]
+  ^-  (unit @da)
+  =/  fields=(list @t)  (split-on-space expr)
+  ?.  =((lent fields) 5)  ~
+  =/  f-min=(set @ud)   (parse-cron-field (snag 0 fields) 0 59)
+  =/  f-hour=(set @ud)  (parse-cron-field (snag 1 fields) 0 23)
+  =/  f-dom=(set @ud)   (parse-cron-field (snag 2 fields) 1 31)
+  =/  f-mon=(set @ud)   (parse-cron-field (snag 3 fields) 1 12)
+  =/  f-dow=(set @ud)   (parse-cron-field (snag 4 fields) 0 6)
+  ::  start from now + 1 minute, check each minute for up to 1 year
+  =/  candidate=@da  (add now ~m1)
+  ::  zero out seconds: rebuild with s=0 f=~
+  =/  d=date  (yore candidate)
+  =.  s.t.d  0
+  =.  f.t.d  ~
+  =.  candidate  (year d)
+  =/  limit=@ud  525.600  ::  minutes in a year
+  =/  idx=@ud  0
+  |-
+  ?:  =(idx limit)  ~
+  =/  d=date  (yore candidate)
+  ::  compute day of week (0=Sunday)
+  ::  use the Zeller-like approach: convert to days and mod 7
+  ::  epoch: ~2000.1.1 is a Saturday (dow=6)
+  =/  epoch=@da  ~2000.1.1
+  =/  day-diff=@ud
+    ?:  (gte candidate epoch)
+      (div (sub candidate epoch) ~d1)
+    0
+  =/  dow=@ud  (mod (add 6 day-diff) 7)
+  ::  check all 5 fields
+  ?.  (~(has in f-min) m.t.d)
+    $(idx +(idx), candidate (add candidate ~m1))
+  ?.  (~(has in f-hour) h.t.d)
+    $(idx +(idx), candidate (add candidate ~m1))
+  ?.  (~(has in f-dom) d.t.d)
+    $(idx +(idx), candidate (add candidate ~m1))
+  ?.  (~(has in f-mon) m.d)
+    $(idx +(idx), candidate (add candidate ~m1))
+  ?.  (~(has in f-dow) dow)
+    $(idx +(idx), candidate (add candidate ~m1))
+  `candidate
 ::
 ::  +assemble-context: build message list from summaries + fresh tail
 ::
@@ -568,7 +684,8 @@
     "send_channel_message, add_reaction, remove_reaction,\0a"
     "get_contact, list_groups, list_channels,\0a"
     "read_channel_history, http_fetch, update_profile,\0a"
-    "join_group, leave_group, local_mcp, local_mcp_list"
+    "join_group, leave_group, local_mcp, local_mcp_list,\0a"
+    "cron_add, cron_list, cron_remove"
   ==
 ::
 ++  handle-slash
@@ -715,7 +832,7 @@
 --
 ::
 %-  agent:dbug
-=|  state-9:claw
+=|  state-11:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -779,6 +896,13 @@
           "- list_conversations: see all conversation keys and sizes.\0a"
           "Escalation: search_history first, then describe_summary for details.\0a"
           "\0a"
+          "SCHEDULED TASKS (cron):\0a"
+          "- cron_add: schedule a recurring prompt (owner only).\0a"
+          "  Uses cron expressions: min hour dom month dow.\0a"
+          "  Examples: '*/30 * * * *' (every 30min), '0 9 * * *' (daily 9am).\0a"
+          "- cron_list: list all scheduled tasks.\0a"
+          "- cron_remove: remove a task by ID (owner only).\0a"
+          "\0a"
           "When asked to find/send images, ALWAYS:\0a"
           "1. Call image_search with a descriptive query\0a"
           "2. Pick the best image URL from the results\0a"
@@ -798,30 +922,34 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  =/  new=state-9:claw
+  =/  new=state-11:claw
     ?-  -.old
-        %9  old
+        %11  old
+        %10
+      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0]
+        %9
+      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0]
         %8
-      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da]
+      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da ~ 0]
         %7
-      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da]
+      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da ~ 0]
         %6
-      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da]
+      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da ~ 0]
         %5
-      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da]
+      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
         %4
-      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da]
+      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
         %3
-      [%9 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da]
+      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
         %2
-      [%9 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da]
+      [%11 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
         %1
-      [%9 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da]
+      [%11 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
         %0
       =/  ctx=(map @tas @t)  *(map @tas @t)
       =?  ctx  !=('' system-prompt.old)
         (~(put by ctx) %agent system-prompt.old)
-      [%9 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da]
+      [%11 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -837,12 +965,22 @@
   =/  migrate-cards=(list card)
     ?.  ?|  =(-.old %6)
             =(-.old %9)
+            =(-.old %10)
+            =(-.old %11)
         ==
       :~  (lcm-sync-config bowl api-key.new model.new)
       ==
     ~
+  ::  re-arm all active cron timers
+  =/  cron-cards=(list card)
+    %+  murn  ~(tap by cron-jobs.new)
+    |=  [cid=@ud job=cron-job:claw]
+    ?.  active.job  ~
+    =/  nxt=(unit @da)  (next-cron-fire schedule.job now.bowl)
+    ?~  nxt  ~
+    `[%pass /cron/(scot %ud cid)/(scot %ud version.job) %arvo %b %wait u.nxt]
   :_  this(state new)
-  :(weld sub-cards dm-cards migrate-cards)
+  :(weld sub-cards dm-cards migrate-cards cron-cards)
 ::
 ++  on-poke
   |=  [=mark =vase]
@@ -910,6 +1048,13 @@
           ^-  action:claw  [%approve `@p`((ot ~[ship+(se %p)]) u.jon)]
             %'deny'
           ^-  action:claw  [%deny `@p`((ot ~[ship+(se %p)]) u.jon)]
+            %'cron-add'
+          ^-  action:claw
+          =/  [s=@t p=@t]
+            ((ot ~[schedule+so prompt+so]) u.jon)
+          [%cron-add s p]
+            %'cron-remove'
+          ^-  action:claw  [%cron-remove `@ud`((ot ~[['cron-id' ni]]) u.jon)]
         ==
       ?~  act
         :_  this
@@ -979,6 +1124,29 @@
     ::
         [%prompt ~]
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html s+(build-prompt bowl context owner-last-msg)))]
+    ::
+        [%cron-jobs ~]
+      =/  j=json
+        :-  %a
+        %+  turn  ~(tap by cron-jobs)
+        |=  [cid=@ud job=cron-job:claw]
+        %-  pairs:enjs:format
+        :~  ['id' (numb:enjs:format id.job)]
+            ['schedule' s+schedule.job]
+            ['prompt' s+prompt.job]
+            ['active' b+active.job]
+            ['version' (numb:enjs:format version.job)]
+            ['created' s+(scot %da created.job)]
+        ==
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
+    ::
+        [%channel-perms ~]
+      =/  j=json
+        %-  pairs:enjs:format
+        %+  turn  ~(tap by channel-perms)
+        |=  [ch=@t perm=channel-perm:claw]
+        [ch s+?:(=(perm %open) 'open' 'whitelist')]
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::
     ==
   ::
@@ -1073,6 +1241,25 @@
     %-  (slog leaf+"claw: denied {(scow %p ship.act)}" ~)
     `this(pending-approvals (~(del by pending-approvals) ship.act))
   ::
+      %cron-add
+    %-  (slog leaf+"claw: cron-add schedule='{(trip schedule.act)}'" ~)
+    =/  nxt=(unit @da)  (next-cron-fire schedule.act now.bowl)
+    ?~  nxt
+      %-  (slog leaf+"claw: cron-add failed - invalid schedule or no match in next year" ~)
+      `this
+    =/  cid=@ud  next-cron-id
+    =/  job=cron-job:claw  [cid schedule.act prompt.act %.y 0 now.bowl]
+    =.  cron-jobs  (~(put by cron-jobs) cid job)
+    =.  next-cron-id  +(cid)
+    :_  this
+    :~  [%pass /cron/(scot %ud cid)/(scot %ud 0) %arvo %b %wait u.nxt]
+    ==
+  ::
+      %cron-remove
+    %-  (slog leaf+"claw: cron-remove {(a-co:co cron-id.act)}" ~)
+    =.  cron-jobs  (~(del by cron-jobs) cron-id.act)
+    `this
+  ::
       %prompt
     ?:  pending  ~|(%claw-busy !!)
     ?:  =('' api-key)  ~|(%claw-no-api-key !!)
@@ -1133,6 +1320,20 @@
     json+!>((pairs:enjs:format (turn ~(tap by context) |=([k=@tas v=@t] [(scot %tas k) s+v]))))
       [%x %prompt ~]
     ``json+!>(s+(build-prompt bowl context owner-last-msg))
+      [%x %cron-jobs ~]
+    =/  j=json
+      :-  %a
+      %+  turn  ~(tap by cron-jobs)
+      |=  [cid=@ud job=cron-job:claw]
+      %-  pairs:enjs:format
+      :~  ['id' (numb:enjs:format id.job)]
+          ['schedule' s+schedule.job]
+          ['prompt' s+prompt.job]
+          ['active' b+active.job]
+          ['version' (numb:enjs:format version.job)]
+          ['created' s+(scot %da created.job)]
+      ==
+    ``json+!>(j)
       [%x %dm-history @ ~]
     =/  who=ship  (slav %p i.t.t.path)
     =/  key=@t  (rap 3 'dm/' (scot %p who) ~)
@@ -1592,6 +1793,42 @@
   ::
       [%eyre %connect ~]
     `this
+  ::
+  ::  cron timer fired
+  ::
+      [%cron @ @ ~]
+    ?.  ?=([%behn %wake *] sign)  `this
+    =/  raw-id=@t  i.t.wire
+    =/  raw-ver=@t  i.t.t.wire
+    =/  cid=(unit @ud)  (slaw %ud raw-id)
+    =/  ver=(unit @ud)  (slaw %ud raw-ver)
+    ?~  cid  `this
+    ?~  ver  `this
+    =/  job=(unit cron-job:claw)  (~(get by cron-jobs) u.cid)
+    ?~  job  `this
+    ::  ignore stale fires
+    ?.  &(active.u.job =(u.ver version.u.job))  `this
+    %-  (slog leaf+"claw: cron fire schedule='{(trip schedule.u.job)}'" ~)
+    ::  process the prompt through the LLM
+    ?:  =('' api-key)  `this
+    =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
+    ::  bump version and reschedule
+    =/  next-ver=@ud  +(version.u.job)
+    =.  cron-jobs  (~(put by cron-jobs) u.cid u.job(version next-ver))
+    ::  compute next fire time from cron schedule
+    =/  nxt=(unit @da)  (next-cron-fire schedule.u.job now.bowl)
+    ::  fire LLM request and re-arm timer
+    :_  this
+    =/  cards=(list card)
+      :~  (lcm-ingest bowl 'direct' 'system' (rap 3 '[Scheduled: ' schedule.u.job '] ' prompt.u.job ~))
+          (make-llm-request bowl api-key model sys-prompt 'direct' /cron-query ~ `['system' prompt.u.job])
+      ==
+    ?~  nxt  cards
+    :_  cards
+    [%pass /cron/(scot %ud u.cid)/(scot %ud next-ver) %arvo %b %wait u.nxt]
+  ::
+      [%cron-query ~]
+    (handle-llm-response sign [%direct ~] ~)
   ::
   ::  model info response from OpenRouter
   ::

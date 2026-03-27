@@ -104,6 +104,16 @@ Escalation pattern: `search_history` first to find relevant content, then `descr
 | `join_group` | sync | Join a group (owner only) |
 | `leave_group` | sync | Leave a group (owner only) |
 
+**Scheduled tasks (cron):**
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `cron_add` | sync | Schedule a recurring task with a cron expression (owner only) |
+| `cron_list` | sync | List all scheduled tasks with IDs, schedules, and prompts |
+| `cron_remove` | sync | Remove a scheduled task by ID (owner only) |
+
+Cron expressions use standard 5-field format: `minute hour day-of-month month day-of-week`. Examples: `*/30 * * * *` (every 30min), `0 9 * * *` (daily 9am), `0 */6 * * *` (every 6hr), `0 9 * * 1-5` (weekday mornings).
+
 **MCP tools:**
 
 | Tool | Type | Description |
@@ -243,7 +253,7 @@ desk/
 │   ├── claw-fileserver.hoon   # Static file server for GUI
 │   └── fileserver/config.hoon
 ├── sur/
-│   ├── claw.hoon              # Agent types (state-9, actions, msg-source, channel-perm)
+│   ├── claw.hoon              # Agent types (state-11, actions, msg-source, cron-job)
 │   ├── lcm.hoon               # LCM types (state-1, conversation, summary, lcm-config)
 │   ├── mcp.hoon               # MCP tool types
 │   ├── chat.hoon              # Groups chat types
@@ -253,7 +263,7 @@ desk/
 │   ├── story.hoon             # Rich text types (inline, block, verse)
 │   └── ...
 ├── lib/
-│   ├── claw-tools.hoon        # Modular tool system (24 tools, ~800 lines)
+│   ├── claw-tools.hoon        # Modular tool system (27 tools, ~800 lines)
 │   ├── test.hoon              # Unit test library
 │   └── ...
 ├── mar/
@@ -305,7 +315,7 @@ Compaction (automatic):
 
 ### State
 
-**claw (state-9):**
+**claw (state-11):**
 ```hoon
 api-key, brave-key, model, pending, last-error,
 context (map @tas @t), whitelist (map ship ship-role),
@@ -315,8 +325,10 @@ channel-perms (map @t channel-perm),
 participated (set @t), seen-msgs (set @t),
 bot-counts (map @t @ud),
 pending-approvals (map ship @t),
-owner-last-msg @da
+owner-last-msg @da,
+cron-jobs (map @ud cron-job), next-cron-id @ud
 ```
+Each `cron-job` stores: schedule (cron expression), prompt, active flag, version (for stale timer detection), created timestamp.
 
 **lcm (state-1):**
 ```hoon

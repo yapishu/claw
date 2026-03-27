@@ -18,6 +18,8 @@
       [%set-channel-perm channel=@t perm=channel-perm]
       [%approve =ship]
       [%deny =ship]
+      [%cron-add schedule=@t prompt=@t]
+      [%cron-remove cron-id=@ud]
   ==
 ::
 +$  update
@@ -219,6 +221,66 @@
       owner-last-msg=@da
   ==
 ::
+::
+::  cron job: scheduled prompt on a cron schedule
+::    schedule: cron expression (5 fields: min hour dom month dow)
+::    examples: '*/30 * * * *' (every 30min), '0 9 * * *' (daily 9am)
+::
++$  cron-job
+  $:  id=@ud
+      schedule=@t
+      prompt=@t
+      active=?
+      version=@ud
+      created=@da
+  ==
+::
+::  state-10: cron jobs (frozen - old cron-job type)
++$  state-10
+  $:  %10
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+      participated=(set @t)
+      seen-msgs=(set @t)
+      bot-counts=(map @t @ud)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+      cron-jobs-10=*
+      next-cron-id=@ud
+  ==
+::
+::  state-11: cron with proper schedule expressions
++$  state-11
+  $:  %11
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+      participated=(set @t)
+      seen-msgs=(set @t)
+      bot-counts=(map @t @ud)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+      cron-jobs=(map @ud cron-job)
+      next-cron-id=@ud
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
@@ -230,5 +292,7 @@
       state-7
       state-8
       state-9
+      state-10
+      state-11
   ==
 --
