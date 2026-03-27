@@ -174,9 +174,9 @@ The `%lcm` agent implements the LCM architecture for intelligent conversation ma
 
 ### S3 Upload
 - Scries `%storage` agent for credentials and configuration
-- Generates AWS SigV4 presigned URLs
+- Generates AWS SigV4 presigned URLs with path-style addressing
 - Uploads with `x-amz-acl: public-read` for public access
-- Custom HMAC-SHA256 implementation (inlined, no library dependency)
+- Full S3 client extracted as reusable `lib/s3-client.hoon`
 
 ### MCP Integration
 - Builds MCP tool files directly from Clay (`/fil/default/mcp/tools/`)
@@ -189,6 +189,8 @@ The `%lcm` agent implements the LCM architecture for intelligent conversation ma
 - Configure API keys (OpenRouter, Brave), model selection
 - Manage whitelist (add/remove ships with owner/allowed roles)
 - Edit context files (identity, soul, agent, user, memory, custom)
+- **Channel permissions**: toggle channels between open/whitelist, scrollable + filterable
+- **Scheduled tasks**: add/remove cron jobs with standard cron expressions
 - Appears as a tile in Landscape
 
 ## Installation
@@ -263,7 +265,10 @@ desk/
 │   ├── story.hoon             # Rich text types (inline, block, verse)
 │   └── ...
 ├── lib/
-│   ├── claw-tools.hoon        # Modular tool system (27 tools, ~800 lines)
+│   ├── claw-tools.hoon        # Tool dispatcher (27 tools)
+│   ├── story-parse.hoon       # Markdown ↔ Tlon story (reusable)
+│   ├── cron.hoon              # Cron expression parser (reusable)
+│   ├── s3-client.hoon         # AWS SigV4 S3 upload client (reusable)
 │   ├── test.hoon              # Unit test library
 │   └── ...
 ├── mar/
@@ -328,7 +333,7 @@ pending-approvals (map ship @t),
 owner-last-msg @da,
 cron-jobs (map @ud cron-job), next-cron-id @ud
 ```
-Each `cron-job` stores: schedule (cron expression), prompt, active flag, version (for stale timer detection), created timestamp.
+Each `cron-job` stores: schedule (5-field cron expression), prompt, active flag, version (for stale timer detection), created timestamp.
 
 **lcm (state-1):**
 ```hoon
@@ -365,6 +370,35 @@ Edit `lib/claw-tools.hoon`:
 ```
 
 For owner-only tools, check `?.  owner  [%sync ~ 'error: only the owner can use this tool']`.
+
+## Reusable Libraries
+
+Three libraries are extracted as standalone modules with no agent dependencies. Other desks can copy and import them directly:
+
+**`lib/story-parse.hoon`** — Markdown to Tlon rich text conversion
+```hoon
+/+  *story-parse
+(text-to-story 'Hello **world**, check ~zod')  :: → story with bold + mention
+(story-to-text some-story)                      :: → plain text extraction
+```
+Handles: headers (`#`), blockquotes (`>`), bold, italic, strikethrough, inline code, ship mentions, line breaks, paragraph splitting.
+
+**`lib/cron.hoon`** — Cron expression parser
+```hoon
+/+  *cron
+(next-cron-fire '*/30 * * * *' now)  :: → (unit @da) next 30-min mark
+(next-cron-fire '0 9 * * 1-5' now)  :: → (unit @da) next weekday 9am
+(parse-cron-field '*/15' 0 59)      :: → (set @ud) {0 15 30 45}
+```
+Standard 5-field format (min hour dom month dow). Supports `*`, `*/N`, `N`, `N,M,O`.
+
+**`lib/s3-client.hoon`** — S3 upload with AWS SigV4 signing
+```hoon
+/+  *s3-client
+=/  creds  (scry-s3-creds cred-json conf-json)  :: extract from %storage
+(s3-presigned-put creds now image-data 'image/png')  :: → (unit [card url])
+```
+Includes: HMAC-SHA256, signing key derivation, hex encoding, URI encoding, presigned PUT URL generation, credential extraction from `%storage` agent JSON.
 
 ## Dependencies
 

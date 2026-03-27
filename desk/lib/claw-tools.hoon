@@ -11,8 +11,7 @@
 /-  channels
 /-  story
 /-  mcp
-::  s3-auth imported inline to avoid fire-core issues
-::  only the functions we actually use
+/+  *s3-client
 |%
 +$  card  card:agent:gall
 ::
@@ -538,217 +537,21 @@
   ::  return raw json/text truncated - llm extracts what it needs
   (crip (scag 6.000 (trip body)))
 ::
-::  +make-s3-put: build signed S3 PUT request from fetched image data
-::
-::    returns [card s3-url] where card is the Iris PUT request
-::    and s3-url is the final public URL of the uploaded object.
+::  +make-s3-put: build signed S3 PUT request
+::    scries %storage for creds, delegates to s3-client library
 ::
 ++  make-s3-put
   |=  [=bowl:gall image-data=octs content-type=@t]
   ^-  (unit [=card url=@t])
-  ::  scry storage for creds and config
   =/  cred-result=(each json tang)
     (mule |.(.^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/credentials/json)))
   ?:  ?=(%| -.cred-result)  ~
   =/  conf-result=(each json tang)
     (mule |.(.^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/json)))
   ?:  ?=(%| -.conf-result)  ~
-  ::  extract fields from json
-  ::  response is {"storage-update":{"credentials":{...}}}
-  =/  cred-map=(map @t json)
-    =/  top=(unit (map @t json))  (me p.cred-result)
-    ?~  top  *(map @t json)
-    =/  su=(unit json)  (~(get by u.top) 'storage-update')
-    ?~  su  *(map @t json)
-    =/  su-map=(unit (map @t json))  (me u.su)
-    ?~  su-map  *(map @t json)
-    =/  cr=(unit json)  (~(get by u.su-map) 'credentials')
-    ?~  cr  *(map @t json)
-    (fall (me u.cr) *(map @t json))
-  =/  conf-map=(map @t json)
-    =/  top=(unit (map @t json))  (me p.conf-result)
-    ?~  top  *(map @t json)
-    =/  su=(unit json)  (~(get by u.top) 'storage-update')
-    ?~  su  *(map @t json)
-    =/  su-map=(unit (map @t json))  (me u.su)
-    ?~  su-map  *(map @t json)
-    =/  cr=(unit json)  (~(get by u.su-map) 'configuration')
-    ?~  cr  *(map @t json)
-    (fall (me u.cr) *(map @t json))
-  =/  endpoint=@t     (fall (bind (~(get by cred-map) 'endpoint') |=(j=json ?:(?=([%s *] j) p.j ''))) '')
-  =/  access-key=@t   (fall (bind (~(get by cred-map) 'accessKeyId') |=(j=json ?:(?=([%s *] j) p.j ''))) '')
-  =/  secret-key=@t   (fall (bind (~(get by cred-map) 'secretAccessKey') |=(j=json ?:(?=([%s *] j) p.j ''))) '')
-  =/  bucket=@t       (fall (bind (~(get by conf-map) 'currentBucket') |=(j=json ?:(?=([%s *] j) p.j ''))) '')
-  =/  region=@t       (fall (bind (~(get by conf-map) 'region') |=(j=json ?:(?=([%s *] j) p.j ''))) '')
-  =/  pub-base=@t     (fall (bind (~(get by conf-map) 'publicUrlBase') |=(j=json ?:(?=([%s *] j) p.j ''))) '')
-  ?:  |(=('' access-key) =('' secret-key) =('' bucket))
-    ~
-  ::  generate unique key
-  =/  ext=@t
-    ?:  (test content-type 'image/png')  'png'
-    ?:  (test content-type 'image/gif')  'gif'
-    ?:  (test content-type 'image/webp')  'webp'
-    'jpg'
-  ::  generate clean key with no ~ chars
-  =/  key=@t  (rap 3 (scot %uv (sham now.bowl)) '.' ext ~)
-  ::  compute date strings
-  =/  d=date  (yore now.bowl)
-  =/  pad
-    |=  n=@ud
-    ^-  tape
-    ?:  (lth n 10)  "0{(a-co:co n)}"
-    (a-co:co n)
-  =/  date-str=@t
-    %-  crip
-    "{(a-co:co y.d)}{(pad m.d)}{(pad d.t.d)}"
-  =/  amz-date=@t
-    %-  crip
-    "{(a-co:co y.d)}{(pad m.d)}{(pad d.t.d)}T{(pad h.t.d)}{(pad m.t.d)}{(pad s.t.d)}Z"
-  ::  build s3 url
-  ::  endpoint may be "https://ams3.digitaloceanspaces.com" (with protocol)
-  ::  or "s3.us-east-1.amazonaws.com" (without protocol)
-  =/  raw-host=@t
-    ?:  !=('' endpoint)
-      ::  strip https:// prefix if present
-      =/  ep=tape  (trip endpoint)
-      ?:  =("https://" (scag 8 ep))  (crip (slag 8 ep))
-      ?:  =("http://" (scag 7 ep))  (crip (slag 7 ep))
-      endpoint
-    (rap 3 's3.' region '.amazonaws.com' ~)
-  ::  path-style (matches aws cli presign format):
-  ::  https://endpoint/bucket/key with Host: endpoint
-  =/  host=@t  raw-host
-  =/  s3-path=@t  (rap 3 '/' bucket '/' key ~)
-  =/  s3-url=@t  (rap 3 'https://' host s3-path ~)
-  =/  public-url=@t
-    ?:  !=('' pub-base)  (rap 3 pub-base '/' key ~)
-    s3-url
-  ::  presigned URL: auth in query string, matches aws cli output exactly
-  =/  scope=@t  (rap 3 date-str '/' region '/s3/aws4_request' ~)
-  =/  credential=@t  (rap 3 access-key '/' scope ~)
-  ::  sign only host (simple presigned URL), send ACL as unsigned header
-  =/  signed-headers=@t  'host'
-  =/  enc-cred=@t
-    %-  crip  %-  zing
-    %+  turn  (trip credential)
-    |=(c=@t ^-(tape ?:(=('/' c) "%2F" [c ~])))
-  =/  canonical-qs=@t
-    %-  crip
-    %+  join-s3  "&"
-    :~  "X-Amz-Algorithm=AWS4-HMAC-SHA256"
-        "X-Amz-Credential={(trip enc-cred)}"
-        "X-Amz-Date={(trip amz-date)}"
-        "X-Amz-Expires=3600"
-        "X-Amz-SignedHeaders=host"
-    ==
-  =/  canon-headers=@t
-    (crip "host:{(trip host)}\0a")
-  =/  canonical-request=@t
-    %-  crip
-    %+  join-s3  "\0a"
-    :~  "PUT"
-        (trip (s3-uri-encode s3-path))
-        (trip canonical-qs)
-        (trip canon-headers)
-        (trip signed-headers)
-        "UNSIGNED-PAYLOAD"
-    ==
-  =/  canon-hash=@t
-    (s3-hex (shay (met 3 canonical-request) canonical-request))
-  =/  string-to-sign=@t
-    %-  crip
-    %+  join-s3  "\0a"
-    :~  "AWS4-HMAC-SHA256"
-        (trip amz-date)
-        (trip scope)
-        (trip canon-hash)
-    ==
-  =/  sk=@  (s3-signing-key secret-key date-str region 's3')
-  =/  signature=@t
-    (s3-hex (s3-hmac-sha256 [32 sk] [(met 3 string-to-sign) string-to-sign]))
-  =/  presigned=@t
-    (rap 3 s3-url '?' canonical-qs '&X-Amz-Signature=' signature ~)
-  %-  (slog leaf+"claw: s3 uploading to {(trip public-url)}" ~)
-  %-  (slog leaf+"claw: s3 presigned={<presigned>}" ~)
-  ::  PUT with headers matching signed headers
-  =/  put-hed=(list [key=@t value=@t])
-    :~  ['Content-Type' content-type]
-        ['x-amz-acl' 'public-read']
-    ==
-  :-  ~
-  :_  public-url
-  [%pass /tool-http/'upload_put' %arvo %i %request [%'PUT' presigned put-hed `image-data] *outbound-config:iris]
-::
-::
-::  s3 signing helpers (from s3-auth, inlined to avoid type issues)
-::
-::  manual HMAC-SHA256 using shay (since hmac-sha256l produces wrong results)
-::  HMAC(K,m) = SHA256((K ^ opad) || SHA256((K ^ ipad) || m))
-++  s3-hmac-sha256
-  |=  [key=octs msg=octs]
-  ^-  @
-  =/  block-size=@ud  64
-  ::  if key > block size, hash it first
-  =/  k=@
-    ?:  (gth p.key block-size)
-      (shay p.key q.key)
-    q.key
-  =/  k-len=@ud  ?:((gth p.key block-size) 32 p.key)
-  ::  pad key to block-size with zeros (already zero-padded in atom)
-  ::  compute ipad-key and opad-key
-  =/  ipad-key=@  (mix k (fil 3 block-size 0x36))
-  =/  opad-key=@  (mix k (fil 3 block-size 0x5c))
-  ::  inner hash: SHA256(ipad-key || msg)
-  =/  inner-data=@  (cat 3 ipad-key q.msg)
-  =/  inner-len=@ud  (add block-size p.msg)
-  =/  inner-hash=@  (shay inner-len inner-data)
-  ::  outer hash: SHA256(opad-key || inner-hash)
-  =/  outer-data=@  (cat 3 opad-key inner-hash)
-  =/  outer-len=@ud  (add block-size 32)
-  (shay outer-len outer-data)
-++  s3-hmac-sha256-cord
-  |=  [key=@t msg=@t]
-  ^-  @
-  (s3-hmac-sha256 [(met 3 key) key] [(met 3 msg) msg])
-++  s3-signing-key
-  |=  [secret=@t date=@t region=@t service=@t]
-  ^-  @
-  =/  k-secret=@t  (rap 3 'AWS4' secret ~)
-  =/  k-date=@  (s3-hmac-sha256-cord k-secret date)
-  =/  k-region=@  (s3-hmac-sha256 [32 k-date] [(met 3 region) region])
-  =/  k-service=@  (s3-hmac-sha256 [32 k-region] [(met 3 service) service])
-  (s3-hmac-sha256 [32 k-service] [(met 3 'aws4_request') 'aws4_request'])
-++  s3-hex
-  |=  dat=@
-  ^-  @t
-  =/  out=tape
-    =/  idx  0
-    |-
-    ?:  =(idx 32)  ~
-    =/  byt=@  (cut 3 [idx 1] dat)
-    =/  hi  (snag (rsh 0^4 byt) "0123456789abcdef")
-    =/  lo  (snag (end 0^4 byt) "0123456789abcdef")
-    :-  hi
-    :-  lo
-    $(idx +(idx))
-  (crip out)
-++  s3-uri-encode
-  |=  =cord
-  ^-  @t
-  %-  crip
-  %-  zing
-  %+  turn  (trip cord)
-  |=  c=@t
-  ^-  tape
-  ?:  ?|  &((gte c 'a') (lte c 'z'))
-          &((gte c 'A') (lte c 'Z'))
-          &((gte c '0') (lte c '9'))
-          =(c '-')  =(c '.')  =(c '_')  =(c '~')  =(c '/')
-      ==
-    [c ~]
-  =/  hi  (snag (rsh 0^4 c) "0123456789ABCDEF")
-  =/  lo  (snag (end 0^4 c) "0123456789ABCDEF")
-  ['%' hi lo ~]
+  =/  creds=s3-creds  (scry-s3-creds p.cred-result p.conf-result)
+  %-  (slog leaf+"claw: s3 uploading..." ~)
+  (s3-presigned-put creds now.bowl image-data content-type)
 ::  +parse-nest: parse "chat/~host/name" into nest:channels
 ++  parse-nest
   |=  ch=@t
@@ -763,13 +566,6 @@
     =/  k=@t  (crip seg1)
     ?+(k %chat %chat %chat, %diary %diary, %heap %heap)
   [knd (slav %p (crip seg2)) (crip seg3)]
-::
-++  join-s3
-  |=  [sep=tape parts=(list tape)]
-  ^-  tape
-  ?~  parts  ~
-  ?~  t.parts  i.parts
-  (weld i.parts (weld sep $(parts t.parts)))
 ::
 ::  helpers
 ::
