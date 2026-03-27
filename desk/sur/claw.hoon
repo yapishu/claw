@@ -36,7 +36,7 @@
 ::
 +$  tool-pending
   $:  =msg-source
-      hist=(list msg)
+      conv-key=@t
       follow-msgs=(list json)
       pending=(list [id=@t name=@t arguments=@t])
   ==
@@ -99,7 +99,7 @@
       whitelist=(map ship ship-role)
       dm-history=(map ship (list msg))
       dm-pending=(set ship)
-      tool-loop=(unit tool-pending)
+      tool-loop-4=*
       pending-src=(map ship msg-source)
   ==
 ::
@@ -131,13 +131,28 @@
       whitelist=(map ship ship-role)
       dm-history=(map ship (list msg))
       dm-pending=(set ship)
-      tool-loop=(unit tool-pending)
+      tool-loop-5=*
       pending-src=(map ship msg-source)
       ::  compaction
       summaries=(map @ud summary)
       dm-summaries=(map ship (map @ud summary))
       next-sum-id=@ud
       compact=compact-state
+  ==
+::
+::  state-6: history/compaction moved to %lcm agent
++$  state-6
+  $:  %6
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
   ==
 ::
 +$  versioned-state
@@ -147,5 +162,6 @@
       state-3
       state-4
       state-5
+      state-6
   ==
 --
