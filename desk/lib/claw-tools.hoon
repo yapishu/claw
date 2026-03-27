@@ -9,6 +9,8 @@
 /-  ct=contacts
 /-  chat
 /-  channels
+/-  gp=groups
+/-  meta
 /-  story
 /-  mcp
 /+  *s3-client
@@ -40,8 +42,8 @@
       ::  http fetch
       (tool-fn 'http_fetch' 'Fetch a URL and return its text content. Do NOT use on image/binary URLs.' (obj ~[['url' (req-str 'URL to fetch')]]))
       ::  reactions
-      (tool-fn 'add_reaction' 'React to a message in a group channel with an emoji.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['msg_id' (req-str 'Message timestamp ID')] ['emoji' (req-str 'Emoji character e.g. a unicode emoji')]]))
-      (tool-fn 'remove_reaction' 'Remove your reaction from a channel message.' (obj ~[['channel' (req-str 'Channel nest')] ['msg_id' (req-str 'Message timestamp ID')]]))
+      (tool-fn 'add_reaction' 'React to a message in a group channel with an emoji.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['msg_id' (req-str 'Message id from history (e.g. ~2026.3.27..18.00 or ~ship/170.141...)')] ['emoji' (req-str 'Emoji character')]]))
+      (tool-fn 'remove_reaction' 'Remove your reaction from a channel message.' (obj ~[['channel' (req-str 'Channel nest')] ['msg_id' (req-str 'Message id from history')]]))
       ::  blocking
       (tool-fn 'block_ship' 'Block a ship from sending you direct messages.' (obj ~[['ship' (req-str 'Ship to block e.g. ~sampel-palnet')]]))
       (tool-fn 'unblock_ship' 'Unblock a previously blocked ship.' (obj ~[['ship' (req-str 'Ship to unblock')]]))
@@ -61,8 +63,8 @@
       (tool-fn 'describe_summary' 'Look up full metadata and content for an LCM summary by ID. Returns: kind (leaf/condensed), depth, token count, descendant count, time range, source messages, parent summaries, and full content text. Use after search_history to inspect a specific summary.' (obj ~[['id' (req-str 'Summary ID number from search_history results')]]))
       (tool-fn 'list_conversations' 'List all LCM conversations with their message counts and summary counts. Shows which conversations have history available for searching.' (obj ~))
       ::  message management
-      (tool-fn 'delete_message' 'Delete a message from a group channel by its timestamp ID.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['msg_id' (req-str 'Message timestamp ID')]]))
-      (tool-fn 'edit_message' 'Edit a message in a group channel. Replaces the message content.' (obj ~[['channel' (req-str 'Channel nest')] ['msg_id' (req-str 'Message timestamp ID')] ['content' (req-str 'New message content')]]))
+      (tool-fn 'delete_message' 'Delete a message from a group channel. Use the message id from read_channel_history (the seal.id field, format: ~ship/number).' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['msg_id' (req-str 'Message id from history (e.g. ~2026.3.27..18.00 or ~ship/170.141...)')]]))
+      (tool-fn 'edit_message' 'Edit a message in a group channel. Use the message id from read_channel_history.' (obj ~[['channel' (req-str 'Channel nest')] ['msg_id' (req-str 'Message id from history (e.g. ~2026.3.27..18.00 or ~ship/170.141...)')] ['content' (req-str 'New message content')]]))
       (tool-fn 'delete_dm' 'Delete a direct message. Pass the id field from read_dm_history results (format: ~ship/number).' (obj ~[['ship' (req-str 'DM counterpart ship')] ['id' (req-str 'Message id from read_dm_history (e.g. ~fen/170.141...)')]]))
 
 
@@ -71,6 +73,18 @@
       (tool-fn 'leave_group' 'Leave an Urbit group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')]]))
       (tool-fn 'invite_to_group' 'Invite a ship to a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['ship' (req-str 'Ship to invite e.g. ~sampel-palnet')]]))
       (tool-fn 'kick_from_group' 'Remove a ship from a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['ship' (req-str 'Ship to remove')]]))
+      ::  group admin
+      (tool-fn 'ban_from_group' 'Ban a ship from a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['ship' (req-str 'Ship to ban e.g. ~sampel-palnet')]]))
+      (tool-fn 'unban_from_group' 'Unban a ship from a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['ship' (req-str 'Ship to unban')]]))
+      (tool-fn 'create_group' 'Create a new group. Owner only.' (obj ~[['name' (req-str 'Group name (term, no spaces, e.g. my-group)')] ['title' (req-str 'Display title')] ['description' (opt-str 'Group description')] ['privacy' (opt-str 'public, private, or secret (default public)')]]))
+      (tool-fn 'update_group' 'Update a group title and/or description. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['title' (opt-str 'New title')] ['description' (opt-str 'New description')] ['image' (opt-str 'New image URL')] ['cover' (opt-str 'New cover URL')]]))
+      ::  contacts
+      (tool-fn 'list_contacts' 'List all known contacts with their profile info.' (obj ~))
+      ::  channel search
+      (tool-fn 'search_messages' 'Search messages in ANY channel by text. Use list_channels first to find channel nests, then search each one. Can search multiple channels by calling this tool multiple times with different channel values.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['query' (req-str 'Search text')] ['count' (opt-str 'Max results (default 50)')]]))
+      ::  DM reactions
+      (tool-fn 'react_dm' 'React to a DM with an emoji.' (obj ~[['ship' (req-str 'DM counterpart ship')] ['msg_author' (req-str 'Author of the message to react to')] ['msg_time' (req-str 'Message timestamp ID')] ['emoji' (req-str 'Emoji character')]]))
+      (tool-fn 'unreact_dm' 'Remove your reaction from a DM.' (obj ~[['ship' (req-str 'DM counterpart ship')] ['msg_author' (req-str 'Author of the message')] ['msg_time' (req-str 'Message timestamp ID')]]))
       ::  cron jobs
       (tool-fn 'cron_add' 'Schedule a recurring task using cron syntax. You will be given the prompt on the cron schedule and process it. Owner only. Cron format: "min hour dom month dow" where each field is: * (any), */N (every N), N (exact), N,M (list). dow: 0=Sun..6=Sat. Examples: "*/30 * * * *" (every 30min), "0 9 * * *" (daily 9am), "0 9 * * 1,3,5" (Mon/Wed/Fri 9am), "0 0 1 * *" (1st of month midnight).' (obj ~[['schedule' (req-str 'Cron expression (5 fields: min hour dom month dow)')] ['prompt' (req-str 'What to do each time (e.g. "Check the weather and summarize")')]]))
       (tool-fn 'cron_list' 'List all scheduled recurring tasks with IDs, prompts, and cron schedules.' (obj ~))
@@ -242,8 +256,9 @@
     =/  emoji=@t  ((ot ~[emoji+so]) u.args)
     =/  parsed-nest  (parse-nest ch)
     ?~  parsed-nest  [%sync ~ 'error: bad channel format']
-    =/  msg-time=@da  (slav %da mid)
-    =/  act=a-channels:channels  [%channel u.parsed-nest [%post [%add-react msg-time our.bowl emoji]]]
+    =/  msg-time=(unit @da)  (parse-msg-time mid)
+    ?~  msg-time  [%sync ~ 'error: bad message ID']
+    =/  act=a-channels:channels  [%channel u.parsed-nest [%post [%add-react u.msg-time our.bowl emoji]]]
     [%sync :~([%pass /tool/react %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) (rap 3 'reacted with ' emoji ~)]
   ::
   ::  remove_reaction
@@ -254,8 +269,9 @@
     =/  mid=@t  ((ot ~[['msg_id' so]]) u.args)
     =/  parsed-nest  (parse-nest ch)
     ?~  parsed-nest  [%sync ~ 'error: bad channel format']
-    =/  msg-time=@da  (slav %da mid)
-    =/  act=a-channels:channels  [%channel u.parsed-nest [%post [%del-react msg-time our.bowl]]]
+    =/  msg-time=(unit @da)  (parse-msg-time mid)
+    ?~  msg-time  [%sync ~ 'error: bad message ID']
+    =/  act=a-channels:channels  [%channel u.parsed-nest [%post [%del-react u.msg-time our.bowl]]]
     [%sync :~([%pass /tool/unreact %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) 'reaction removed']
   ::
   ::  block_ship
@@ -452,21 +468,9 @@
     ?~  parsed  [%sync ~ 'error: bad group flag']
     =/  target=(unit @p)  (slaw %p who)
     ?~  target  [%sync ~ 'error: bad ship name']
-    =/  grp=[p=ship q=@tas]  [host.u.parsed name.u.parsed]
-    =/  invite-json=json
-      %-  pairs:enjs:format
-      :~  :-  'invite'
-          %-  pairs:enjs:format
-          :~  ['flag' s+group-str]
-              ['ships' [%a ~[s+who]]]
-              :-  'a-invite'
-              %-  pairs:enjs:format
-              :~  ['token' ~]
-                  ['note' ~]
-              ==
-          ==
-      ==
-    [%sync :~([%pass /tool/invite %agent [our.bowl %groups] %poke %group-action-4 !>(invite-json)]) (rap 3 'invited ' who ' to ' group-str ~)]
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  act=a-groups:gp  [%invite grp-flag (silt ~[u.target]) [~ ~]]
+    [%sync :~([%pass /tool/invite %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'invited ' who ' to ' group-str ~)]
   ::
   ::  kick_from_group: remove a ship from a group (owner only)
   ::
@@ -479,23 +483,9 @@
     ?~  parsed  [%sync ~ 'error: bad group flag']
     =/  target=(unit @p)  (slaw %p who)
     ?~  target  [%sync ~ 'error: bad ship name']
-    =/  grp=[p=ship q=@tas]  [host.u.parsed name.u.parsed]
-    =/  kick-json=json
-      %-  pairs:enjs:format
-      :~  :-  'group'
-          %-  pairs:enjs:format
-          :~  ['flag' s+group-str]
-              :-  'a-group'
-              %-  pairs:enjs:format
-              :~  :-  'seat'
-                  %-  pairs:enjs:format
-                  :~  ['ships' [%a ~[s+who]]]
-                      ['a-seat' (pairs:enjs:format ~[['del' ~]])]
-                  ==
-              ==
-          ==
-      ==
-    [%sync :~([%pass /tool/kick %agent [our.bowl %groups] %poke %group-action-4 !>(kick-json)]) (rap 3 'removed ' who ' from ' group-str ~)]
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  act=a-groups:gp  [%group grp-flag [%seat (silt ~[u.target]) [%del ~]]]
+    [%sync :~([%pass /tool/kick %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'removed ' who ' from ' group-str ~)]
   ::
   ::  delete_message: delete a channel message
   ::
@@ -505,7 +495,7 @@
     =/  mid=@t  ((ot ~[['msg_id' so]]) u.args)
     =/  parsed-nest  (parse-nest ch)
     ?~  parsed-nest  [%sync ~ 'error: bad channel format']
-    =/  msg-time=(unit @da)  (slaw %da mid)
+    =/  msg-time=(unit @da)  (parse-msg-time mid)
     ?~  msg-time  [%sync ~ 'error: bad message ID']
     =/  =nest:channels  [kind.u.parsed-nest ship.u.parsed-nest name.u.parsed-nest]
     =/  act  [%channel nest [%post [%del u.msg-time]]]
@@ -520,13 +510,13 @@
     =/  con=@t  ((ot ~[content+so]) u.args)
     =/  parsed-nest  (parse-nest ch)
     ?~  parsed-nest  [%sync ~ 'error: bad channel format']
-    =/  msg-time=(unit @da)  (slaw %da mid)
+    =/  msg-time=(unit @da)  (parse-msg-time mid)
     ?~  msg-time  [%sync ~ 'error: bad message ID']
     =/  =nest:channels  [kind.u.parsed-nest ship.u.parsed-nest name.u.parsed-nest]
     =/  ch-story=story:story  ~[[%inline `(list inline:story)`~[con]]]
     =/  ch-memo=memo:channels  [content=ch-story author=our.bowl sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
-    =/  act  [%channel nest [%post [%edit msg-time ch-essay]]]
+    =/  act  [%channel nest [%post [%edit u.msg-time ch-essay]]]
     [%sync :~([%pass /tool/edit-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) 'message edited']
   ::
   ::  delete_dm: delete a direct message
@@ -555,6 +545,154 @@
     ?~  parsed  [%sync ~ 'error: bad id format (expected ~ship/number)']
     =/  dm-act  [u.counterpart u.parsed [%del ~]]
     [%sync :~([%pass /tool/del-dm %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]) 'DM deleted']
+  ::
+  ::  ban_from_group: ban a ship from a group (owner only)
+  ::
+  ?:  =('ban_from_group' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  who=(unit @t)  ((ot ~[ship+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    ?~  who  [%sync ~ 'error: ship required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    =/  target=(unit @p)  (slaw %p u.who)
+    ?~  target  [%sync ~ 'error: bad ship name']
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  act=a-groups:gp  [%group grp-flag [%entry [%ban [%add-ships (silt ~[u.target])]]]]
+    [%sync :~([%pass /tool/ban %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'banned ' u.who ' from ' u.group-str ~)]
+  ::
+  ::  unban_from_group: unban a ship from a group (owner only)
+  ::
+  ?:  =('unban_from_group' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  who=(unit @t)  ((ot ~[ship+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    ?~  who  [%sync ~ 'error: ship required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    =/  target=(unit @p)  (slaw %p u.who)
+    ?~  target  [%sync ~ 'error: bad ship name']
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  act=a-groups:gp  [%group grp-flag [%entry [%ban [%del-ships (silt ~[u.target])]]]]
+    [%sync :~([%pass /tool/unban %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'unbanned ' u.who ' from ' u.group-str ~)]
+  ::
+  ::  create_group: create a new group (owner only)
+  ::
+  ?:  =('create_group' name)
+    =,  dejs-soft:format
+    =/  gname=(unit @t)  ((ot ~[name+so]) u.args)
+    =/  gtitle=(unit @t)  ((ot ~[title+so]) u.args)
+    =/  gdesc=(unit @t)  ((ot ~[description+so]) u.args)
+    =/  gpriv=(unit @t)  ((ot ~[privacy+so]) u.args)
+    ?~  gname  [%sync ~ 'error: name required']
+    ?~  gtitle  [%sync ~ 'error: title required']
+    =/  priv=privacy:gp
+      =/  p=@t  (fall gpriv 'public')
+      ?+  p  %public
+        %public   %public
+        %private  %private
+        %secret   %secret
+      ==
+    =/  met=[title=@t description=@t image=@t cover=@t]  [u.gtitle (fall gdesc '') '' '']
+    =/  cg=create-group:gp  [`@tas`u.gname met priv [~ ~] ~]
+    =/  act=c-groups:gp  [%create cg]
+    [%sync :~([%pass /tool/create-group %agent [our.bowl %groups] %poke %group-command !>(act)]) (rap 3 'created group ' u.gname ~)]
+  ::
+  ::  update_group: update group metadata (owner only)
+  ::
+  ?:  =('update_group' name)
+    =,  dejs-soft:format
+    =/  group-str=(unit @t)  ((ot ~[group+so]) u.args)
+    =/  gtitle=(unit @t)  ((ot ~[title+so]) u.args)
+    =/  gdesc=(unit @t)  ((ot ~[description+so]) u.args)
+    =/  gimage=(unit @t)  ((ot ~[image+so]) u.args)
+    =/  gcover=(unit @t)  ((ot ~[cover+so]) u.args)
+    ?~  group-str  [%sync ~ 'error: group required']
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag u.group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag']
+    =/  grp-flag=flag:gp  [host.u.parsed name.u.parsed]
+    =/  met=[title=@t description=@t image=@t cover=@t]  [(fall gtitle '') (fall gdesc '') (fall gimage '') (fall gcover '')]
+    =/  act=a-groups:gp  [%group grp-flag [%meta met]]
+    [%sync :~([%pass /tool/update-group %agent [our.bowl %groups] %poke %group-action-4 !>(act)]) (rap 3 'updated group ' u.group-str ~)]
+  ::
+  ::  list_contacts: scry %contacts for all contacts
+  ::
+  ?:  =('list_contacts' name)
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  cj=json
+        .^(json %gx /(scot %p our.bowl)/contacts/(scot %da now.bowl)/v1/all/json)
+      (crip (scag 4.000 (trip (en:json:html cj))))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not list contacts']
+    [%sync ~ ?:(=('' p.result) 'no contacts found' p.result)]
+  ::
+  ::  search_messages: search messages in a channel
+  ::
+  ?:  =('search_messages' name)
+    =,  dejs-soft:format
+    =/  ch=(unit @t)  ((ot ~[channel+so]) u.args)
+    =/  query=(unit @t)  ((ot ~[query+so]) u.args)
+    =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
+    ?~  ch  [%sync ~ 'error: channel required']
+    ?~  query  [%sync ~ 'error: query required']
+    =/  n=@ud  (fall (rush (fall cnt '50') dem) 50)
+    =/  parsed-nest  (parse-nest u.ch)
+    ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    =/  result=(each @t tang)
+      %-  mule  |.
+      =/  history=json
+        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/search/text/0/(scot %ud n)/[u.query]/channel-scan-3)
+      (crip (scag 6.000 (trip (en:json:html history))))
+    ?:  ?=(%| -.result)  [%sync ~ 'error: could not search channel']
+    [%sync ~ ?:(=('' p.result) 'no matches found' p.result)]
+  ::
+  ::  react_dm: react to a DM with an emoji
+  ::
+  ?:  =('react_dm' name)
+    =,  dejs-soft:format
+    =/  who=(unit @t)  ((ot ~[ship+so]) u.args)
+    =/  mauthor=(unit @t)  ((ot ~[['msg_author' so]]) u.args)
+    =/  mtime=(unit @t)  ((ot ~[['msg_time' so]]) u.args)
+    =/  emoji=(unit @t)  ((ot ~[emoji+so]) u.args)
+    ?~  who  [%sync ~ 'error: ship required']
+    ?~  mauthor  [%sync ~ 'error: msg_author required']
+    ?~  mtime  [%sync ~ 'error: msg_time required']
+    ?~  emoji  [%sync ~ 'error: emoji required']
+    =/  counterpart=(unit @p)  (slaw %p u.who)
+    ?~  counterpart  [%sync ~ 'error: bad ship']
+    =/  author=(unit @p)  (slaw %p u.mauthor)
+    ?~  author  [%sync ~ 'error: bad msg_author']
+    =/  msg-time=(unit @da)  (slaw %da u.mtime)
+    ?~  msg-time  [%sync ~ 'error: bad msg_time']
+    =/  msg-id=id:chat  [u.author u.msg-time]
+    =/  dm-diff=diff:writs:chat  [msg-id [%add-react our.bowl u.emoji]]
+    =/  dm-act=action:dm:chat  [u.counterpart dm-diff]
+    [%sync :~([%pass /tool/react-dm %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]) (rap 3 'reacted with ' u.emoji ~)]
+  ::
+  ::  unreact_dm: remove reaction from a DM
+  ::
+  ?:  =('unreact_dm' name)
+    =,  dejs-soft:format
+    =/  who=(unit @t)  ((ot ~[ship+so]) u.args)
+    =/  mauthor=(unit @t)  ((ot ~[['msg_author' so]]) u.args)
+    =/  mtime=(unit @t)  ((ot ~[['msg_time' so]]) u.args)
+    ?~  who  [%sync ~ 'error: ship required']
+    ?~  mauthor  [%sync ~ 'error: msg_author required']
+    ?~  mtime  [%sync ~ 'error: msg_time required']
+    =/  counterpart=(unit @p)  (slaw %p u.who)
+    ?~  counterpart  [%sync ~ 'error: bad ship']
+    =/  author=(unit @p)  (slaw %p u.mauthor)
+    ?~  author  [%sync ~ 'error: bad msg_author']
+    =/  msg-time=(unit @da)  (slaw %da u.mtime)
+    ?~  msg-time  [%sync ~ 'error: bad msg_time']
+    =/  msg-id=id:chat  [u.author u.msg-time]
+    =/  dm-diff=diff:writs:chat  [msg-id [%del-react our.bowl]]
+    =/  dm-act=action:dm:chat  [u.counterpart dm-diff]
+    [%sync :~([%pass /tool/unreact-dm %agent [our.bowl %chat] %poke %chat-dm-action-1 !>(dm-act)]) 'reaction removed']
   ::
   ::  search_history: search LCM conversation history
   ::
@@ -754,4 +892,24 @@
   =/  host-str=tape  (scag idx parts)
   =/  name-str=tape  (slag +(idx) parts)
   [(slav %p (crip host-str)) (crip name-str)]
+::
+::  +parse-msg-time: parse message ID into @da
+::    accepts: @da format (~2026.3.27..18.00), ~ship/number.with.dots, or raw number
+::
+++  parse-msg-time
+  |=  mid=@t
+  ^-  (unit @da)
+  ::  try @da format first
+  =/  da=(unit @da)  (slaw %da mid)
+  ?^  da  da
+  ::  try ~ship/number.with.dots format (from read_channel_history / read_dm_history)
+  %-  mole  |.
+  =/  txt=tape  (trip mid)
+  =/  slash=(unit @ud)  (find "/" txt)
+  =/  num-tape=tape
+    ?~  slash  txt
+    (slag +(u.slash) txt)
+  ::  strip dots
+  =/  clean=tape  (skip num-tape |=(c=@tD =(c '.')))
+  `@da`(rash (crip clean) dem)
 --
