@@ -1636,7 +1636,9 @@
         =/  r=(unit ship-role:claw)  (~(get by whitelist) (src-ship msg-source.tl))
         &(?=(^ r) =(u.r %owner))
       =/  res=tool-result:tools
-        (execute-tool:tools bowl name.next arguments.next brave-key tl-owner)
+        =/  r=(each tool-result:tools tang)
+          (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner)))
+        ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
       ?.  ?=(%async -.res)
         =.  tool-loop  `[msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest]
         `this
@@ -1671,7 +1673,9 @@
       =/  r=(unit ship-role:claw)  (~(get by whitelist) (src-ship msg-source.tl))
       &(?=(^ r) =(u.r %owner))
     =/  res=tool-result:tools
-      (execute-tool:tools bowl name.next arguments.next brave-key tl-owner)
+      =/  r=(each tool-result:tools tang)
+        (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner)))
+      ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
     ?.  ?=(%async -.res)
       ::  sync - add result and recurse
       $(tl [msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
@@ -1818,7 +1822,9 @@
         =/  first  i.async-pending
         %-  (slog leaf+"claw: async tool {(trip name.first)}" ~)
         =/  res=tool-result:tools
-          (execute-tool:tools bowl name.first arguments.first brave-key is-owner)
+          =/  r=(each tool-result:tools tang)
+            (mule |.((execute-tool:tools bowl name.first arguments.first brave-key is-owner)))
+          ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
         ?.  ?=(%async -.res)
           ::  shouldn't happen, but handle gracefully
           $(async-pending t.async-pending, follow-msgs (snoc follow-msgs (tool-result-json id.first 'unexpected sync')))
@@ -1839,7 +1845,9 @@
     =/  tc  i.remaining
     %-  (slog leaf+"claw: tool {(trip name.tc)}" ~)
     =/  res=tool-result:tools
-      (execute-tool:tools bowl name.tc arguments.tc brave-key is-owner)
+      =/  r=(each tool-result:tools tang)
+        (mule |.((execute-tool:tools bowl name.tc arguments.tc brave-key is-owner)))
+      ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
     ?:  ?=(%async -.res)
       ::  queue async tool for later
       %=  $

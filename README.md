@@ -72,10 +72,12 @@ The agent implements the OpenAI tool-calling protocol. When the LLM needs to tak
 | Tool | Type | Description |
 |------|------|-------------|
 | `get_contact` | sync | Look up a ship's profile (nickname, bio, avatar) |
+| `list_contacts` | sync | List all known contacts |
 | `list_groups` | sync | List joined groups |
 | `list_channels` | sync | List all channels |
 | `read_channel_history` | sync | Read recent messages from a channel (JSON) |
 | `read_dm_history` | sync | Read recent DMs with a ship (JSON with IDs, authors, content) |
+| `search_messages` | sync | Search messages in a channel by text |
 
 **Memory tools (LCM):**
 
@@ -103,6 +105,8 @@ Escalation pattern: `search_history` first to find relevant content, then `descr
 | `delete_message` | sync | Delete a channel message by timestamp ID |
 | `edit_message` | sync | Edit a channel message with new content |
 | `delete_dm` | sync | Delete a DM by its id field from `read_dm_history` |
+| `react_dm` | sync | Add emoji reaction to a DM |
+| `unreact_dm` | sync | Remove emoji reaction from a DM |
 
 **Ship & group management:**
 
@@ -112,8 +116,12 @@ Escalation pattern: `search_history` first to find relevant content, then `descr
 | `block_ship` / `unblock_ship` | sync | Block/unblock ships from DMs |
 | `join_group` | sync | Join a group (owner only) |
 | `leave_group` | sync | Leave a group (owner only) |
+| `create_group` | sync | Create a new group with name, title, privacy (owner only) |
+| `update_group` | sync | Update group title/description/image/cover (owner only) |
 | `invite_to_group` | sync | Invite a ship to a group (owner only) |
 | `kick_from_group` | sync | Remove a ship from a group (owner only) |
+| `ban_from_group` | sync | Ban a ship from a group (owner only) |
+| `unban_from_group` | sync | Unban a ship from a group (owner only) |
 
 **Scheduled tasks (cron):**
 
@@ -274,9 +282,10 @@ desk/
 │   ├── activity.hoon          # Activity/notification types
 │   ├── contacts.hoon          # Contact types
 │   ├── story.hoon             # Rich text types (inline, block, verse)
+│   ├── groups-ver.hoon        # Versioned group types (for mark compatibility)
 │   └── ...
 ├── lib/
-│   ├── claw-tools.hoon        # Tool dispatcher (34 tools)
+│   ├── claw-tools.hoon        # Tool dispatcher (42 tools)
 │   ├── story-parse.hoon       # Markdown ↔ Tlon story (reusable)
 │   ├── cron.hoon              # Cron expression parser (reusable)
 │   ├── s3-client.hoon         # AWS SigV4 S3 upload client (reusable)
@@ -286,7 +295,8 @@ desk/
 │   ├── claw-action.hoon       # Poke mark
 │   ├── claw-update.hoon       # Subscription mark
 │   ├── lcm-action.hoon        # LCM poke mark
-│   └── channel/action-1.hoon  # Channel posting mark
+│   ├── channel/action-1.hoon  # Channel posting mark
+│   └── group/                 # Group marks (action-4, command, join, leave)
 ├── tests/
 │   ├── test-claw.hoon         # Helper function tests
 │   ├── test-lcm.hoon          # LCM engine tests
