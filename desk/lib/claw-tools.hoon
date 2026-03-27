@@ -57,12 +57,15 @@
       (tool-fn 'install_local_mcp' 'Install the %mcp desk from ~matwet. This enables local_mcp and local_mcp_list tools for file management, agent control, code execution, and more.' (obj ~))
       ::  history search
       (tool-fn 'search_history' 'Search past conversation history including compacted summaries. Use when you need to recall something from earlier in the conversation.' (obj ~[['query' (req-str 'Search terms or topic')]]))
+      ::  group management
+      (tool-fn 'join_group' 'Join an Urbit group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')]]))
+      (tool-fn 'leave_group' 'Leave an Urbit group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')]]))
   ==
 ::
 ::  +execute-tool: run a tool, returns sync result or async card
 ::
 ++  execute-tool
-  |=  [=bowl:gall name=@t arguments=@t brave-key=@t]
+  |=  [=bowl:gall name=@t arguments=@t brave-key=@t owner=?]
   ^-  tool-result
   =/  args=(unit json)  (de:json:html arguments)
   ?~  args  [%sync ~ 'error: invalid json arguments']
@@ -383,6 +386,29 @@
       [%sync ~ (rap 3 'error: MCP tool "' tool-name '" rejected arguments. Check argument types and names.' ~)]
     [%async [%pass /tool-http/'local-mcp' %arvo %k %lard %mcp p.thread-result]]
   ::
+::
+  ::  join_group: join an Urbit group (owner only)
+  ::
+  ?:  =('join_group' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs:format
+    =/  group-str=@t  ((ot ~[group+so]) u.args)
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag, use ~host/group-name']
+    =/  grp=[p=ship q=@tas]  [host.u.parsed name.u.parsed]
+    [%sync :~([%pass /tool/join-group %agent [our.bowl %groups] %poke %group-join !>([grp %.y])]) (rap 3 'joining group ' group-str ~)]
+  ::
+  ::  leave_group: leave an Urbit group (owner only)
+  ::
+  ?:  =('leave_group' name)
+    ?.  owner  [%sync ~ 'error: only the owner can use this tool']
+    =,  dejs:format
+    =/  group-str=@t  ((ot ~[group+so]) u.args)
+    =/  parsed=(unit [host=@p name=@tas])  (parse-group-flag group-str)
+    ?~  parsed  [%sync ~ 'error: bad group flag, use ~host/group-name']
+    =/  grp=[p=ship q=@tas]  [host.u.parsed name.u.parsed]
+    [%sync :~([%pass /tool/leave-group %agent [our.bowl %groups] %poke %group-leave !>(grp)]) (rap 3 'leaving group ' group-str ~)]
+  ::
   ?:  =('http_fetch' name)
     =,  dejs:format
     =/  url=@t  ((ot ~[url+so]) u.args)
@@ -665,4 +691,16 @@
   |=  desc=@t
   ^-  json
   (pairs:enjs:format ~[['type' s+'string'] ['description' s+desc]])
+::
+::  +parse-group-flag: parse "~host/group-name" into [host name]
+::
+++  parse-group-flag
+  |=  flag=@t
+  ^-  (unit [host=@p name=@tas])
+  %-  mole  |.
+  =/  parts=tape  (trip flag)
+  =/  idx=@ud  (need (find "/" parts))
+  =/  host-str=tape  (scag idx parts)
+  =/  name-str=tape  (slag +(idx) parts)
+  [(slav %p (crip host-str)) (crip name-str)]
 --

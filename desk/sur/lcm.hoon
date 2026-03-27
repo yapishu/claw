@@ -26,6 +26,8 @@
       earliest=@da
       latest=@da
       created=@da
+      descendant-count=@ud
+      descendant-tokens=@ud
   ==
 ::  a reference in the active context ordering
 ::
@@ -60,6 +62,7 @@
       condense-target-tokens=@ud
       leaf-min-fanout=@ud
       condense-min-fanout=@ud
+      context-window=@ud
   ==
 ::  poke actions
 ::
@@ -69,12 +72,23 @@
       [%set-config =lcm-config]
       [%clear key=@t]
   ==
-::  agent state
+::  agent state - version 0 (frozen, untyped for migration)
 ::
 +$  state-0
   $:  %0
+      conversations=*
+      lcm-config=*
+      compact-state=*
+  ==
+::  agent state - version 1
+::
++$  state-1
+  $:  %1
       conversations=(map @t conversation)
       =lcm-config
       =compact-state
   ==
+::
++$  versioned-state
+  $%(state-0 state-1)
 --
