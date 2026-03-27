@@ -14,7 +14,7 @@
 /+  *story-parse, *cron
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw state-12:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t) owner-ts=@da]
@@ -467,7 +467,7 @@
 --
 ::
 %-  agent:dbug
-=|  state-11:claw
+=|  state-12:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -557,34 +557,36 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  =/  new=state-11:claw
+  =/  new=state-12:claw
     ?-  -.old
-        %11  old
+        %12  old
+        %11
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old cron-jobs.old next-cron-id.old ~]
         %10
-      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0]
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~]
         %9
-      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0]
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~]
         %8
-      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da ~ 0]
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da ~ 0 ~]
         %7
-      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da ~ 0]
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da ~ 0 ~]
         %6
-      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da ~ 0]
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da ~ 0 ~]
         %5
-      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
         %4
-      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
         %3
-      [%11 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
+      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
         %2
-      [%11 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
+      [%12 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
         %1
-      [%11 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
+      [%12 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
         %0
       =/  ctx=(map @tas @t)  *(map @tas @t)
       =?  ctx  !=('' system-prompt.old)
         (~(put by ctx) %agent system-prompt.old)
-      [%11 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0]
+      [%12 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -602,6 +604,7 @@
             =(-.old %9)
             =(-.old %10)
             =(-.old %11)
+            =(-.old %12)
         ==
       :~  (lcm-sync-config bowl api-key.new model.new)
       ==
@@ -1011,8 +1014,6 @@
       ?.  (~(has by whitelist) from)
         %-  (slog leaf+"claw: ignoring dm from {(scow %p from)}" ~)
         `this
-      ::  skip if already processing
-      ?:  (~(has in dm-pending) from)  `this
       ::  extract text from story content
       =/  text=@t  (story-to-text ;;(story:d content-noun))
       ?:  =('' text)  `this
@@ -1049,7 +1050,7 @@
         (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM conversation with ' (scot %p from) nick-str '. When they ask you to send them something, use ship=' (scot %p from) ' in the send_dm tool.' ~)
       :_  this
       :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-          (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
+          (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
       ==
     ==
   ::
@@ -1192,7 +1193,7 @@
           ==
         :_  this
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
         ==
       ::
           %dm-post
@@ -1214,7 +1215,6 @@
           [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
-        ?:  (~(has in dm-pending) from)  `this
         ::  dedup
         =/  evt-id=@t  (rap 3 'dmp/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
         ?:  (~(has in seen-msgs) evt-id)  `this
@@ -1255,7 +1255,7 @@
           ==
         :_  this
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
         ==
       ::
           %dm-reply
@@ -1264,7 +1264,7 @@
         ?.  (~(has by whitelist) from)  `this
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
-        ?:  (~(has in dm-pending) from)  `this
+        =/  pid=[p=@p q=@da]  [p.id.parent.incoming q.id.parent.incoming]
         ::  dedup
         =/  evt-id=@t  (rap 3 'dmr/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
         ?:  (~(has in seen-msgs) evt-id)  `this
@@ -1274,7 +1274,6 @@
         =/  dmr-role=(unit ship-role:claw)  (~(get by whitelist) from)
         =?  owner-last-msg  &(?=(^ dmr-role) =(u.dmr-role %owner))
           now.bowl
-        =/  pid=[p=@p q=@da]  [p.id.parent.incoming q.id.parent.incoming]
         %-  (slog leaf+"claw: dm-reply from {(scow %p from)} parent={<pid>}: {(trip text)}" ~)
         ::  DM thread reply: route response back to the same thread
         =/  src=msg-source:claw  [%dm-thread from pid]
@@ -1301,7 +1300,7 @@
         =.  pending-src  (~(put by pending-src) from src)
         :_  this
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
         ==
       ::
           %reply
@@ -1374,7 +1373,7 @@
           ==
         :_  this
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from) ~ `['user' text])
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
         ==
       ==
       ?~  result
@@ -1533,14 +1532,14 @@
       [%query-tools ~]
     (handle-llm-response sign [%direct ~] ~)
   ::
-      [%dm-query @ ~]
+      [%dm-query @ *]
     =/  who=ship  (slav %p i.t.wire)
     ::  use stored source (for channel responses) - DON'T delete yet
     ::  pending-src stays until final text response is sent
     =/  src=msg-source:claw  (fall (~(get by pending-src) who) [%dm who])
     (handle-llm-response sign src `who)
   ::
-      [%dm-query-tools @ ~]
+      [%dm-query-tools @ *]
     =/  who=ship  (slav %p i.t.wire)
     =/  src=msg-source:claw  (fall (~(get by pending-src) who) [%dm who])
     (handle-llm-response sign src `who)
@@ -1781,11 +1780,13 @@
     =/  cur-bot-count=@ud  (~(gut by bot-counts) resp-rl-key 0)
     =.  bot-counts  (~(put by bot-counts) resp-rl-key +(cur-bot-count))
     %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
+    =/  response-cards=(list card)
+      :~  (send-reply-card bowl source content)
+          [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
+          (lcm-ingest bowl (lcm-key source) 'assistant' content)
+      ==
     :_  this
-    :~  (send-reply-card bowl source content)
-        [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
-        (lcm-ingest bowl (lcm-key source) 'assistant' content)
-    ==
+    response-cards
   ::
   ::  tool call response - execute tools and loop back
   ::
