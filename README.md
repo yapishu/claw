@@ -122,6 +122,12 @@ Escalation pattern: `search_history` first to find relevant content, then `descr
 | `kick_from_group` | sync | Remove a ship from a group (owner only) |
 | `ban_from_group` | sync | Ban a ship from a group (owner only) |
 | `unban_from_group` | sync | Unban a ship from a group (owner only) |
+| `add_channel` | sync | Add a chat channel to a group (owner only) |
+| `delete_channel` | sync | Delete a channel from a group (owner only) |
+| `add_role` | sync | Create a role in a group (owner only) |
+| `delete_role` | sync | Delete a role from a group (owner only) |
+| `assign_role` | sync | Assign a role to a ship (owner only) |
+| `remove_role` | sync | Remove a role from a ship (owner only) |
 
 **Scheduled tasks (cron):**
 
@@ -285,7 +291,7 @@ desk/
 │   ├── groups-ver.hoon        # Versioned group types (for mark compatibility)
 │   └── ...
 ├── lib/
-│   ├── claw-tools.hoon        # Tool dispatcher (42 tools)
+│   ├── claw-tools.hoon        # Tool dispatcher (48 tools)
 │   ├── story-parse.hoon       # Markdown ↔ Tlon story (reusable)
 │   ├── cron.hoon              # Cron expression parser (reusable)
 │   ├── s3-client.hoon         # AWS SigV4 S3 upload client (reusable)
