@@ -281,6 +281,30 @@
       next-cron-id=@ud
   ==
 ::
+::  state-12: message queue for busy responses
++$  state-12
+  $:  %12
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+      participated=(set @t)
+      seen-msgs=(set @t)
+      bot-counts=(map @t @ud)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+      cron-jobs=(map @ud cron-job)
+      next-cron-id=@ud
+      msg-queue=(map ship [txt=@t src=msg-source])
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
@@ -294,5 +318,6 @@
       state-9
       state-10
       state-11
+      state-12
   ==
 --
