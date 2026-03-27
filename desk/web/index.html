@@ -43,11 +43,12 @@
     .ctx-tab { display: inline-block; padding: 6px 12px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; color: #888; }
     .ctx-tab.active { color: #fff; border-color: #4a8; }
     .tabs { border-bottom: 1px solid #222; margin-bottom: 12px; }
-    #chat { max-height: 300px; overflow-y: auto; }
-    .msg { padding: 6px 0; font-size: 13px; }
-    .msg .role { color: #888; font-weight: 600; margin-right: 8px; }
-    .msg .role.user { color: #6af; }
-    .msg .role.assistant { color: #4a8; }
+    .scroll-box { max-height: 300px; overflow-y: auto; }
+    .filter-input { width: 100%; background: #0a0a0a; border: 1px solid #333; border-radius: 4px; padding: 6px 10px; color: #e0e0e0; font-size: 12px; margin-bottom: 8px; }
+    .perm-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #1a1a1a; }
+    .perm-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+    .perm-badge.open { background: #1a3a2a; color: #4a8; }
+    .perm-badge.wl { background: #2a2a2a; color: #888; }
   </style>
 </head>
 <body>
@@ -87,6 +88,24 @@
     </div>
   </div>
 
+  <h2>Channel Permissions</h2>
+  <div class="card">
+    <input type="text" class="filter-input" id="chan-filter" placeholder="Filter channels..." oninput="filterChannels()">
+    <div class="scroll-box" id="channel-list"><span style="color:#555;font-size:13px">Loading...</span></div>
+    <div class="status" id="perm-status"></div>
+  </div>
+
+  <h2>Scheduled Tasks</h2>
+  <div class="card">
+    <div id="cron-list"></div>
+    <div style="margin-top:12px;border-top:1px solid #222;padding-top:12px">
+      <div class="row"><label>Schedule</label><input type="text" id="cron-schedule" placeholder="*/30 * * * *" style="width:160px"><span style="font-size:11px;color:#555;margin-left:4px">min hr dom mon dow</span></div>
+      <div class="row"><label>Prompt</label><input type="text" id="cron-prompt" placeholder="Check for updates and summarize"></div>
+      <div class="row"><button class="primary" onclick="addCron()">Add Task</button></div>
+    </div>
+    <div class="status" id="cron-status"></div>
+  </div>
+
   <h2>Context Files</h2>
   <div class="card">
     <div class="tabs" id="ctx-tabs"></div>
@@ -110,6 +129,7 @@
 const API = '/apps/claw/api';
 let ctx = {};
 let activeCtxTab = null;
+let allChannels = [];
 
 async function api(path) {
   const r = await fetch(API + path, {credentials: 'include'});
@@ -132,6 +152,7 @@ function status(id, msg, ok) {
   setTimeout(() => el.textContent = '', 3000);
 }
 
+// Config
 async function loadConfig() {
   const c = await api('/config');
   document.getElementById('model').value = c.model || '';
@@ -182,6 +203,130 @@ async function delShip(ship) {
   loadConfig();
 }
 
+// Channel Permissions
+async function loadChannels() {
+  const el = document.getElementById('channel-list');
+  try {
+    const perms = await api('/channel-perms');
+    allChannels = [];
+
+    // Build channel list from saved perms
+    for (const [nest, perm] of Object.entries(perms)) {
+      allChannels.push({nest, title: nest, gtitle: '', perm});
+    }
+
+    // Try scrying groups for channel metadata
+    try {
+      const r = await fetch('/~/scry/groups/groups/light.json', {credentials: 'include'});
+      if (r.ok) {
+        const groups = await r.json();
+        const seen = new Set(allChannels.map(c => c.nest));
+        for (const [flag, group] of Object.entries(groups || {})) {
+          const gtitle = group?.meta?.title || flag;
+          const chans = group?.channels || {};
+          for (const [nest, ch] of Object.entries(chans)) {
+            if (!nest.startsWith('chat/')) continue;
+            const title = ch?.meta?.title || nest;
+            if (seen.has(nest)) {
+              const existing = allChannels.find(c => c.nest === nest);
+              if (existing) { existing.title = title; existing.gtitle = gtitle; }
+            } else {
+              allChannels.push({nest, title, gtitle, perm: 'whitelist'});
+            }
+          }
+        }
+      }
+    } catch(e) { /* groups scry failed, only show saved perms */ }
+
+    renderChannels();
+  } catch(e) {
+    el.innerHTML = '<span style="color:#a44">Error loading channels</span>';
+  }
+}
+
+function renderChannels() {
+  const el = document.getElementById('channel-list');
+  const filter = (document.getElementById('chan-filter').value || '').toLowerCase();
+  const filtered = allChannels.filter(c =>
+    c.nest.toLowerCase().includes(filter) ||
+    c.title.toLowerCase().includes(filter) ||
+    c.gtitle.toLowerCase().includes(filter)
+  );
+  if (!filtered.length) {
+    el.innerHTML = '<span style="color:#555;font-size:13px">No channels' + (filter ? ' matching filter' : ' found') + '</span>';
+    return;
+  }
+  el.innerHTML = filtered.map(c => {
+    const isOpen = c.perm === 'open';
+    const badge = isOpen
+      ? `<span class="perm-badge open" onclick="togglePerm('${c.nest}','whitelist')">open</span>`
+      : `<span class="perm-badge wl" onclick="togglePerm('${c.nest}','open')">whitelist</span>`;
+    return `<div class="perm-row">
+      <div>
+        <div style="font-size:13px;color:#e0e0e0">${c.title}${c.gtitle ? ' <span style="color:#555">in ' + c.gtitle + '</span>' : ''}</div>
+        <div style="font-size:11px;color:#555;font-family:monospace">${c.nest}</div>
+      </div>
+      ${badge}
+    </div>`;
+  }).join('');
+}
+
+function filterChannels() { renderChannels(); }
+
+async function togglePerm(channel, newPerm) {
+  await post({action: 'set-channel-perm', channel, perm: newPerm});
+  // Update local state immediately
+  const ch = allChannels.find(c => c.nest === channel);
+  if (ch) ch.perm = newPerm;
+  else allChannels.push({nest: channel, title: channel, gtitle: '', perm: newPerm});
+  renderChannels();
+  status('perm-status', channel.split('/').pop() + ' → ' + newPerm, true);
+}
+
+// Cron Jobs
+async function loadCrons() {
+  const el = document.getElementById('cron-list');
+  try {
+    const jobs = await api('/cron-jobs');
+    if (!jobs.length) {
+      el.innerHTML = '<span style="color:#555;font-size:13px">No scheduled tasks</span>';
+      return;
+    }
+    el.innerHTML = jobs.map(j => {
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a1a">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:#4a8;font-family:monospace">${j.schedule || '?'}</div>
+          <div style="font-size:13px;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${j.prompt}</div>
+        </div>
+        <button class="danger" onclick="removeCron(${j.id})" style="font-size:11px;padding:3px 8px;margin-left:8px;flex-shrink:0">×</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<span style="color:#a44">Error loading tasks</span>';
+  }
+}
+
+async function addCron() {
+  const schedule = document.getElementById('cron-schedule').value.trim();
+  const prompt = document.getElementById('cron-prompt').value.trim();
+  if (!schedule || !prompt) return status('cron-status', 'Schedule and prompt required', false);
+  // Validate: should have 5 space-separated fields
+  const fields = schedule.split(/\s+/);
+  if (fields.length !== 5) return status('cron-status', 'Need 5 fields: min hour dom month dow', false);
+  await post({action: 'cron-add', schedule, prompt});
+  document.getElementById('cron-schedule').value = '';
+  document.getElementById('cron-prompt').value = '';
+  status('cron-status', 'Task scheduled', true);
+  loadCrons();
+}
+
+async function removeCron(id) {
+  await post({action: 'cron-remove', 'cron-id': id});
+  status('cron-status', 'Task removed', true);
+  loadCrons();
+}
+
+// Context Files
 async function loadContext() {
   ctx = await api('/context');
   renderCtxTabs();
@@ -233,6 +378,8 @@ async function addCtx() {
 
 loadConfig();
 loadContext();
+loadChannels();
+loadCrons();
 </script>
 </body>
 </html>
