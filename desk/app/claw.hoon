@@ -1181,14 +1181,19 @@
     =?  dm-pending  (~(has in dm-pending) who)  (~(del in dm-pending) who)
     =.  pending-src  (~(del by pending-src) who)
     %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
-    ::  check if compaction needed (>20 msgs and idle)
+    ::  check if compaction needed: history tokens > 60% of model budget
     =/  ship-hist=(list msg:claw)  (fall (~(get by dm-history) who) ~)
+    =/  hist-tokens=@ud  (estimate-tokens ship-hist)
+    =/  budget=@ud  (model-budget model)
+    =/  threshold=@ud  (div (mul budget 60) 100)  ::  60% of budget
     =/  do-compact=?
-      &(?=([%idle ~] compact) (gth (lent ship-hist) 20) !=('' api-key))
+      &(?=([%idle ~] compact) (gth hist-tokens threshold) (gth (lent ship-hist) 12) !=('' api-key))
+    ::  compact oldest half (minus fresh tail of 10)
     =/  to-compact=(list msg:claw)
       ?.  do-compact  ~
-      =/  tc  (scag (sub (lent ship-hist) 10) ship-hist)
-      ?:((lth (lent tc) 5) ~ (scag 10 tc))
+      =/  compactable  (sub (lent ship-hist) 10)
+      =/  chunk  (min (div compactable 2) 20)  ::  half, max 20 at a time
+      ?:((lth chunk 3) ~ (scag chunk ship-hist))
     =?  compact  &(do-compact !=(~ to-compact))
       [%running `who]
     =?  .  &(do-compact !=(~ to-compact))
