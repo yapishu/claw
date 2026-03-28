@@ -75,6 +75,17 @@
     <div class="status" id="config-status"></div>
   </div>
 
+  <h2>Endomoon</h2>
+  <div class="card">
+    <div class="row">
+      <label>Moon Ship</label>
+      <input type="text" id="endomoon-ship" placeholder="~sampel-sampel-sampel-sampel--sampel-sampel-sampel-sampel">
+      <button class="primary" onclick="setEndomoon()">Enable</button>
+      <button class="danger" onclick="disableEndomoon()">Disable</button>
+    </div>
+    <div class="status" id="endo-status"></div>
+  </div>
+
   <h2>Whitelist</h2>
   <div class="card">
     <div id="whitelist-tags"></div>
@@ -156,6 +167,10 @@ function status(id, msg, ok) {
 async function loadConfig() {
   const c = await api('/config');
   document.getElementById('model').value = c.model || '';
+  document.getElementById('endomoon-ship').value = c.endomoon || '';
+  if (c.endomoon) {
+    status('endo-status', 'Active: ' + c.endomoon, true);
+  }
   renderWhitelist(c.whitelist || {});
 }
 
@@ -164,6 +179,20 @@ function renderWhitelist(wl) {
   el.innerHTML = Object.entries(wl).map(([s, r]) =>
     `<span class="tag">${s} (${r}) <span class="x" onclick="delShip('${s}')">&times;</span></span>`
   ).join('') || '<span style="color:#555;font-size:13px">No ships whitelisted</span>';
+}
+
+// Endomoon
+async function setEndomoon() {
+  const ship = document.getElementById('endomoon-ship').value.trim();
+  if (!ship) return status('endo-status', 'Enter a moon ship', false);
+  await post({action: 'set-endomoon', ship});
+  status('endo-status', 'Endomoon enabled: ' + ship, true);
+}
+
+async function disableEndomoon() {
+  await post({action: 'set-endomoon', ship: ''});
+  document.getElementById('endomoon-ship').value = '';
+  status('endo-status', 'Endomoon disabled', true);
 }
 
 async function setKey() {

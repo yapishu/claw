@@ -10,11 +10,12 @@
 /-  a=activity
 /-  lcm
 /-  ct=contacts
+/-  endomoon
 /+  dbug, default-agent, server, tools=claw-tools
 /+  *story-parse, *cron
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw state-12:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw state-12:claw state-13:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t) owner-ts=@da]
@@ -257,6 +258,24 @@
     [%pass /ch-send %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]
   ==
 ::
+::  +send-reply-card-endo: route reply through endomoon agent
+::
+++  send-reply-card-endo
+  |=  [=bowl:gall =msg-source:claw text=@t]
+  ^-  card
+  ?-  -.msg-source
+      %direct  [%pass /noop %arvo %b %wait (add now.bowl ~s1)]
+      %dm      [%pass /endo %agent [our.bowl %endomoon] %poke %endomoon-command !>(`moon-command:endomoon`[%send-dm ship.msg-source text])]
+      %dm-thread
+    [%pass /endo %agent [our.bowl %endomoon] %poke %endomoon-command !>(`moon-command:endomoon`[%send-dm ship.msg-source text])]
+      %channel
+    =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
+    [%pass /endo %agent [our.bowl %endomoon] %poke %endomoon-command !>(`moon-command:endomoon`[%send-channel nest text])]
+      %thread
+    =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
+    [%pass /endo %agent [our.bowl %endomoon] %poke %endomoon-command !>(`moon-command:endomoon`[%send-reply nest parent-id.msg-source text])]
+  ==
+::
 ++  parse-llm-response
   |=  body=@t
   ^-  (unit ?([%text content=@t] [%tools content=@t calls=(list [id=@t name=@t arguments=@t])]))
@@ -467,7 +486,7 @@
 --
 ::
 %-  agent:dbug
-=|  state-12:claw
+=|  state-13:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -557,36 +576,38 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  =/  new=state-12:claw
+  =/  new=state-13:claw
     ?-  -.old
-        %12  old
+        %13  old
+        %12
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old cron-jobs.old next-cron-id.old msg-queue.old ~]
         %11
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old cron-jobs.old next-cron-id.old ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old cron-jobs.old next-cron-id.old ~ ~]
         %10
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~ ~]
         %9
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~ ~]
         %8
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da ~ 0 ~ ~]
         %7
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da ~ 0 ~ ~]
         %6
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da ~ 0 ~ ~]
         %5
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~ ~]
         %4
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~ ~]
         %3
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~ ~]
         %2
-      [%12 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~ ~]
         %1
-      [%12 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~ ~]
         %0
       =/  ctx=(map @tas @t)  *(map @tas @t)
       =?  ctx  !=('' system-prompt.old)
         (~(put by ctx) %agent system-prompt.old)
-      [%12 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+      [%13 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~ ~]
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -605,6 +626,7 @@
             =(-.old %10)
             =(-.old %11)
             =(-.old %12)
+            =(-.old %13)
         ==
       :~  (lcm-sync-config bowl api-key.new model.new)
       ==
@@ -617,8 +639,14 @@
     =/  nxt=(unit @da)  (next-cron-fire schedule.job now.bowl)
     ?~  nxt  ~
     `[%pass /cron/(scot %ud cid)/(scot %ud version.job) %arvo %b %wait u.nxt]
+  ::  subscribe to endomoon events if configured
+  =/  endo-cards=(list card)
+    ?~  endomoon-ship.new  ~
+    :~  [%pass /endomoon %agent [our.bowl %endomoon] %leave ~]
+        [%pass /endomoon %agent [our.bowl %endomoon] %watch /events]
+    ==
   :_  this(state new)
-  :(weld sub-cards dm-cards migrate-cards cron-cards)
+  :(weld sub-cards dm-cards migrate-cards cron-cards endo-cards)
 ::
 ++  on-poke
   |=  [=mark =vase]
@@ -693,6 +721,11 @@
           [%cron-add s p]
             %'cron-remove'
           ^-  action:claw  [%cron-remove `@ud`((ot ~[['cron-id' ni]]) u.jon)]
+            %'set-endomoon'
+          ^-  action:claw
+          =/  s=@t  ((ot ~[ship+so]) u.jon)
+          ?:  =('' s)  [%set-endomoon ~]
+          [%set-endomoon `(slav %p s)]
         ==
       ?~  act
         :_  this
@@ -731,6 +764,7 @@
             %+  turn  ~(tap by pending-approvals)
             |=  [s=ship reason=@t]
             [(scot %p s) s+reason]
+            ['endomoon' s+?~(endomoon-ship '' (scot %p u.endomoon-ship))]
         ==
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::
@@ -898,6 +932,24 @@
     =.  cron-jobs  (~(del by cron-jobs) cron-id.act)
     `this
   ::
+      %set-endomoon
+    ?~  ship.act
+      ::  disable endomoon
+      %-  (slog leaf+"claw: disabling endomoon" ~)
+      =.  endomoon-ship  ~
+      :_  this
+      :~  [%pass /endomoon %agent [our.bowl %endomoon] %leave ~]
+          [%pass /endo-disable %agent [our.bowl %endomoon] %poke %endomoon-command !>(`moon-command:endomoon`[%disable ~])]
+      ==
+    ::  enable endomoon with specified moon ship
+    %-  (slog leaf+"claw: enabling endomoon {(scow %p u.ship.act)}" ~)
+    =.  endomoon-ship  ship.act
+    :_  this
+    :~  [%pass /endo-enable %agent [our.bowl %endomoon] %poke %endomoon-command !>(`moon-command:endomoon`[%enable u.ship.act])]
+        [%pass /endomoon %agent [our.bowl %endomoon] %leave ~]
+        [%pass /endomoon %agent [our.bowl %endomoon] %watch /events]
+    ==
+  ::
       %prompt
     ?:  pending  ~|(%claw-busy !!)
     ?:  =('' api-key)  ~|(%claw-no-api-key !!)
@@ -998,6 +1050,8 @@
       :~  [%pass /dm-watch/(scot %p who) %agent [our.bowl %chat] %watch /dm/(scot %p who)]
       ==
         %fact
+      ::  when endomoon is active, planet is not a bot — skip dm processing
+      ?^  endomoon-ship  `this
       ::  extract the response from the vase
       ::  the fact is a writ-response: [whom id response-delta]
       ::
@@ -1072,6 +1126,84 @@
       `this
     ==
   ::
+::  endomoon events: messages/dms routed through moon identity
+  ::
+      [%endomoon ~]
+    ?+  -.sign  `this
+        %watch-ack
+      ?~  p.sign
+        %-  (slog leaf+"claw: subscribed to endomoon events" ~)
+        `this
+      %-  (slog leaf+"claw: endomoon subscription failed" ~)
+      `this
+        %kick
+      :_  this
+      :~  [%pass /endomoon %agent [our.bowl %endomoon] %watch /events]
+      ==
+        %fact
+      %-  (slog leaf+"claw: got endomoon fact" ~)
+      =/  event=moon-event:endomoon  !<(moon-event:endomoon q.cage.sign)
+      %-  (slog leaf+"claw: endomoon event type={<-.event>}" ~)
+      ?-  -.event
+          %dm-received
+        ::  handle like a DM from the activity stream
+        =/  from=ship  from.event
+        =/  text=@t  text.event
+        ?:  =('' text)  `this
+        ::  dedup
+        =/  evt-id=@t  (rap 3 'endo-dm/' (scot %p from) '/' (scot %da now.bowl) '/' (scot %uv (mug text)) ~)
+        ?:  (~(has in seen-msgs) evt-id)  `this
+        =.  seen-msgs  (~(put in seen-msgs) evt-id)
+        =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
+        ::  owner heartbeat
+        =/  rl=(unit ship-role:claw)  (~(get by whitelist) from)
+        =?  owner-last-msg  &(?=(^ rl) =(u.rl %owner))  now.bowl
+        ::  rate limit reset
+        =/  rl-key=@t  (rap 3 'dm/' (scot %p from) ~)
+        =.  bot-counts  (~(put by bot-counts) rl-key 0)
+        %-  (slog leaf+"claw: endomoon dm from {(scow %p from)}: {(trip text)}" ~)
+        ::  slash commands
+        =/  src=msg-source:claw  [%dm from]
+        =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
+        ?^  slash-result  [u.slash-result this]
+        ::  send to llm
+        =.  dm-pending  (~(put in dm-pending) from)
+        ?:  =('' api-key)
+          =.  dm-pending  (~(del in dm-pending) from)
+          :_  this
+          :~  ?^(endomoon-ship (send-reply-card-endo bowl src 'Sorry, I don\'t have an API key configured yet.') (send-reply-card bowl src 'Sorry, I don\'t have an API key configured yet.'))
+          ==
+        =/  sys-prompt=@t
+          %:  rap  3
+            (build-prompt bowl context owner-last-msg)
+            '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM conversation with '
+            (scot %p from)
+            '. When they ask you to send them something, use ship='
+            (scot %p from)
+            ' in the send_dm tool.'
+            ~
+          ==
+        :_  this
+        :~  (lcm-ingest bowl (lcm-key src) 'user' text)
+            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
+        ==
+      ::
+          %dm-reply        `this  ::  TODO: handle dm thread replies
+          %channel-post    `this  ::  TODO: handle channel posts
+          %channel-reply   `this  ::  TODO: handle channel replies
+          %group-invite    `this  ::  TODO: auto-accept group invites
+          %status
+        %-  (slog leaf+"claw: endomoon status: {(trip msg.event)}" ~)
+        `this
+      ==
+    ==
+  ::
+  ::  endomoon poke acks (enable/disable/send)
+  ::
+      [%endo-enable ~]   `this
+      [%endo-disable ~]  `this
+      [%endo ~]          `this
+  ::
   ::  activity stream: mentions, group invites
   ::
       [%activity ~]
@@ -1087,6 +1219,8 @@
       :~  [%pass /activity %agent [our.bowl %activity] %watch /v4]
       ==
         %fact
+      ::  when endomoon is active, planet is not a bot — skip activity processing
+      ?^  endomoon-ship  `this
       ::  use typed extraction via !< with activity types
       =/  result=(unit (quip card _this))
         %-  mole  |.
@@ -1721,7 +1855,7 @@
     :_  this
     ?:  =(-.source %direct)
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error err])]  ==
-    :~  (send-reply-card bowl source 'Sorry, I hit an error talking to the LLM provider.')  ==
+    :~  ?^(endomoon-ship (send-reply-card-endo bowl source 'Sorry, I hit an error talking to the LLM provider.') (send-reply-card bowl source 'Sorry, I hit an error talking to the LLM provider.'))  ==
   ?~  full-file.resp
     =?  pending  =(-.source %direct)  %.n
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
@@ -1740,7 +1874,7 @@
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
     :_  this
     ?:  =(-.source %direct)  ~
-    :~  (send-reply-card bowl source 'Sorry, I had trouble understanding the response from my LLM provider.')  ==
+    :~  ?^(endomoon-ship (send-reply-card-endo bowl source 'Sorry, I had trouble understanding the response from my LLM provider.') (send-reply-card bowl source 'Sorry, I had trouble understanding the response from my LLM provider.'))  ==
   ::
   ?-  -.u.parsed
   ::
@@ -1781,7 +1915,7 @@
     =.  bot-counts  (~(put by bot-counts) resp-rl-key +(cur-bot-count))
     %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
     =/  response-cards=(list card)
-      :~  (send-reply-card bowl source content)
+      :~  ?^(endomoon-ship (send-reply-card-endo bowl source content) (send-reply-card bowl source content))
           [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
           (lcm-ingest bowl (lcm-key source) 'assistant' content)
       ==

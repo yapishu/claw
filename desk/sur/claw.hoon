@@ -20,6 +20,7 @@
       [%deny =ship]
       [%cron-add schedule=@t prompt=@t]
       [%cron-remove cron-id=@ud]
+      [%set-endomoon ship=(unit ship)]
   ==
 ::
 +$  update
@@ -305,6 +306,31 @@
       msg-queue=(map ship [txt=@t src=msg-source])
   ==
 ::
+::  state-13: endomoon support
++$  state-13
+  $:  %13
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+      participated=(set @t)
+      seen-msgs=(set @t)
+      bot-counts=(map @t @ud)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+      cron-jobs=(map @ud cron-job)
+      next-cron-id=@ud
+      msg-queue=(map ship [txt=@t src=msg-source])
+      endomoon-ship=(unit ship)
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
@@ -319,5 +345,6 @@
       state-10
       state-11
       state-12
+      state-13
   ==
 --
