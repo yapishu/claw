@@ -415,7 +415,31 @@
     :~  (send-reply-card bowl msg-source (rap 3 'Channel ' ch ' set to whitelist-only.' ~))
         [%pass /slash-perm %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%set-channel-perm ch %whitelist])]
     ==
-  ::  /approve ~ship - approve a pending ship (owner only)
+  ::  allow/approve ~ship - approve a pending ship (owner only)
+  ?:  &((gte (met 3 cmd) 7) =((end [3 6] cmd) 'allow '))
+    =/  ship-str=@t  (crip (trim-ws (trip (rsh [3 6] cmd))))
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner  ~  ::  not owner, pass through to LLM
+    =/  parsed=(unit ship)  (slaw %p ship-str)
+    ?~  parsed  ~  ::  not a valid ship, pass through to LLM
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Approved ' ship-str ' and added to whitelist.' ~))
+        [%pass /slash-approve %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%approve u.parsed])]
+    ==
+  ?:  &((gte (met 3 cmd) 6) =((end [3 5] cmd) 'deny '))
+    =/  ship-str=@t  (crip (trim-ws (trip (rsh [3 5] cmd))))
+    =/  is-owner=?
+      =/  role=(unit ship-role:claw)  (~(get by wl) from)
+      &(?=(^ role) =(u.role %owner))
+    ?.  is-owner  ~
+    =/  parsed=(unit ship)  (slaw %p ship-str)
+    ?~  parsed  ~
+    %-  some
+    :~  (send-reply-card bowl msg-source (rap 3 'Denied ' ship-str '.' ~))
+        [%pass /slash-deny %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%deny u.parsed])]
+    ==
   ?:  &((gte (met 3 cmd) 10) =((end [3 9] cmd) '/approve '))
     =/  ship-str=@t  (crip (trim-ws (trip (rsh [3 9] cmd))))
     =/  is-owner=?
@@ -868,16 +892,32 @@
     %-  (slog leaf+"claw: approved {(scow %p ship.act)}" ~)
     =.  pending-approvals  (~(del by pending-approvals) ship.act)
     =.  whitelist  (~(put by whitelist) ship.act %allowed)
+    =/  base-cards=(list card)
+      :~  [%pass /dm-rsvp/(scot %p ship.act) %agent [our.bowl %chat] %poke %chat-dm-rsvp !>([ship.act %.y])]
+          [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %leave ~]
+          [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %watch /dm/(scot %p ship.act)]
+          (send-dm-card bowl ship.act 'Your access has been approved. You can now talk to me!')
+      ==
+    ::  check if there's a queued message from this ship
+    =/  queued=(unit [txt=@t src=msg-source:claw])  (~(get by msg-queue) ship.act)
+    =.  msg-queue  (~(del by msg-queue) ship.act)
+    ?~  queued
+      [base-cards this]
+    ::  process their original message now that they're approved
+    %-  (slog leaf+"claw: processing queued message from {(scow %p ship.act)} after approval" ~)
+    ?:  =('' api-key)  [base-cards this]
+    =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
+    =/  q-key=@t  (lcm-key src.u.queued)
     :_  this
-    :~  [%pass /dm-rsvp/(scot %p ship.act) %agent [our.bowl %chat] %poke %chat-dm-rsvp !>([ship.act %.y])]
-        [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %leave ~]
-        [%pass /dm-watch/(scot %p ship.act) %agent [our.bowl %chat] %watch /dm/(scot %p ship.act)]
-        (send-dm-card bowl ship.act 'Your access has been approved. You can now talk to me!')
+    %+  weld  base-cards
+    :~  (lcm-ingest bowl q-key 'user' txt.u.queued)
+        (make-llm-request bowl api-key model sys-prompt q-key /dm-query/(scot %p ship.act)/(scot %da now.bowl) ~ `['user' txt.u.queued])
     ==
   ::
       %deny
     %-  (slog leaf+"claw: denied {(scow %p ship.act)}" ~)
-    `this(pending-approvals (~(del by pending-approvals) ship.act))
+    =.  msg-queue  (~(del by msg-queue) ship.act)
+    `this(pending-approvals (~(put by pending-approvals) ship.act 'denied'))
   ::
       %cron-add
     %-  (slog leaf+"claw: cron-add schedule='{(trip schedule.act)}'" ~)
@@ -1121,15 +1161,17 @@
           =/  post-nick=?  (has-own-nickname bowl post-text)
           ?.  |(mention.incoming post-nick)  `this
           ?:  (~(has by pending-approvals) from)  `this
-          %-  (slog leaf+"claw: access request from {(scow %p from)}" ~)
+          %-  (slog leaf+"claw: access request from {(scow %p from)} in {(trip ch-key)}" ~)
           =/  reason=@t  (rap 3 'mentioned in ' ch-key ': ' (end 3^100 post-text) ~)
           =.  pending-approvals  (~(put by pending-approvals) from reason)
-          ::  notify all owners
+          ::  queue message for processing after approval
+          =/  ch-src=msg-source:claw  [%channel kind.nest ship.nest name.nest from]
+          =.  msg-queue  (~(put by msg-queue) from [post-text ch-src])
           =/  owner-cards=(list card)
             %+  murn  ~(tap by whitelist)
             |=  [s=ship r=ship-role:claw]
             ?.  =(r %owner)  ~
-            `(send-dm-card bowl s (rap 3 'Access request from ' (scot %p from) ': ' reason '\0a\0aUse /approve ' (scot %p from) ' or /deny ' (scot %p from) ~))
+            `(send-dm-card bowl s (rap 3 'Access request from ' (scot %p from) ': ' reason '\0a\0aReply: allow ' (scot %p from) ' or deny ' (scot %p from) ~))
           [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
         ::  respond if mentioned OR if text contains our nickname
@@ -1207,11 +1249,13 @@
           %-  (slog leaf+"claw: access request via DM from {(scow %p from)}" ~)
           =/  reason=@t  (rap 3 'DM: ' (end 3^100 dm-text) ~)
           =.  pending-approvals  (~(put by pending-approvals) from reason)
+          ::  queue their message so it gets processed after approval
+          =.  msg-queue  (~(put by msg-queue) from [dm-text [%dm from]])
           =/  owner-cards=(list card)
             %+  murn  ~(tap by whitelist)
             |=  [s=ship r=ship-role:claw]
             ?.  =(r %owner)  ~
-            `(send-dm-card bowl s (rap 3 'Access request from ' (scot %p from) ': ' reason '\0a\0aUse /approve ' (scot %p from) ' or /deny ' (scot %p from) ~))
+            `(send-dm-card bowl s (rap 3 'Access request from ' (scot %p from) ': ' reason '\0a\0aReply: allow ' (scot %p from) ' or deny ' (scot %p from) ~))
           [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
