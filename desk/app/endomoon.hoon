@@ -35,12 +35,19 @@
 ++  on-poke
   |=  [=mark =vase]
   ^-  (quip card _this)
+  %-  (slog leaf+"endomoon: on-poke mark={<mark>}" ~)
   |^
   ?+  mark  (on-poke:def mark vase)
       %noun
     =/  noun  !<(* vase)
-    ?.  ?=([%mohr *] noun)  `this
-    =/  [=lane:ames blob=@]  ;;([lane:ames @] +.noun)
+    %-  (slog leaf+"endomoon: noun is-mohr={<?=([%mohr *] noun)>}" ~)
+    ?.  ?=([%mohr *] noun)
+      %-  (slog leaf+"endomoon: not mohr, ignoring" ~)
+      `this
+    %-  (slog leaf+"endomoon: mohr matched" ~)
+    =/  raw-pair=^  ;;(^ +.noun)
+    =/  =lane:ames  ;;(lane:ames -.raw-pair)
+    =/  blob=@  ;;(@ +.raw-pair)
     ::  try to decode blob as a raw local plea first (from ames on-plea intercept)
     ::  format: (jam [plea ship]) where plea = [vane path payload]
     =/  raw=(unit *)  (mole |.((cue blob)))
@@ -61,7 +68,14 @@
       %-  (slog leaf+"endomoon: poke from {(scow %p from)} mark={<poke-mark>}" ~)
       (handle-poke-plea from poke-mark poke-data)
     ::  otherwise try decrypting as an ames packet from the wire
-    (handle-moon-hear lane blob)
+    =/  hmh-result=(each (quip card _this) tang)
+      (mule |.((handle-moon-hear lane blob)))
+    ?:  ?=(%& -.hmh-result)
+      %-  (slog leaf+"endomoon: handle-moon-hear ok, {<(lent -.p.hmh-result)>} cards" ~)
+      p.hmh-result
+    %-  (slog leaf+"endomoon: handle-moon-hear crashed:" ~)
+    %-  (slog p.hmh-result)
+    `this
   ::
       %endomoon-command
     =/  cmd=moon-command:endomoon  !<(moon-command:endomoon vase)
@@ -96,12 +110,16 @@
       |-
       ?:  =(%czar (clan:title s))  s
       $(s (sein:title our.bowl now.bowl s))
-    =/  keys-shot=shot:ames  (encode-keys-packet:cry moon-ship galaxy lyf)
-    =/  keys-blob=blob:ames  (etch-shot:cry keys-shot)
-    =/  gal-lane=lane:ames  [%.y `@pC`galaxy]
-    %-  (slog leaf+"endomoon: enabled {(scow %p moon-ship)}" ~)
+    ::  register moon's public key AND sponsor in jael
+    ::  both are needed: keys for crypto, sponsor for route fallback
+    =/  key-udiff=udiff:point:jael
+      [[`@uxblockhash`0 `@udblocknumber`0] %keys [life=1 crypto-suite=1 pass=pub] boot=%.y]
+    =/  spon-udiff=udiff:point:jael
+      [[`@uxblockhash`0 `@udblocknumber`0] %spon `our.bowl]
+    %-  (slog leaf+"endomoon: enabled {(scow %p moon-ship)}, registering in jael" ~)
     :_  this(state state(config `cfg, moon-sec sec, moon-pub pub))
-    :~  [%pass /moon-send/keys %arvo %a %mosd gal-lane keys-blob]
+    :~  [%pass /moon-jael-keys %arvo %j %moon moon-ship key-udiff]
+        [%pass /moon-jael-spon %arvo %j %moon moon-ship spon-udiff]
     ==
   ::
   ++  disable-moon
@@ -113,28 +131,42 @@
   ++  handle-moon-hear
     |=  [=lane:ames blob=@]
     ^-  (quip card _this)
-    ?~  config.state
+    ?:  =(~ config.state)
       %-  (slog leaf+"endomoon: packet but not enabled" ~)
       `this
+    =/  cfg=moon-config:endomoon  (need config.state)
     =/  result=(each shot:ames tang)
       (mule |.((sift-shot:cry blob)))
     ?:  ?=(%| -.result)
       %-  (slog leaf+"endomoon: bad shot" ~)
       `this
     =/  shot=shot:ames  p.result
-    ?.  =(rcvr.shot moon-ship.u.config.state)
+    ?.  =(rcvr.shot moon-ship.cfg)
       `this
     ?:  =(content.shot `@`%keys)
       `this
     =^  peer=peer-state:endomoon  peers.state
       (ensure-peer sndr.shot lane)
+    %-  (slog leaf+"endomoon: peer established, sym-key={<sym-key.peer>}" ~)
+    %-  (slog leaf+"endomoon: shot sndr-tick={<sndr-tick.shot>} rcvr-tick={<rcvr-tick.shot>} req={<req.shot>}" ~)
+    %-  (slog leaf+"endomoon: expected sndr-tick={<(mod her-life.peer 16)>} rcvr-tick={<(mod lyf.cfg 16)>}" ~)
+    ::  step-by-step decrypt to find the crash
+    =/  siv  (end 7 content.shot)
+    =/  len  (end 4 (rsh 7 content.shot))
+    =/  cyf  (rsh [3 18] content.shot)
+    =/  vec  ~[sndr.shot rcvr.shot her-life.peer lyf.cfg]
+    =/  aes-key=@  (shaz sym-key.peer)
+    %-  (slog leaf+"endomoon: aes-key={<aes-key>} len={<len>}" ~)
+    %-  (slog leaf+"endomoon: calling de:sivc" ~)
+    =/  plain=(unit @)
+      =/  core  ~(. sivc:aes:crypto aes-key vec)
+      (de:core siv len cyf)
+    ?~  plain
+      %-  (slog leaf+"endomoon: AES decrypt returned ~, wrong key!" ~)
+      `this
+    %-  (slog leaf+"endomoon: AES decrypt ok, cue-ing" ~)
     =/  decrypted=(unit [bone:ames message-num:ames shut-meat:endomoon-crypto])
-      %:  decrypt-shut-packet:cry
-        shot
-        sym-key.peer
-        her-life.peer
-        lyf.u.config.state
-      ==
+      (mole |.(;;([bone:ames message-num:ames shut-meat:endomoon-crypto] (cue u.plain))))
     ?~  decrypted
       %-  (slog leaf+"endomoon: decrypt failed from {(scow %p sndr.shot)}" ~)
       `this
@@ -146,41 +178,93 @@
       `this
     =/  plea=(unit [vane=@tas =path payload=*])
       (decode-plea:cry bone msg-num meat)
-    ?~  plea  `this
+    ?~  plea
+      %-  (slog leaf+"endomoon: failed to decode plea from {(scow %p sndr.shot)}" ~)
+      `this
+    ::  send ack back to sender
     =/  ack-cards=(list card)
       (make-and-send-ack sndr.shot peer bone msg-num)
     =.  last-acked.peer  (~(put by last-acked.peer) bone msg-num)
     =.  peers.state  (~(put by peers.state) sndr.shot peer)
-    =/  event-cards=(list card)  (route-plea sndr.shot u.plea)
-    :_  this
-    (weld ack-cards event-cards)
+    ::  only handle gall pleas
+    ?.  =(vane.u.plea %g)
+      %-  (slog leaf+"endomoon: non-gall plea vane={<vane.u.plea>} from {(scow %p sndr.shot)}" ~)
+      :_  this  ack-cards
+    ::  gall plea payload is ames-request-all: [%0 request]
+    =/  gall-payload=*  payload.u.plea
+    ?.  ?=([%0 *] gall-payload)
+      %-  (slog leaf+"endomoon: unknown gall format from {(scow %p sndr.shot)}" ~)
+      :_  this  ack-cards
+    =/  request=*  +.gall-payload
+    ?+  -.request
+      %-  (slog leaf+"endomoon: unhandled request type {<-.request>} from {(scow %p sndr.shot)}" ~)
+      :_  this  ack-cards
+    ::  %m = poke (mark + data)
+        %m
+      =/  poke-mark=@tas  ;;(@tas +<.request)
+      =/  poke-data=*  +>.request
+      %-  (slog leaf+"endomoon: remote poke from {(scow %p sndr.shot)} mark={<poke-mark>}" ~)
+      =/  res=(quip card _this)  (handle-poke-plea sndr.shot poke-mark poke-data)
+      :_  +.res
+      (weld ack-cards -.res)
+    ::  %s = watch (subscribe to path)
+        %s
+      %-  (slog leaf+"endomoon: watch request from {(scow %p sndr.shot)}" ~)
+      ::  TODO: handle subscription requests
+      :_  this  ack-cards
+    ::  %u = leave (unsubscribe)
+        %u
+      %-  (slog leaf+"endomoon: leave from {(scow %p sndr.shot)}" ~)
+      :_  this  ack-cards
+    ==
   ::
   ++  ensure-peer
     |=  [who=ship =lane:ames]
     ^-  [peer-state:endomoon (map ship peer-state:endomoon)]
     =/  existing  (~(get by peers.state) who)
     ?^  existing  [u.existing peers.state]
-    =/  her-pub=(unit pass)
-      ::  scry jael %puby for their public key at life 1
-      ::  returns (unit [crypto-suite=@ud =pass])
-      =/  result=(each pass tang)
+    ::  get their public key from ames peer-state (works on fakeships)
+    ::  falls back to jael if ames doesn't know them
+    =/  her-pub=(unit @)
+      =/  result=(each * tang)
         %-  mule  |.
-        =/  key=(unit [suite=@ud =pass])
-          .^((unit [suite=@ud =pass]) %j /(scot %p our.bowl)/puby/(scot %da now.bowl)/(scot %p who)/1)
-        ?~  key  !!
-        pass.u.key
-      ?:(?=(%| -.result) ~ `p.result)
+        .^(* %ax /(scot %p our.bowl)/$/(scot %da now.bowl)/peers/(scot %p who))
+      ?:  ?=(%| -.result)
+        %-  (slog leaf+"endomoon: ames scry failed for {(scow %p who)}" ~)
+        ~
+      ::  ship-state: [%known [sym-key life rift pub-key sponsor] ...]
+      ::  pub-key is 4th element of the inner tuple
+      ?.  ?=([%known *] p.result)
+        %-  (slog leaf+"endomoon: peer {(scow %p who)} not known in ames" ~)
+        ~
+      ::  peer-state: [%known [sym life rift pub spon] route qos ...]
+      ::  just grab the public-key by scrying the specific path
+      =/  pk-result=(each * tang)
+        %-  mule  |.
+        =/  ps  .^(* %ax /(scot %p our.bowl)/$/(scot %da now.bowl)/peers/(scot %p who))
+        ::  [%known [sym life rift pub spon] ...]
+        ::  pub-key is public-key:ames which is @uwpublickey
+        =/  inner=*  -.+.ps  ::  [sym life rift pub spon]
+        =/  sym=*  -.inner
+        =/  r1=*   +.inner   ::  [life rift pub spon]
+        =/  r2=*   +.r1      ::  [rift pub spon]
+        =/  r3=*   +.r2      ::  [pub spon]
+        -.r3                  ::  pub
+      ?:  ?=(%| -.pk-result)
+        %-  (slog leaf+"endomoon: failed to extract pub key for {(scow %p who)}" ~)
+        ~
+      ?@  p.pk-result
+        %-  (slog leaf+"endomoon: got pub key (atom) for {(scow %p who)}" ~)
+        (some p.pk-result)
+      %-  (slog leaf+"endomoon: pub key is CELL for {(scow %p who)}, head={<-.p.pk-result>}" ~)
+      ~
+    =/  her-lyf=life  1
     ?~  her-pub
-      %-  (slog leaf+"endomoon: no key for {(scow %p who)}" ~)
+      %-  (slog leaf+"endomoon: no key for {(scow %p who)}, will retry" ~)
       =/  peer=peer-state:endomoon  [who 1 *pass 0 0 ~ ~ ~ lane]
-      [peer (~(put by peers.state) who peer)]
-    =/  sym=@  (derive-symmetric-key:cry u.her-pub moon-sec.state)
-    =/  her-lyf=life
-      =/  result=(each life tang)
-        %-  mule  |.
-        .^(life %j /(scot %p our.bowl)/life/(scot %da now.bowl)/(scot %p who))
-      ?:(?=(%| -.result) 1 p.result)
-    =/  peer=peer-state:endomoon  [who her-lyf u.her-pub sym 0 ~ ~ ~ lane]
+      [peer peers.state]
+    =/  sym=@  (derive-symmetric-key:cry `pass`u.her-pub moon-sec.state)
+    =/  peer=peer-state:endomoon  [who her-lyf `pass`u.her-pub sym 0 ~ ~ ~ lane]
     [peer (~(put by peers.state) who peer)]
   ::
   ++  make-and-send-ack
@@ -207,6 +291,10 @@
     ^-  (quip card _this)
     ?+  poke-mark
       %-  (slog leaf+"endomoon: unhandled mark {<poke-mark>}" ~)
+      `this
+    ::
+        %helm-hi
+      %-  (slog leaf+"endomoon: hi from {(scow %p from)}" ~)
       `this
     ::
         ?(%chat-dm-action-1 %chat-dm-diff-1)
