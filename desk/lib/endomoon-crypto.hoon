@@ -40,17 +40,18 @@
 ++  derive-moon-keys
   |=  [our=ship now=@da =moon=ship]
   ^-  [sec=ring pub=pass cub=acru:ames lyf=life]
-  ::  get our current life from jael
+  ::  check if fakeship
+  =/  is-fake=?  .^(? %j /(scot %p our)/fake/(scot %da now))
+  ?:  is-fake
+    ::  fakeships derive keys deterministically from @p with 512 bits
+    =/  cub=acru:ames  (pit:nu:crub:crypto 512 moon-ship)
+    [sec:ex:cub pub:ex:cub cub 1]
+  ::  real ships: derive from parent's ring via %earl path
   =/  lyf=life
     .^(@ %j /(scot %p our)/life/(scot %da now)/(scot %p our))
-  ::  get our private key ring at this life from jael
-  ::  jael %vein scry: /j/{our}/vein/{now}/{life} -> ring
   =/  our-sec=ring
     .^(ring %j /(scot %p our)/vein/(scot %da now)/(scot %ud lyf))
-  ::  derive moon secret exactly as jael does (jael.hoon:1301-1302)
-  ::  moon-sec = shaf(%earl, sham(our, lyf, sec, who))
   =/  moon-secret=@  (shaf %earl (sham our lyf our-sec moon-ship))
-  ::  generate moon's crub core from this seed
   =/  cub=acru:ames  (pit:nu:crub:crypto 128 moon-secret)
   [sec:ex:cub pub:ex:cub cub lyf]
 ::
@@ -227,9 +228,8 @@
 ++  make-plea-shut-packet
   |=  [=bone:ames msg-num=@ud vane=@tas =path payload=*]
   ^-  [bone:ames message-num:ames shut-meat]
-  =/  =plea:ames  [vane path payload]
-  =/  =message:ames  [%plea plea]
-  =/  message-blob=@  (jam message)
+  ::  jam the plea wrapped in message type (matches ames format)
+  =/  message-blob=@  (jam [%plea vane path payload])
   =/  num-frags=@  (met packet-size message-blob)
   ::  single fragment: fragment-num=0, fragment=full-message
   ?>  (lte num-frags 1)

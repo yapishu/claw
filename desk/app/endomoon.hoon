@@ -117,7 +117,8 @@
     =/  spon-udiff=udiff:point:jael
       [[`@uxblockhash`0 `@udblocknumber`0] %spon `our.bowl]
     %-  (slog leaf+"endomoon: enabled {(scow %p moon-ship)}, registering in jael" ~)
-    :_  this(state state(config `cfg, moon-sec sec, moon-pub pub))
+    ::  clear peer cache entirely on re-enable so fresh bones are used
+    :_  this(state state(config `cfg, moon-sec sec, moon-pub pub, peers ~))
     :~  [%pass /moon-jael-keys %arvo %j %moon moon-ship key-udiff]
         [%pass /moon-jael-spon %arvo %j %moon moon-ship spon-udiff]
     ==
@@ -261,10 +262,10 @@
     =/  her-lyf=life  1
     ?~  her-pub
       %-  (slog leaf+"endomoon: no key for {(scow %p who)}, will retry" ~)
-      =/  peer=peer-state:endomoon  [who 1 *pass 0 0 ~ ~ ~ lane]
+      =/  peer=peer-state:endomoon  [who 1 *pass 0 (mul 4 (mod (mug now.bowl) 1.000)) ~ ~ ~ lane]
       [peer peers.state]
     =/  sym=@  (derive-symmetric-key:cry `pass`u.her-pub moon-sec.state)
-    =/  peer=peer-state:endomoon  [who her-lyf `pass`u.her-pub sym 0 ~ ~ ~ lane]
+    =/  peer=peer-state:endomoon  [who her-lyf `pass`u.her-pub sym (mul 4 (mod (mug now.bowl) 1.000)) ~ ~ ~ lane]
     [peer (~(put by peers.state) who peer)]
   ::
   ++  make-and-send-ack
@@ -416,10 +417,13 @@
       (add next-bone.peer 4)
     =/  msg-num=@ud  (~(gut by next-msg.peer) bone 1)
     =.  next-msg.peer  (~(put by next-msg.peer) bone +(msg-num))
+    %-  (slog leaf+"endomoon: send-as-moon bone={<bone>} msg={<msg-num>} to={<to>} lane={<lane.peer>}" ~)
     =/  [sb=bone:ames sn=message-num:ames sm=shut-meat:endomoon-crypto]
       (make-plea-shut-packet:cry bone msg-num vane path payload)
+    %-  (slog leaf+"endomoon: encrypting sym={<sym-key.peer>}" ~)
     =/  os=shot:ames
       (encrypt-shut-packet:cry sb sn sm sym-key.peer moon-ship.u.config.state to lyf.u.config.state her-life.peer)
+    %-  (slog leaf+"endomoon: encrypted, sending via mosd" ~)
     =.  peers.state  (~(put by peers.state) to peer)
     :_  this
     :~  [%pass /moon-send/plea %arvo %a %mosd lane.peer (etch-shot:cry os)]
@@ -429,7 +433,7 @@
     |=  [to=ship text=@t]
     ^-  (quip card _this)
     ?~  config.state  `this
-    =/  dm-story=story:d  (text-to-story text)
+    =/  dm-story=story:d  ~[[%inline ~[text]]]
     =/  dm-memo=memo:d  [content=dm-story author=moon-ship.u.config.state sent=now.bowl]
     =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
     =/  dm-delta=delta:writs:c  [%add dm-essay ~]
@@ -440,12 +444,38 @@
     ::  (ames crypto path won't work for local since planet doesn't
     ::  have the moon registered as an ames peer)
     ?:  =(to our.bowl)
-      %-  (slog leaf+"endomoon: local DM as {(scow %p moon-ship.u.config.state)}" ~)
+      %-  (slog leaf+"endomoon: local DM+RSVP as {(scow %p moon-ship.u.config.state)}" ~)
       :_  this
-      :~  [%pass /endo-dm/(scot %p to) %arvo %a %emlc moon-ship.u.config.state %chat %chat-dm-diff-1 (jam dm-diff)]
+      :~  [%pass /endo-rsvp/(scot %p to) %arvo %a %emlc moon-ship.u.config.state %chat %chat-dm-rsvp (jam [moon-ship.u.config.state %.y])]
+          [%pass /endo-dm/(scot %p to) %arvo %a %emlc moon-ship.u.config.state %chat %chat-dm-diff-1 (jam dm-diff)]
       ==
-    ::  for remote targets, use ames crypto path
-    (send-as-moon to %g /deal (jam dm-act))
+    ::  for remote targets, route through ames's real crypto via %mosd
+    =^  peer=peer-state:endomoon  peers.state
+      =/  existing  (~(get by peers.state) to)
+      ?^  existing  [u.existing peers.state]
+      (ensure-peer to [%.y `@pC`(sein:title our.bowl now.bowl to)])
+    ::  always send RSVP first, then DM
+    =/  rsvp-bone=bone:ames  next-bone.peer
+    =/  rsvp-num=@ud  (~(gut by next-msg.peer) rsvp-bone 1)
+    =.  next-msg.peer  (~(put by next-msg.peer) rsvp-bone +(rsvp-num))
+    ::  allocate a NEW bone for the DM (bone+4)
+    =/  dm-bone=bone:ames  (add rsvp-bone 4)
+    =/  dm-num=@ud  (~(gut by next-msg.peer) dm-bone 1)
+    =.  next-msg.peer  (~(put by next-msg.peer) dm-bone +(dm-num))
+    =.  next-bone.peer  (add dm-bone 4)
+    =.  peers.state  (~(put by peers.state) to peer)
+    ::  RSVP: accept the DM conversation
+    ::  RSVP: accept the DM conversation
+    =/  hi-plea=@  (jam [%plea %g %ge %chat ~ [%0 %m %chat-dm-rsvp [moon-ship.u.config.state %.y]]])
+    ::  DM content — plea noun FLAT: [%plea vane path-elem... ~ payload]
+    =/  dm-plea=@  (jam [%plea %g %ge %chat ~ [%0 %m %chat-dm-diff-1 dm-diff]])
+    =/  dm-blob=@  (jam [%endo moon-ship.u.config.state to dm-bone dm-num dm-plea])
+    =/  hi-blob=@  (jam [%endo moon-ship.u.config.state to rsvp-bone rsvp-num hi-plea])
+    %-  (slog leaf+"endomoon: sending HI+DM to {(scow %p to)}" ~)
+    :_  this
+    :~  [%pass /endo-hi/(scot %p to) %arvo %a %mosd [%.y `@pC`to] hi-blob]
+        [%pass /endo-dm/(scot %p to) %arvo %a %mosd [%.y `@pC`to] dm-blob]
+    ==
   ::
   ++  send-channel-post
     |=  [=nest:d text=@t]
