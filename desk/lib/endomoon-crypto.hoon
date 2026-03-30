@@ -228,8 +228,9 @@
 ++  make-plea-shut-packet
   |=  [=bone:ames msg-num=@ud vane=@tas =path payload=*]
   ^-  [bone:ames message-num:ames shut-meat]
-  ::  jam the plea wrapped in message type (matches ames format)
-  =/  message-blob=@  (jam [%plea vane path payload])
+  ::  jam plea content WITHOUT %plea tag — ames strips the tag on send
+  ::  and re-adds it on receive based on bone direction (bone % 4 == 0)
+  =/  message-blob=@  (jam [vane path payload])
   =/  num-frags=@  (met packet-size message-blob)
   ::  single fragment: fragment-num=0, fragment=full-message
   ?>  (lte num-frags 1)

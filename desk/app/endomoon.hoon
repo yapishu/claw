@@ -433,7 +433,9 @@
     |=  [to=ship text=@t]
     ^-  (quip card _this)
     ?~  config.state  `this
-    =/  dm-story=story:d  ~[[%inline ~[text]]]
+    ::  truncate to ensure single-fragment (< 8KB jammed)
+    =/  short-text=@t  (end [3 200] text)
+    =/  dm-story=story:d  ~[[%inline ~[short-text]]]
     =/  dm-memo=memo:d  [content=dm-story author=moon-ship.u.config.state sent=now.bowl]
     =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
     =/  dm-delta=delta:writs:c  [%add dm-essay ~]
@@ -455,20 +457,24 @@
       ?^  existing  [u.existing peers.state]
       (ensure-peer to [%.y `@pC`(sein:title our.bowl now.bowl to)])
     ::  always send RSVP first, then DM
-    =/  rsvp-bone=bone:ames  next-bone.peer
+    ::  bones must be ODD for incoming pleas on the receiver:
+    ::  ames classifies odd bones as %plea, even bones as %boon
+    =/  rsvp-bone=bone:ames  (mix 1 next-bone.peer)
     =/  rsvp-num=@ud  (~(gut by next-msg.peer) rsvp-bone 1)
     =.  next-msg.peer  (~(put by next-msg.peer) rsvp-bone +(rsvp-num))
-    ::  allocate a NEW bone for the DM (bone+4)
+    ::  allocate a NEW bone for the DM (bone+4, still odd)
     =/  dm-bone=bone:ames  (add rsvp-bone 4)
     =/  dm-num=@ud  (~(gut by next-msg.peer) dm-bone 1)
     =.  next-msg.peer  (~(put by next-msg.peer) dm-bone +(dm-num))
-    =.  next-bone.peer  (add dm-bone 4)
+    =.  next-bone.peer  (add dm-bone 3)
     =.  peers.state  (~(put by peers.state) to peer)
     ::  RSVP: accept the DM conversation
-    ::  RSVP: accept the DM conversation
-    =/  hi-plea=@  (jam [%plea %g %ge %chat ~ [%0 %m %chat-dm-rsvp [moon-ship.u.config.state %.y]]])
-    ::  DM content — plea noun FLAT: [%plea vane path-elem... ~ payload]
-    =/  dm-plea=@  (jam [%plea %g %ge %chat ~ [%0 %m %chat-dm-diff-1 dm-diff]])
+    ::  message-blob is [vane path payload] WITHOUT %plea tag
+    ::  ames strips the tag on send and re-adds on receive based on bone
+    ::  path must be a proper (list @ta) — use /path syntax, not flat tuple
+    =/  hi-plea=@  (jam [%g /ge/chat [%0 %m %chat-dm-rsvp [moon-ship.u.config.state %.y]]])
+    ::  DM content
+    =/  dm-plea=@  (jam [%g /ge/chat [%0 %m %chat-dm-diff-1 dm-diff]])
     =/  dm-blob=@  (jam [%endo moon-ship.u.config.state to dm-bone dm-num dm-plea])
     =/  hi-blob=@  (jam [%endo moon-ship.u.config.state to rsvp-bone rsvp-num hi-plea])
     %-  (slog leaf+"endomoon: sending HI+DM to {(scow %p to)}" ~)
