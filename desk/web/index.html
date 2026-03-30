@@ -14,11 +14,12 @@
     .card { background: #141414; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
     .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .row:last-child { margin-bottom: 0; }
-    label { font-size: 13px; color: #888; min-width: 80px; }
+    label { font-size: 13px; color: #888; width: 110px; flex-shrink: 0; }
     input[type=text], input[type=password] {
       flex: 1; background: #0a0a0a; border: 1px solid #333; border-radius: 4px;
       padding: 8px 10px; color: #e0e0e0; font-size: 13px; font-family: monospace;
     }
+    input.masked { color: #555; }
     input:focus, textarea:focus { outline: none; border-color: #555; }
     textarea {
       width: 100%; background: #0a0a0a; border: 1px solid #333; border-radius: 4px;
@@ -59,7 +60,7 @@
   <div class="card">
     <div class="row">
       <label>OpenRouter Key</label>
-      <input type="password" id="api-key" placeholder="sk-or-v1-...">
+      <input type="text" id="api-key" placeholder="sk-or-v1-..." onfocus="clearMasked(this)">
       <button onclick="setKey()">Set</button>
     </div>
     <div class="row">
@@ -69,7 +70,7 @@
     </div>
     <div class="row">
       <label>Brave Key</label>
-      <input type="password" id="brave-key" placeholder="BSA...">
+      <input type="text" id="brave-key" placeholder="BSA..." onfocus="clearMasked(this)">
       <button onclick="setBraveKey()">Set</button>
     </div>
     <div class="status" id="config-status"></div>
@@ -167,12 +168,34 @@ function status(id, msg, ok) {
   setTimeout(() => el.textContent = '', 3000);
 }
 
+function maskKey(key) {
+  if (!key || key.length < 4) return '';
+  return '\u2022'.repeat(8) + key.slice(-3);
+}
+
+function showMasked(el, key) {
+  if (!key) { el.value = ''; el.classList.remove('masked'); return; }
+  el.value = maskKey(key);
+  el.classList.add('masked');
+  el.dataset.hasKey = '1';
+}
+
+function clearMasked(el) {
+  if (el.dataset.hasKey === '1') {
+    el.value = '';
+    el.classList.remove('masked');
+    delete el.dataset.hasKey;
+  }
+}
+
 // Config
 async function loadConfig() {
   const c = await api('/config');
   document.getElementById('model').value = c.model || '';
   document.getElementById('bot-name').value = c['bot-name'] || '';
   document.getElementById('bot-avatar').value = c['bot-avatar'] || '';
+  showMasked(document.getElementById('api-key'), c['api-key'] || '');
+  showMasked(document.getElementById('brave-key'), c['brave-key'] || '');
   renderWhitelist(c.whitelist || {});
 }
 
@@ -184,10 +207,11 @@ function renderWhitelist(wl) {
 }
 
 async function setKey() {
-  const key = document.getElementById('api-key').value;
-  if (!key) return;
+  const el = document.getElementById('api-key');
+  const key = el.value;
+  if (!key || el.dataset.hasKey === '1') return;
   await post({action: 'set-key', key});
-  document.getElementById('api-key').value = '';
+  showMasked(el, key);
   status('config-status', 'API key set', true);
 }
 
@@ -199,10 +223,11 @@ async function setModel() {
 }
 
 async function setBraveKey() {
-  const key = document.getElementById('brave-key').value;
-  if (!key) return;
+  const el = document.getElementById('brave-key');
+  const key = el.value;
+  if (!key || el.dataset.hasKey === '1') return;
   await post({action: 'set-brave-key', key});
-  document.getElementById('brave-key').value = '';
+  showMasked(el, key);
   status('config-status', 'Brave key set', true);
 }
 

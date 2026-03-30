@@ -196,7 +196,12 @@
       :~  [%inline `(list inline:story)`~[u.m]]
           [%block `block:story`[%image src=u.img height=0 width=0 alt='']]
       ==
-    =/  ch-memo=memo:channels  [content=verses author=(bot-author bowl bname bavatar) sent=now.bowl]
+    ::  only use bot-meta for locally-hosted channels
+    =/  ch-auth=author:channels
+      ?:  =(host.u.parsed our.bowl)
+        (bot-author bowl bname bavatar)
+      our.bowl
+    =/  ch-memo=memo:channels  [content=verses author=ch-auth sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
     =/  act=a-channels:channels  [%channel nest [%post [%add ch-essay]]]
     [%sync :~([%pass /tool/ch-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) (rap 3 'posted in ' u.ch ?~(img '' ' with image') ~)]
@@ -216,7 +221,7 @@
           ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/'web_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
+    [%async [%pass /tool-http/'web_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
   ::
   ::  image_search: bare GET (no headers - token in query string)
   ::
@@ -237,7 +242,7 @@
           ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/'image_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
+    [%async [%pass /tool-http/'image_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
   ::
   ::  http_fetch: bare GET
   ::
@@ -259,7 +264,7 @@
       [%sync ~ 'error: no S3 configuration found.']
     %-  (slog leaf+"claw: upload_image: fetching {(trip url)}" ~)
     ::  fetch the source image - bare GET
-    [%async [%pass /tool-http/'upload_image' %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+    [%async [%pass /tool-http/'upload_image'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
   ::
   ::  add_reaction: react to channel message
@@ -447,7 +452,7 @@
       (thread-builder.tool args-map)
     ?:  ?=(%| -.thread-result)
       [%sync ~ (rap 3 'error: MCP tool "' tool-name '" rejected arguments. Check argument types and names.' ~)]
-    [%async [%pass /tool-http/'local-mcp' %arvo %k %lard %mcp p.thread-result]]
+    [%async [%pass /tool-http/'local-mcp'/(scot %da now.bowl) %arvo %k %lard %mcp p.thread-result]]
   ::
 ::
   ::  join_group: join an Urbit group (owner only)
@@ -529,7 +534,11 @@
     ?~  msg-time  [%sync ~ 'error: bad message ID']
     =/  =nest:channels  [kind.u.parsed-nest ship.u.parsed-nest name.u.parsed-nest]
     =/  ch-story=story:story  ~[[%inline `(list inline:story)`~[con]]]
-    =/  ch-memo=memo:channels  [content=ch-story author=(bot-author bowl bname bavatar) sent=now.bowl]
+    =/  ch-auth=author:channels
+      ?:  =(ship.u.parsed-nest our.bowl)
+        (bot-author bowl bname bavatar)
+      our.bowl
+    =/  ch-memo=memo:channels  [content=ch-story author=ch-auth sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
     =/  act  [%channel nest [%post [%edit u.msg-time ch-essay]]]
     [%sync :~([%pass /tool/edit-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) 'message edited']
@@ -893,7 +902,7 @@
   ?:  =('http_fetch' name)
     =,  dejs:format
     =/  url=@t  ((ot ~[url+so]) u.args)
-    [%async [%pass /tool-http/'http_fetch' %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+    [%async [%pass /tool-http/'http_fetch'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
   ::  cron_add: schedule a recurring task (owner only)
   ::

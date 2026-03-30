@@ -232,6 +232,22 @@
   ?~  nick  %.n
   !=(~ (find nick (cass (trip text))))
 ::
+::  +has-bot-tag: check if story content has a [%tag p=botname]
+::
+++  has-bot-tag
+  |=  [bname=(unit @t) =story:d]
+  ^-  ?
+  ?~  bname  %.n
+  =/  nick=@t  u.bname
+  %+  lien  story
+  |=  =verse:d
+  ?.  ?=(%inline -.verse)  %.n
+  %+  lien  p.verse
+  |=  =inline:d
+  ?&  ?=([%tag *] inline)
+      =(nick p.inline)
+  ==
+::
 ::  +send-reply-card: send a response based on message source
 ::
 ++  send-reply-card
@@ -246,8 +262,13 @@
     (send-dm-card bowl ship.msg-source text bname bavatar)
       %channel
     ::  post in channel as top-level message
+    ::  only use bot-meta for locally-hosted channels
     =/  ch-story=story:d  (text-to-story text)
-    =/  ch-memo=memo:d  [content=ch-story author=(bot-author bowl bname bavatar) sent=now.bowl]
+    =/  ch-author=author:d
+      ?:  =(host.msg-source our.bowl)
+        (bot-author bowl bname bavatar)
+      our.bowl
+    =/  ch-memo=memo:d  [content=ch-story author=ch-author sent=now.bowl]
     =/  ch-essay=essay:d  [ch-memo /chat ~ ~]
     =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
     =/  act=a-channels:d  [%channel nest [%post [%add ch-essay]]]
@@ -255,7 +276,11 @@
       %thread
     ::  post as reply in a thread
     =/  th-story=story:d  (text-to-story text)
-    =/  th-memo=memo:d  [content=th-story author=(bot-author bowl bname bavatar) sent=now.bowl]
+    =/  th-author=author:d
+      ?:  =(host.msg-source our.bowl)
+        (bot-author bowl bname bavatar)
+      our.bowl
+    =/  th-memo=memo:d  [content=th-story author=th-author sent=now.bowl]
     =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
     =/  act=a-channels:d  [%channel nest [%post [%reply parent-id.msg-source [%add th-memo]]]]
     [%pass /ch-send %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]
@@ -584,7 +609,7 @@
       [%pass /activity %agent [our.bowl %activity] %watch /v4]
       ::  subscribe to self-DM for bot interaction with owner
       ::  use v3 path to get bot-meta author in responses
-      [%pass /dm-watch/(scot %p our.bowl) %agent [our.bowl %chat] %watch /v3/dm/(scot %p our.bowl)]
+      [%pass /dm-watch/(scot %p our.bowl) %agent [our.bowl %chat] %watch /dm/(scot %p our.bowl)]
   ==
 ::
 ++  on-save  !>(state)
@@ -635,7 +660,7 @@
   =/  dm-cards=(list card)
     ::  leave then re-subscribe to self-DM (v3 for bot-meta)
     :-  [%pass /dm-watch/(scot %p our.bowl) %agent [our.bowl %chat] %leave ~]
-    :-  [%pass /dm-watch/(scot %p our.bowl) %agent [our.bowl %chat] %watch /v3/dm/(scot %p our.bowl)]
+    :-  [%pass /dm-watch/(scot %p our.bowl) %agent [our.bowl %chat] %watch /dm/(scot %p our.bowl)]
     ::  regular DM watches, skip our.bowl (handled above)
     %+  murn  ~(tap by whitelist.new)
     |=  [s=ship r=ship-role:claw]
@@ -773,6 +798,8 @@
         :~  ['model' s+model]
             ['pending' b+pending]
             ['last-error' s+last-error]
+            ['api-key' s+api-key]
+            ['brave-key' s+brave-key]
             :-  'whitelist'
             %-  pairs:enjs:format
             %+  turn  ~(tap by whitelist)
@@ -892,7 +919,10 @@
     `this(context (~(del by context) field.act))
   ::
       %clear
-    %-  (slog leaf+"claw: history cleared" ~)
+    %-  (slog leaf+"claw: cleared (history + stuck state)" ~)
+    =.  tool-loop  ~
+    =.  dm-pending  ~
+    =.  pending  %.n
     :_  this(pending %.n)
     :~  [%pass /lcm-clear %agent [our.bowl %lcm] %poke %lcm-action !>(`lcm-action:lcm`[%clear 'direct'])]
     ==
@@ -1008,6 +1038,8 @@
     =/  j=json
       %-  pairs:enjs:format
       :~  ['model' s+model]  ['pending' b+pending]  ['last-error' s+last-error]
+          ['api-key' s+api-key]
+          ['brave-key' s+brave-key]
           :-  'whitelist'
           %-  pairs:enjs:format
           %+  turn  ~(tap by whitelist)
@@ -1071,7 +1103,7 @@
       :_  this
       ::  re-subscribe: use v3 for self-DM, unversioned for others
       ?:  =(who our.bowl)
-        :~  [%pass /dm-watch/(scot %p who) %agent [our.bowl %chat] %watch /v3/dm/(scot %p who)]
+        :~  [%pass /dm-watch/(scot %p who) %agent [our.bowl %chat] %watch /dm/(scot %p who)]
         ==
       :~  [%pass /dm-watch/(scot %p who) %agent [our.bowl %chat] %watch /dm/(scot %p who)]
       ==
@@ -1082,30 +1114,23 @@
       =/  noun  +.q.cage.sign
       ?.  ?=([* * [%add *]] noun)  `this
       =/  response-delta  +.+.noun
-      ::  self-DM uses v3 path: [%add essay seq time]
-      ::    essay = [memo kind-data replies meta]
-      ::  regular DM uses old path: [%add memo time]
-      ::  extract memo accordingly
-      =/  memo-noun
-        ?:  =(who our.bowl)
-          ::  v3: -.+.response-delta = essay, -.essay = memo
-          -.-.+.response-delta
-        ::  old: -.+.response-delta = memo
-        -.+.response-delta
+      ::  extract message-id time from noun: [whom [id delta]]
+      ::  id = [ship time], so time = +.-.+.noun
+      =/  msg-time=@da  ;;(@da +.-.+.noun)
+      ::  [%add memo time] where memo = [content author sent]
+      =/  memo-noun  -.+.response-delta
       =/  content-noun  -.memo-noun
-      ::  extract author: may be atom (ship) or cell (bot-meta)
       =/  author-noun  -.+.memo-noun
-      =/  is-bot-msg=?  ?=(^ author-noun)
       =/  from=ship
         ?@  author-noun  ;;(@p author-noun)
         ;;(@p -.author-noun)
-      ::  decide whether to skip this message:
-      ::  self-DM: skip bot-meta (our own bot responses), process human
-      ::  regular DM: skip all messages from our own ship
-      =/  skip=?
-        ?:  =(who our.bowl)  is-bot-msg
-        =(from our.bowl)
-      ?:  skip  `this
+      ::  regular DM: skip messages from our own ship
+      ?:  &(!=(who our.bowl) =(from our.bowl))  `this
+      ::  self-DM: skip messages we sent (matched by message-id time)
+      =/  self-key=@t  (rap 3 'sds/' (scot %da msg-time) ~)
+      ?:  &(=(who our.bowl) (~(has in seen-msgs) self-key))
+        =.  seen-msgs  (~(del in seen-msgs) self-key)
+        `this
       ::  check whitelist (self-DM owner is always allowed)
       ?.  |(=(who our.bowl) (~(has by whitelist) from))
         %-  (slog leaf+"claw: ignoring dm from {(scow %p from)}" ~)
@@ -1113,8 +1138,8 @@
       ::  extract text from story content
       =/  text=@t  (story-to-text ;;(story:d content-noun))
       ?:  =('' text)  `this
-      ::  dedup: use ship+text-hash
-      =/  evt-id=@t  (rap 3 'dmw/' (scot %p from) '/' (scot %uv (mug text)) ~)
+      ::  dedup: use message-id time
+      =/  evt-id=@t  (rap 3 'dmw/' (scot %p from) '/' (scot %da msg-time) ~)
       ?:  (~(has in seen-msgs) evt-id)  `this
       =.  seen-msgs  (~(put in seen-msgs) evt-id)
       =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
@@ -1215,13 +1240,11 @@
         ?.  ?|  (~(has by whitelist) from)
                 &(?=(^ ch-perm) =(u.ch-perm %open))
             ==
-          ::  approval workflow: notify owner if mentioned by unknown ship
-          =/  post-text=@t  (story-to-text content.incoming)
-          =/  post-nick=?  (has-own-nickname bot-name post-text)
-          ?.  |(mention.incoming post-nick)  `this
+          ::  approval workflow: notify owner if bot-tagged or mentioned
+          ?.  |((has-bot-tag bot-name content.incoming) mention.incoming)  `this
           ?:  (~(has by pending-approvals) from)  `this
           %-  (slog leaf+"claw: access request from {(scow %p from)}" ~)
-          =/  reason=@t  (rap 3 'mentioned in ' ch-key ': ' (end 3^100 post-text) ~)
+          =/  reason=@t  (rap 3 'bot-tagged in ' ch-key ': ' (end 3^100 (story-to-text content.incoming)) ~)
           =.  pending-approvals  (~(put by pending-approvals) from reason)
           ::  notify all owners
           =/  owner-cards=(list card)
@@ -1231,9 +1254,9 @@
             `(send-dm-card bowl s (rap 3 'Access request from ' (scot %p from) ': ' reason '\0a\0aUse /approve ' (scot %p from) ' or /deny ' (scot %p from) ~) bot-name bot-avatar)
           [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
-        ::  respond if mentioned OR if text contains our nickname
-        =/  nick-match=?  (has-own-nickname bot-name text)
-        ?.  |(mention.incoming nick-match)  `this
+        ::  respond to bot tag [%tag p=botname] or @p mention (fallback)
+        =/  tag-match=?  (has-bot-tag bot-name content.incoming)
+        ?.  |(tag-match mention.incoming)  `this
         ?:  =('' text)  `this
         ::  dedup: skip if already seen
         =/  evt-id=@t  (rap 3 'post/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
@@ -1314,21 +1337,17 @@
           [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
-        ::  dedup
         =/  evt-id=@t  (rap 3 'dmp/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
         ?:  (~(has in seen-msgs) evt-id)  `this
         =.  seen-msgs  (~(put in seen-msgs) evt-id)
         =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
-        ::  owner heartbeat tracking
         =/  dmp-role=(unit ship-role:claw)  (~(get by whitelist) from)
         =?  owner-last-msg  &(?=(^ dmp-role) =(u.dmp-role %owner))
           now.bowl
-        ::  bot rate limiting: reset count (human DM received)
         =/  dmp-rl-key=@t  (rap 3 'dm/' (scot %p from) ~)
         =.  bot-counts  (~(put by bot-counts) dmp-rl-key 0)
         %-  (slog leaf+"claw: dm-post from {(scow %p from)}: {(trip text)}" ~)
         =/  src=msg-source:claw  [%dm from]
-        ::  check for slash commands
         =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg bot-name bot-avatar)
         ?^  slash-result  [u.slash-result this]
         =.  dm-pending  (~(put in dm-pending) from)
@@ -1364,17 +1383,14 @@
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
         =/  pid=[p=@p q=@da]  [p.id.parent.incoming q.id.parent.incoming]
-        ::  dedup
         =/  evt-id=@t  (rap 3 'dmr/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
         ?:  (~(has in seen-msgs) evt-id)  `this
         =.  seen-msgs  (~(put in seen-msgs) evt-id)
         =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
-        ::  owner heartbeat tracking
         =/  dmr-role=(unit ship-role:claw)  (~(get by whitelist) from)
         =?  owner-last-msg  &(?=(^ dmr-role) =(u.dmr-role %owner))
           now.bowl
         %-  (slog leaf+"claw: dm-reply from {(scow %p from)} parent={<pid>}: {(trip text)}" ~)
-        ::  DM thread reply: route response back to the same thread
         =/  src=msg-source:claw  [%dm-thread from pid]
         =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg bot-name bot-avatar)
         ?^  slash-result  [u.slash-result this]
@@ -1419,11 +1435,11 @@
         ::  build thread key for participated check
         =/  parent-time=@da  q.id.parent.incoming
         =/  thread-key=@t  (rap 3 'thread/' kind.nest '/' (scot %p ship.nest) '/' name.nest '/' (scot %da parent-time) ~)
-        =/  nick-match=?  (has-own-nickname bot-name text)
+        =/  tag-match=?  (has-bot-tag bot-name content.incoming)
         =/  in-participated=?  (~(has in participated) thread-key)
-        ?.  ?|  mention.incoming
+        ?.  ?|  tag-match
+                mention.incoming
                 =(parent-author our.bowl)
-                nick-match
                 in-participated
             ==
           `this
@@ -1602,7 +1618,7 @@
   ::  compaction response
   ::
   ::
-      [%tool-http %local-mcp ~]
+      [%tool-http %local-mcp *]
     ?.  ?=([%khan %arow *] sign)  `this
     ?~  tool-loop
       %-  (slog leaf+"claw: khan response but no pending loop" ~)
@@ -1628,7 +1644,7 @@
       [%query ~]
     (handle-llm-response sign [%direct ~] ~)
   ::
-      [%query-tools ~]
+      [%query-tools *]
     (handle-llm-response sign [%direct ~] ~)
   ::
       [%dm-query @ *]
@@ -1647,7 +1663,7 @@
   ::
   ::  async tool http response
   ::
-      [%tool-http @ ~]
+      [%tool-http @ *]
     ?.  ?=([%iris %http-response *] sign)  `this
     =/  resp=client-response:iris  client-response.sign
     ?.  ?=(%finished -.resp)  `this
@@ -1745,8 +1761,8 @@
     ::  all done - fire llm follow-up
     =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
     =/  follow-wire=path
-      ?:  =(-.msg-source.tl %direct)  /query-tools
-      /dm-query-tools/(scot %p (src-ship msg-source.tl))
+      ?:  =(-.msg-source.tl %direct)  /query-tools/(scot %da now.bowl)
+      /dm-query-tools/(scot %p (src-ship msg-source.tl))/(scot %da now.bowl)
     :_  this(tool-loop ~)
     :~  (make-llm-request bowl api-key model sys-prompt conv-key.tl follow-wire new-fmsgs ~)
     ==
@@ -1783,8 +1799,8 @@
   ::  all done - fire LLM follow-up
   =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
   =/  follow-wire=path
-    ?:  =(-.msg-source.tl %direct)  /query-tools
-    /dm-query-tools/(scot %p (src-ship msg-source.tl))
+    ?:  =(-.msg-source.tl %direct)  /query-tools/(scot %da now.bowl)
+    /dm-query-tools/(scot %p (src-ship msg-source.tl))/(scot %da now.bowl)
   :_  this(tool-loop ~)
   :~  (make-llm-request bowl api-key model sys-prompt conv-key.tl follow-wire new-fmsgs ~)
   ==
@@ -1817,6 +1833,9 @@
     =.  last-error  err
     =?  pending  =(-.source %direct)  %.n
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
+    ::  self-DM: record sent timestamp so returning fact is skipped
+    =?  seen-msgs  &(!=(-.source %direct) =((src-ship source) our.bowl))
+      (~(put in seen-msgs) (rap 3 'sds/' (scot %da now.bowl) ~))
     :_  this
     ?:  =(-.source %direct)
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error err])]  ==
@@ -1879,6 +1898,9 @@
     =/  cur-bot-count=@ud  (~(gut by bot-counts) resp-rl-key 0)
     =.  bot-counts  (~(put by bot-counts) resp-rl-key +(cur-bot-count))
     %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
+    ::  self-DM: record sent timestamp so returning fact is skipped
+    =?  seen-msgs  =(who our.bowl)
+      (~(put in seen-msgs) (rap 3 'sds/' (scot %da now.bowl) ~))
     =/  response-cards=(list card)
       :~  (send-reply-card bowl source content bot-name bot-avatar)
           [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
