@@ -433,9 +433,7 @@
     |=  [to=ship text=@t]
     ^-  (quip card _this)
     ?~  config.state  `this
-    ::  truncate to ensure single-fragment (< 8KB jammed)
-    =/  short-text=@t  (end [3 200] text)
-    =/  dm-story=story:d  ~[[%inline ~[short-text]]]
+    =/  dm-story=story:d  ~[[%inline ~[text]]]
     =/  dm-memo=memo:d  [content=dm-story author=moon-ship.u.config.state sent=now.bowl]
     =/  dm-essay=essay:c  [dm-memo [%chat /] ~ ~]
     =/  dm-delta=delta:writs:c  [%add dm-essay ~]
