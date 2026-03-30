@@ -102,8 +102,14 @@
 ::
 ::  +execute-tool: run a tool, returns sync result or async card
 ::
+++  bot-author
+  |=  [=bowl:gall bname=(unit @t) bavatar=(unit @t)]
+  ^-  author:channels
+  ?~  bname  our.bowl
+  [ship=our.bowl nickname=bname avatar=bavatar]
+::
 ++  execute-tool
-  |=  [=bowl:gall name=@t arguments=@t brave-key=@t owner=?]
+  |=  [=bowl:gall name=@t arguments=@t brave-key=@t owner=? bname=(unit @t) bavatar=(unit @t)]
   ^-  tool-result
   =/  args=(unit json)  (de:json:html arguments)
   ?~  args  [%sync ~ 'error: invalid json arguments']
@@ -147,7 +153,7 @@
       :~  [%inline `(list inline:story)`~[u.m]]
           [%block `block:story`[%image src=u.img height=0 width=0 alt='']]
       ==
-    =/  dm-memo=memo:channels  [content=verses author=our.bowl sent=now.bowl]
+    =/  dm-memo=memo:channels  [content=verses author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  dm-essay=essay:chat  [dm-memo [%chat /] ~ ~]
     =/  dm-delta=delta:writs:chat  [%add dm-essay ~]
     =/  dm-diff=diff:writs:chat  [[our.bowl now.bowl] dm-delta]
@@ -190,7 +196,7 @@
       :~  [%inline `(list inline:story)`~[u.m]]
           [%block `block:story`[%image src=u.img height=0 width=0 alt='']]
       ==
-    =/  ch-memo=memo:channels  [content=verses author=our.bowl sent=now.bowl]
+    =/  ch-memo=memo:channels  [content=verses author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
     =/  act=a-channels:channels  [%channel nest [%post [%add ch-essay]]]
     [%sync :~([%pass /tool/ch-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) (rap 3 'posted in ' u.ch ?~(img '' ' with image') ~)]
@@ -523,7 +529,7 @@
     ?~  msg-time  [%sync ~ 'error: bad message ID']
     =/  =nest:channels  [kind.u.parsed-nest ship.u.parsed-nest name.u.parsed-nest]
     =/  ch-story=story:story  ~[[%inline `(list inline:story)`~[con]]]
-    =/  ch-memo=memo:channels  [content=ch-story author=our.bowl sent=now.bowl]
+    =/  ch-memo=memo:channels  [content=ch-story author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
     =/  act  [%channel nest [%post [%edit u.msg-time ch-essay]]]
     [%sync :~([%pass /tool/edit-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) 'message edited']

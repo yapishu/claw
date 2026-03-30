@@ -75,6 +75,21 @@
     <div class="status" id="config-status"></div>
   </div>
 
+  <h2>Bot Identity</h2>
+  <div class="card">
+    <div class="row">
+      <label>Bot Name</label>
+      <input type="text" id="bot-name" placeholder="e.g. Ara (leave empty to disable)">
+      <button onclick="setBotName()">Set</button>
+    </div>
+    <div class="row">
+      <label>Bot Avatar</label>
+      <input type="text" id="bot-avatar" placeholder="https://... (optional avatar URL)">
+      <button onclick="setBotAvatar()">Set</button>
+    </div>
+    <div class="status" id="bot-status"></div>
+  </div>
+
   <h2>Whitelist</h2>
   <div class="card">
     <div id="whitelist-tags"></div>
@@ -156,6 +171,8 @@ function status(id, msg, ok) {
 async function loadConfig() {
   const c = await api('/config');
   document.getElementById('model').value = c.model || '';
+  document.getElementById('bot-name').value = c['bot-name'] || '';
+  document.getElementById('bot-avatar').value = c['bot-avatar'] || '';
   renderWhitelist(c.whitelist || {});
 }
 
@@ -187,6 +204,18 @@ async function setBraveKey() {
   await post({action: 'set-brave-key', key});
   document.getElementById('brave-key').value = '';
   status('config-status', 'Brave key set', true);
+}
+
+async function setBotName() {
+  const name = document.getElementById('bot-name').value;
+  await post({action: 'set-bot-name', name});
+  status('bot-status', name ? 'Bot name set to: ' + name : 'Bot name cleared', true);
+}
+
+async function setBotAvatar() {
+  const avatar = document.getElementById('bot-avatar').value;
+  await post({action: 'set-bot-avatar', avatar});
+  status('bot-status', avatar ? 'Bot avatar set' : 'Bot avatar cleared', true);
 }
 
 async function addShip() {
