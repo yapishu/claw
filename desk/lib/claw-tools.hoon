@@ -196,12 +196,7 @@
       :~  [%inline `(list inline:story)`~[u.m]]
           [%block `block:story`[%image src=u.img height=0 width=0 alt='']]
       ==
-    ::  only use bot-meta for locally-hosted channels
-    =/  ch-auth=author:channels
-      ?:  =(host.u.parsed our.bowl)
-        (bot-author bowl bname bavatar)
-      our.bowl
-    =/  ch-memo=memo:channels  [content=verses author=ch-auth sent=now.bowl]
+    =/  ch-memo=memo:channels  [content=verses author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
     =/  act=a-channels:channels  [%channel nest [%post [%add ch-essay]]]
     [%sync :~([%pass /tool/ch-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) (rap 3 'posted in ' u.ch ?~(img '' ' with image') ~)]
@@ -534,11 +529,7 @@
     ?~  msg-time  [%sync ~ 'error: bad message ID']
     =/  =nest:channels  [kind.u.parsed-nest ship.u.parsed-nest name.u.parsed-nest]
     =/  ch-story=story:story  ~[[%inline `(list inline:story)`~[con]]]
-    =/  ch-auth=author:channels
-      ?:  =(ship.u.parsed-nest our.bowl)
-        (bot-author bowl bname bavatar)
-      our.bowl
-    =/  ch-memo=memo:channels  [content=ch-story author=ch-auth sent=now.bowl]
+    =/  ch-memo=memo:channels  [content=ch-story author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
     =/  act  [%channel nest [%post [%edit u.msg-time ch-essay]]]
     [%sync :~([%pass /tool/edit-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) 'message edited']

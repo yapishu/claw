@@ -262,13 +262,8 @@
     (send-dm-card bowl ship.msg-source text bname bavatar)
       %channel
     ::  post in channel as top-level message
-    ::  only use bot-meta for locally-hosted channels
     =/  ch-story=story:d  (text-to-story text)
-    =/  ch-author=author:d
-      ?:  =(host.msg-source our.bowl)
-        (bot-author bowl bname bavatar)
-      our.bowl
-    =/  ch-memo=memo:d  [content=ch-story author=ch-author sent=now.bowl]
+    =/  ch-memo=memo:d  [content=ch-story author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  ch-essay=essay:d  [ch-memo /chat ~ ~]
     =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
     =/  act=a-channels:d  [%channel nest [%post [%add ch-essay]]]
@@ -276,11 +271,7 @@
       %thread
     ::  post as reply in a thread
     =/  th-story=story:d  (text-to-story text)
-    =/  th-author=author:d
-      ?:  =(host.msg-source our.bowl)
-        (bot-author bowl bname bavatar)
-      our.bowl
-    =/  th-memo=memo:d  [content=th-story author=th-author sent=now.bowl]
+    =/  th-memo=memo:d  [content=th-story author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  =nest:d  [kind.msg-source host.msg-source name.msg-source]
     =/  act=a-channels:d  [%channel nest [%post [%reply parent-id.msg-source [%add th-memo]]]]
     [%pass /ch-send %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]
@@ -1240,8 +1231,8 @@
         ?.  ?|  (~(has by whitelist) from)
                 &(?=(^ ch-perm) =(u.ch-perm %open))
             ==
-          ::  approval workflow: notify owner if bot-tagged or mentioned
-          ?.  |((has-bot-tag bot-name content.incoming) mention.incoming)  `this
+          ::  approval workflow: notify owner if bot-tagged
+          ?.  (has-bot-tag bot-name content.incoming)  `this
           ?:  (~(has by pending-approvals) from)  `this
           %-  (slog leaf+"claw: access request from {(scow %p from)}" ~)
           =/  reason=@t  (rap 3 'bot-tagged in ' ch-key ': ' (end 3^100 (story-to-text content.incoming)) ~)
@@ -1254,9 +1245,8 @@
             `(send-dm-card bowl s (rap 3 'Access request from ' (scot %p from) ': ' reason '\0a\0aUse /approve ' (scot %p from) ' or /deny ' (scot %p from) ~) bot-name bot-avatar)
           [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
-        ::  respond to bot tag [%tag p=botname] or @p mention (fallback)
-        =/  tag-match=?  (has-bot-tag bot-name content.incoming)
-        ?.  |(tag-match mention.incoming)  `this
+        ::  only respond to bot tag [%tag p=botname]
+        ?.  (has-bot-tag bot-name content.incoming)  `this
         ?:  =('' text)  `this
         ::  dedup: skip if already seen
         =/  evt-id=@t  (rap 3 'post/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
@@ -1438,7 +1428,6 @@
         =/  tag-match=?  (has-bot-tag bot-name content.incoming)
         =/  in-participated=?  (~(has in participated) thread-key)
         ?.  ?|  tag-match
-                mention.incoming
                 =(parent-author our.bowl)
                 in-participated
             ==
