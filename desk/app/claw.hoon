@@ -1427,7 +1427,12 @@
       %bot-set-channel-perm
     =/  cfg=bot-config:claw  (get-bot bots id.act)
     =.  bots  (~(put by bots) id.act cfg(channel-perms (~(put by channel-perms.cfg) channel.act perm.act)))
-    `this
+    ::  subscribe to channel updates so owner-authored posts with bot tags are visible
+    =/  ch-path=path  (stab (rap 3 '/v4/' channel.act ~))
+    :_  this
+    :~  [%pass /ch-watch/(scot %tas channel.act) %agent [our.bowl %channels] %leave ~]
+        [%pass /ch-watch/(scot %tas channel.act) %agent [our.bowl %channels] %watch ch-path]
+    ==
   ::
       %bot-cron-add
     =/  cfg=bot-config:claw  (get-bot bots id.act)
@@ -1615,6 +1620,107 @@
       :~  (lcm-ingest bowl eff-lcm-key 'user' text)
           (make-llm-request bowl api-key model sys-prompt eff-lcm-key /dm-query/(scot %tas default-bot)/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
       ==
+    ==
+  ::
+      [%ch-watch @ ~]
+    ::  direct channel subscription — catches self-authored posts with bot tags
+    ?+  -.sign  `this
+        %watch-ack
+      ?~  p.sign
+        %-  (slog leaf+"claw: watching channel {(trip i.t.wire)}" ~)
+        `this
+      %-  (slog leaf+"claw: channel watch failed for {(trip i.t.wire)}" ~)
+      `this
+        %kick
+      ::  re-subscribe on kick
+      =/  ch-name=@t  (slav %tas i.t.wire)
+      =/  ch-path=path  (stab (rap 3 '/v4/' ch-name ~))
+      :_  this
+      :~  [%pass /ch-watch/(scot %tas ch-name) %agent [our.bowl %channels] %watch ch-path]
+      ==
+        %fact
+      ::  parse channel response for new posts from our own ship
+      =/  result=(unit (quip card _this))
+        %-  mole  |.
+        =/  ch-name=@t  (slav %tas i.t.wire)
+        =/  noun  +.q.cage.sign
+        ::  channel-response is [nest r-channel]
+        ::  r-channel can be %post with [id %set post] or [id %essay essay]
+        ::  extract story content from the response if it's a post
+        =/  r-chan  +.noun  ::  r-channel part (after nest)
+        ?.  ?=([%post *] r-chan)  `this
+        =/  post-data  +.r-chan  ::  [id r-post]
+        =/  id-post  -.post-data
+        =/  r-post  +.post-data
+        ::  r-post can be [%set post] [%essay essay] etc.
+        ::  for %set with a live post: [%set [%& v-post]]
+        ::  v-post has essay at the end: [seal rev essay]
+        ::  essay has memo at the head: [memo kind-data]
+        ::  memo = [content author sent]
+        ?.  ?=([%set [%& *]] r-post)  `this
+        =/  post-noun  +.+.r-post  ::  v-post = [seal rev essay]
+        =/  essay-noun  +.+.post-noun  ::  skip seal and rev
+        =/  memo-noun  -.essay-noun
+        =/  content-noun  -.memo-noun
+        =/  author-noun  -.+.memo-noun
+        =/  from=ship
+          ?@  author-noun  ;;(@p author-noun)
+          ;;(@p -.author-noun)
+        ::  only process our OWN posts (this catches what activity misses)
+        ?.  =(from our.bowl)  `this
+        =/  text=@t  (story-to-text ;;(story:d content-noun))
+        ?:  =('' text)  `this
+        ::  find bots tagged or named
+        =/  story=story:d  ;;(story:d content-noun)
+        =/  tagged=(list @tas)  (find-tagged-bots bots story)
+        =/  named=(list @tas)  ?^(tagged ~ (find-named-bots bots text))
+        =/  activated=(list @tas)  (weld tagged named)
+        ?~  activated  `this
+        ::  dedup
+        =/  evt-id=@t  (rap 3 'chw/' ch-name '/' (scot %uv (mug text)) '/' (scot %da now.bowl) ~)
+        ?:  (~(has in seen-msgs) evt-id)  `this
+        =.  seen-msgs  (~(put in seen-msgs) evt-id)
+        =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
+        ::  parse nest from channel name (e.g., 'chat/~host/name')
+        =/  parsed=(unit [kind=@tas host=@p name=@tas])
+          %-  mole  |.
+          =/  parts=tape  (trip ch-name)
+          =/  seg1  (scag (need (find "/" parts)) parts)
+          =/  rest1  (slag +((need (find "/" parts))) parts)
+          =/  seg2  (scag (need (find "/" rest1)) rest1)
+          =/  seg3  (slag +((need (find "/" rest1))) rest1)
+          [(crip seg1) (slav %p (crip seg2)) (crip seg3)]
+        ?~  parsed  `this
+        =/  =nest:d  [;;(?(%chat %diary %heap) kind.u.parsed) host.u.parsed name.u.parsed]
+        =/  src=msg-source:claw  [%channel kind.nest ship.nest name.nest from]
+        %-  (slog leaf+"claw: owner post in {(trip ch-name)} → {<(lent activated)>} bot(s)" ~)
+        ::  fire each bot
+        =/  all-cards=(list card)  ~
+        =/  remaining=(list @tas)  activated
+        |-
+        ?~  remaining  [all-cards this]
+        =/  bot-id=@tas  i.remaining
+        =/  cfg=bot-config:claw  (get-bot bots bot-id)
+        =/  eff-key=@t  (bot-api-key cfg api-key)
+        =/  eff-model=@t  (bot-model cfg model)
+        ?:  =('' eff-key)  $(remaining t.remaining)
+        =/  ch-key=@t  ch-name
+        =/  msg-id=@t  (scot %da now.bowl)
+        =/  base-prompt=@t  (build-bot-prompt bowl bot-id cfg bots owner-last-msg)
+        =/  sys-prompt=@t
+          (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYour owner tagged you in channel ' ch-key '.\0aRespond naturally. Your response is posted in that channel.' ~)
+        =/  eff-lcm-key=@t  (effective-lcm-key bot-id src)
+        =.  pending-src  (~(put by pending-src) [bot-id from] src)
+        =.  dm-pending  (~(put in dm-pending) [bot-id from])
+        =.  all-cards
+          %+  weld  all-cards
+          :~  (lcm-ingest bowl eff-lcm-key 'user' text)
+              (make-llm-request bowl eff-key eff-model sys-prompt eff-lcm-key /dm-query/(scot %tas bot-id)/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
+          ==
+        $(remaining t.remaining)
+      ?~  result
+        `this
+      u.result
     ==
   ::
       [%dm-rsvp @ ~]
@@ -2075,9 +2181,10 @@
   ::  compaction response
   ::
   ::
-      [%tool-http %local-mcp *]
+      [%tool-http @ %local-mcp *]
     ?.  ?=([%khan %arow *] sign)  `this
-    =/  tool-loop=(unit tool-pending:claw)  (~(get by tool-loops) default-bot)
+    =/  active-bot=@tas  (slav %tas i.t.wire)
+    =/  tool-loop=(unit tool-pending:claw)  (~(get by tool-loops) active-bot)
     ?~  tool-loop
       %-  (slog leaf+"claw: khan response but no pending loop" ~)
       `this
@@ -2097,7 +2204,7 @@
       ?^  as-cord  (crip (scag 4.000 (trip u.as-cord)))
       'MCP tool returned a result (non-text)'
     %-  (slog leaf+"claw: mcp tool done" ~)
-    (finish-tool tl tc-id result)
+    (finish-tool active-bot tl tc-id result)
   ::
       [%query ~]
     (handle-llm-response sign [%direct ~] ~ default-bot)
@@ -2121,16 +2228,17 @@
   ::
   ::  async tool http response
   ::
-      [%tool-http @ *]
+      [%tool-http @ @ *]
     ?.  ?=([%iris %http-response *] sign)  `this
     =/  resp=client-response:iris  client-response.sign
     ?.  ?=(%finished -.resp)  `this
-    =/  tool-loop=(unit tool-pending:claw)  (~(get by tool-loops) default-bot)
+    =/  active-bot=@tas  (slav %tas i.t.wire)
+    =/  tool-loop=(unit tool-pending:claw)  (~(get by tool-loops) active-bot)
     ?~  tool-loop
-      %-  (slog leaf+"claw: tool-http but no pending loop" ~)
+      %-  (slog leaf+"claw: tool-http but no pending loop for bot {(trip (scot %tas active-bot))}" ~)
       `this
     =/  tl=tool-pending:claw  u.tool-loop
-    =/  tool-name=@t  i.t.wire
+    =/  tool-name=@t  i.t.t.wire
     ::  +finish-tool: complete a tool with result and continue loop
     ::  this ensures errors never leave the bot stuck
     ::
@@ -2141,9 +2249,9 @@
         ?~(found 'unknown' id.i.found)
       ?.  =(200 status-code.response-header.resp)
         %-  (slog leaf+"claw: image fetch failed {<status-code.response-header.resp>}" ~)
-        (finish-tool tl tc-id 'error: could not fetch image from that URL')
+        (finish-tool active-bot tl tc-id 'error: could not fetch image from that URL')
       ?~  full-file.resp
-        (finish-tool tl tc-id 'error: empty image response')
+        (finish-tool active-bot tl tc-id 'error: empty image response')
       ::  extract content-type
       =/  ct=@t
         =/  ct-hdr  (skim headers.response-header.resp |=([k=@t v=@t] =(k 'content-type')))
@@ -2152,9 +2260,9 @@
       =/  s3-result  (make-s3-put:tools bowl data.u.full-file.resp ct)
       ?~  s3-result
         %-  (slog leaf+"claw: s3 signing failed" ~)
-        (finish-tool tl tc-id 'error: S3 credentials not configured')
+        (finish-tool active-bot tl tc-id 'error: S3 credentials not configured')
       ::  fire S3 PUT - phase 2, store URL for later
-      =.  tool-loops  (~(put by tool-loops) default-bot tl(follow-msgs (snoc follow-msgs.tl s+url.u.s3-result)))
+      =.  tool-loops  (~(put by tool-loops) active-bot tl(follow-msgs (snoc follow-msgs.tl s+url.u.s3-result)))
       :_  this
       [card.u.s3-result]~
     ::
@@ -2168,7 +2276,7 @@
       ?.  s3-ok
         =/  err-body=@t  ?~(full-file.resp '' (crip (scag 200 (trip q.data.u.full-file.resp))))
         %-  (slog leaf+"claw: s3 error: {(trip err-body)}" ~)
-        (finish-tool tl tc-id 'error: S3 upload failed')
+        (finish-tool active-bot tl tc-id 'error: S3 upload failed')
       ::  get stored URL from follow-msgs (last entry is s+url from phase 1)
       =/  stored-url=@t
         =/  last  (rear follow-msgs.tl)
@@ -2177,7 +2285,7 @@
       ::  remove stored URL marker from follow-msgs
       =.  follow-msgs.tl  (snip follow-msgs.tl)
       %-  (slog leaf+"claw: s3 uploaded: {(trip stored-url)}" ~)
-      (finish-tool tl tc-id stored-url)
+      (finish-tool active-bot tl tc-id stored-url)
     ::
     %-  (slog leaf+"claw: tool-http status={<status-code.response-header.resp>}" ~)
     =/  raw-body=@t
@@ -2202,7 +2310,7 @@
       ?~  pending.tl  ~
       t.pending.tl
     ::  if more pending, fire next
-    =/  th-cfg=bot-config:claw  (get-bot bots default-bot)
+    =/  th-cfg=bot-config:claw  (get-bot bots active-bot)
     ?^  rest
       =/  next  i.rest
       =/  tl-owner=?
@@ -2211,20 +2319,20 @@
         &(?=(^ r) =(u.r %owner))
       =/  res=tool-result:tools
         =/  r=(each tool-result:tools tang)
-          (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner default-bot bot-name.th-cfg bot-avatar.th-cfg)))
+          (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner active-bot bot-name.th-cfg bot-avatar.th-cfg)))
         ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
       ?.  ?=(%async -.res)
-        =.  tool-loops  (~(put by tool-loops) default-bot [msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
+        =.  tool-loops  (~(put by tool-loops) active-bot [msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
         `this
-      =.  tool-loops  (~(put by tool-loops) default-bot [msg-source.tl conv-key.tl new-fmsgs t.rest])
+      =.  tool-loops  (~(put by tool-loops) active-bot [msg-source.tl conv-key.tl new-fmsgs t.rest])
       :_  this  [card.res]~
     ::  all done - fire llm follow-up
-    =/  sys-prompt=@t  (build-bot-prompt bowl default-bot th-cfg bots owner-last-msg)
+    =/  sys-prompt=@t  (build-bot-prompt bowl active-bot th-cfg bots owner-last-msg)
     =/  follow-wire=path
       ?:  =(-.msg-source.tl %direct)  /query-tools/(scot %da now.bowl)
-      /dm-query-tools/(scot %p (src-ship msg-source.tl))/(scot %da now.bowl)
-    :_  this(tool-loops (~(del by tool-loops) default-bot))
-    :~  (make-llm-request bowl api-key model sys-prompt conv-key.tl follow-wire new-fmsgs ~)
+      /dm-query-tools/(scot %tas active-bot)/(scot %p (src-ship msg-source.tl))/(scot %da now.bowl)
+    :_  this(tool-loops (~(del by tool-loops) active-bot))
+    :~  (make-llm-request bowl (bot-api-key th-cfg api-key) (bot-model th-cfg model) sys-prompt conv-key.tl follow-wire new-fmsgs ~)
     ==
   ==
 ::
@@ -2232,16 +2340,14 @@
 ::    ensures errors never leave the bot stuck
 ::
 ++  finish-tool
-  |=  [tl=tool-pending:claw tc-id=@t result=@t]
+  |=  [active-bot=@tas tl=tool-pending:claw tc-id=@t result=@t]
   ^-  (quip card _this)
-  =/  ft-cfg=bot-config:claw  (get-bot bots default-bot)
+  =/  ft-cfg=bot-config:claw  (get-bot bots active-bot)
   =/  new-fmsgs=(list json)  (snoc follow-msgs.tl (tool-result-json tc-id result))
-  ::  remove the completed tool (first in pending)
   =/  rest=(list [id=@t name=@t arguments=@t])
     ^-  (list [@t @t @t])
     ?~(pending.tl ~ t.pending.tl)
   ?^  rest
-    ::  more pending tools - execute next
     =/  next  i.rest
     =/  tl-owner=?
       ?:  =(-.msg-source.tl %direct)  %.y
@@ -2249,21 +2355,19 @@
       &(?=(^ r) =(u.r %owner))
     =/  res=tool-result:tools
       =/  r=(each tool-result:tools tang)
-        (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner default-bot bot-name.ft-cfg bot-avatar.ft-cfg)))
+        (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner active-bot bot-name.ft-cfg bot-avatar.ft-cfg)))
       ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
     ?.  ?=(%async -.res)
-      ::  sync - add result and recurse
       $(tl [msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
-    ::  keep 'next' as first in pending so khan handler finds its ID
-    =.  tool-loops  (~(put by tool-loops) default-bot [msg-source.tl conv-key.tl new-fmsgs rest])
+    =.  tool-loops  (~(put by tool-loops) active-bot [msg-source.tl conv-key.tl new-fmsgs rest])
     :_  this  [card.res]~
   ::  all done - fire LLM follow-up
-  =/  sys-prompt=@t  (build-bot-prompt bowl default-bot ft-cfg bots owner-last-msg)
+  =/  sys-prompt=@t  (build-bot-prompt bowl active-bot ft-cfg bots owner-last-msg)
   =/  follow-wire=path
     ?:  =(-.msg-source.tl %direct)  /query-tools/(scot %da now.bowl)
-    /dm-query-tools/(scot %p (src-ship msg-source.tl))/(scot %da now.bowl)
-  :_  this(tool-loops (~(del by tool-loops) default-bot))
-  :~  (make-llm-request bowl api-key model sys-prompt conv-key.tl follow-wire new-fmsgs ~)
+    /dm-query-tools/(scot %tas active-bot)/(scot %p (src-ship msg-source.tl))/(scot %da now.bowl)
+  :_  this(tool-loops (~(del by tool-loops) active-bot))
+  :~  (make-llm-request bowl (bot-api-key ft-cfg api-key) (bot-model ft-cfg model) sys-prompt conv-key.tl follow-wire new-fmsgs ~)
   ==
 ::
 ++  tool-result-json
@@ -2409,30 +2513,29 @@
         %-  (slog leaf+"claw: async tool {(trip name.first)}" ~)
         =/  res=tool-result:tools
           =/  r=(each tool-result:tools tang)
-            (mule |.((execute-tool:tools bowl name.first arguments.first brave-key is-owner default-bot bot-name.hlr-cfg bot-avatar.hlr-cfg)))
+            (mule |.((execute-tool:tools bowl name.first arguments.first brave-key is-owner resp-bot-id bot-name.hlr-cfg bot-avatar.hlr-cfg)))
           ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
         ?.  ?=(%async -.res)
-          ::  shouldn't happen, but handle gracefully
           $(async-pending t.async-pending, follow-msgs (snoc follow-msgs (tool-result-json id.first 'unexpected sync')))
         =.  tool-loops
-          (~(put by tool-loops) default-bot [source (lcm-key source) follow-msgs async-pending])
+          (~(put by tool-loops) resp-bot-id [source (lcm-key source) follow-msgs async-pending])
         :_  this
         (weld (flop tool-cards) [card.res]~)
       ::  all sync - fire llm follow-up immediately
-      =/  sys-prompt=@t  (build-bot-prompt bowl default-bot hlr-cfg bots owner-last-msg)
+      =/  sys-prompt=@t  (build-bot-prompt bowl resp-bot-id hlr-cfg bots owner-last-msg)
       =/  follow-wire=path
-        ?:  =(-.source %direct)  /query-tools
-        /dm-query-tools/(scot %p (src-ship source))
+        ?:  =(-.source %direct)  /query-tools/(scot %da now.bowl)
+        /dm-query-tools/(scot %tas resp-bot-id)/(scot %p (src-ship source))/(scot %da now.bowl)
       :_  this
       %+  weld  (flop tool-cards)
-      :~  (make-llm-request bowl api-key model sys-prompt (lcm-key source) follow-wire follow-msgs ~)
+      :~  (make-llm-request bowl (bot-api-key hlr-cfg api-key) (bot-model hlr-cfg model) sys-prompt (lcm-key source) follow-wire follow-msgs ~)
       ==
     ::  execute this tool
     =/  tc  i.remaining
     %-  (slog leaf+"claw: tool {(trip name.tc)}" ~)
     =/  res=tool-result:tools
       =/  r=(each tool-result:tools tang)
-        (mule |.((execute-tool:tools bowl name.tc arguments.tc brave-key is-owner default-bot bot-name.hlr-cfg bot-avatar.hlr-cfg)))
+        (mule |.((execute-tool:tools bowl name.tc arguments.tc brave-key is-owner resp-bot-id bot-name.hlr-cfg bot-avatar.hlr-cfg)))
       ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
     ?:  ?=(%async -.res)
       ::  queue async tool for later
