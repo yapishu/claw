@@ -19,12 +19,16 @@
       flex: 1; background: #0a0a0a; border: 1px solid #333; border-radius: 4px;
       padding: 8px 10px; color: #e0e0e0; font-size: 13px; font-family: monospace;
     }
-    input.masked { color: #555; }
     input:focus, textarea:focus { outline: none; border-color: #555; }
+    input.masked { color: #555; }
     textarea {
       width: 100%; background: #0a0a0a; border: 1px solid #333; border-radius: 4px;
       padding: 8px 10px; color: #e0e0e0; font-size: 13px; font-family: monospace;
       resize: vertical; min-height: 80px;
+    }
+    select {
+      background: #0a0a0a; border: 1px solid #333; border-radius: 4px;
+      padding: 6px 10px; color: #e0e0e0; font-size: 13px;
     }
     button {
       background: #222; border: 1px solid #333; border-radius: 4px; color: #e0e0e0;
@@ -50,13 +54,25 @@
     .perm-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; }
     .perm-badge.open { background: #1a3a2a; color: #4a8; }
     .perm-badge.wl { background: #2a2a2a; color: #888; }
+    .bot-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 24px; padding: 12px 16px; background: #141414; border: 1px solid #222; border-radius: 8px; }
+    .bot-selector select { flex: 1; font-size: 14px; padding: 8px; }
+    .bot-selector .default-badge { font-size: 10px; color: #4a8; background: #1a3a2a; padding: 2px 6px; border-radius: 3px; }
   </style>
 </head>
 <body>
 <div class="container">
   <h1>%claw <span>llm agent harness</span></h1>
 
-  <h2>Config</h2>
+  <div class="bot-selector">
+    <label style="width:auto">Bot</label>
+    <select id="bot-select" onchange="switchBot()"></select>
+    <span id="default-badge" class="default-badge" style="display:none">default</span>
+    <button onclick="addBot()">+ New</button>
+    <button onclick="setDefaultBot()">Set Default</button>
+    <button class="danger" onclick="delBot()">Delete</button>
+  </div>
+
+  <h2>Global Defaults</h2>
   <div class="card">
     <div class="row">
       <label>OpenRouter Key</label>
@@ -64,7 +80,7 @@
       <button onclick="setKey()">Set</button>
     </div>
     <div class="row">
-      <label>Model</label>
+      <label>Default Model</label>
       <input type="text" id="model" placeholder="anthropic/claude-sonnet-4">
       <button onclick="setModel()">Set</button>
     </div>
@@ -79,14 +95,19 @@
   <h2>Bot Identity</h2>
   <div class="card">
     <div class="row">
-      <label>Bot Name</label>
-      <input type="text" id="bot-name" placeholder="e.g. Ara (leave empty to disable)">
+      <label>Name</label>
+      <input type="text" id="bot-name" placeholder="Required — at least one letter">
       <button onclick="setBotName()">Set</button>
     </div>
     <div class="row">
-      <label>Bot Avatar</label>
-      <input type="text" id="bot-avatar" placeholder="https://... (optional avatar URL)">
+      <label>Avatar</label>
+      <input type="text" id="bot-avatar" placeholder="https://... (optional)">
       <button onclick="setBotAvatar()">Set</button>
+    </div>
+    <div class="row">
+      <label>Model Override</label>
+      <input type="text" id="bot-model" placeholder="(uses global default)">
+      <button onclick="setBotModel()">Set</button>
     </div>
     <div class="status" id="bot-status"></div>
   </div>
@@ -96,7 +117,7 @@
     <div id="whitelist-tags"></div>
     <div class="row" style="margin-top:8px">
       <input type="text" id="new-ship" placeholder="~sampel-palnet">
-      <select id="new-role" style="background:#0a0a0a;border:1px solid #333;border-radius:4px;padding:6px;color:#e0e0e0;font-size:13px">
+      <select id="new-role">
         <option value="owner">owner</option>
         <option value="allowed">allowed</option>
       </select>
@@ -146,6 +167,9 @@ const API = '/apps/claw/api';
 let ctx = {};
 let activeCtxTab = null;
 let allChannels = [];
+let currentBot = null;
+let defaultBotId = null;
+let botList = {};
 
 async function api(path) {
   const r = await fetch(API + path, {credentials: 'include'});
@@ -172,14 +196,12 @@ function maskKey(key) {
   if (!key || key.length < 4) return '';
   return '\u2022'.repeat(8) + key.slice(-3);
 }
-
 function showMasked(el, key) {
   if (!key) { el.value = ''; el.classList.remove('masked'); return; }
   el.value = maskKey(key);
   el.classList.add('masked');
   el.dataset.hasKey = '1';
 }
-
 function clearMasked(el) {
   if (el.dataset.hasKey === '1') {
     el.value = '';
@@ -188,22 +210,64 @@ function clearMasked(el) {
   }
 }
 
-// Config
-async function loadConfig() {
-  const c = await api('/config');
-  document.getElementById('model').value = c.model || '';
-  document.getElementById('bot-name').value = c['bot-name'] || '';
-  document.getElementById('bot-avatar').value = c['bot-avatar'] || '';
-  showMasked(document.getElementById('api-key'), c['api-key'] || '');
-  showMasked(document.getElementById('brave-key'), c['brave-key'] || '');
-  renderWhitelist(c.whitelist || {});
+// Bot selector
+async function loadBots() {
+  const data = await api('/bots');
+  botList = data.bots || {};
+  defaultBotId = data.default || 'default';
+  const sel = document.getElementById('bot-select');
+  const prev = currentBot;
+  sel.innerHTML = Object.entries(botList).map(([id, b]) =>
+    `<option value="${id}">${b.name || id}${id === defaultBotId ? ' (default)' : ''}</option>`
+  ).join('');
+  if (prev && botList[prev]) sel.value = prev;
+  else if (sel.options.length) sel.value = sel.options[0].value;
+  currentBot = sel.value;
+  document.getElementById('default-badge').style.display = currentBot === defaultBotId ? '' : 'none';
 }
 
-function renderWhitelist(wl) {
-  const el = document.getElementById('whitelist-tags');
-  el.innerHTML = Object.entries(wl).map(([s, r]) =>
-    `<span class="tag">${s} (${r}) <span class="x" onclick="delShip('${s}')">&times;</span></span>`
-  ).join('') || '<span style="color:#555;font-size:13px">No ships whitelisted</span>';
+function switchBot() {
+  currentBot = document.getElementById('bot-select').value;
+  document.getElementById('default-badge').style.display = currentBot === defaultBotId ? '' : 'none';
+  loadBotConfig();
+}
+
+async function addBot() {
+  const id = prompt('Bot ID (lowercase, no spaces, e.g. "coder"):');
+  if (!id) return;
+  try {
+    await post({action: 'add-bot', id});
+    await loadBots();
+    document.getElementById('bot-select').value = id;
+    currentBot = id;
+    loadBotConfig();
+    status('bot-status', `Bot "${id}" created`, true);
+  } catch(e) { status('bot-status', 'Failed to create bot', false); }
+}
+
+async function delBot() {
+  if (!currentBot) return;
+  if (currentBot === defaultBotId) return status('bot-status', 'Cannot delete default bot', false);
+  if (!confirm(`Delete bot "${currentBot}"?`)) return;
+  await post({action: 'del-bot', id: currentBot});
+  await loadBots();
+  loadBotConfig();
+}
+
+async function setDefaultBot() {
+  if (!currentBot) return;
+  await post({action: 'set-default-bot', id: currentBot});
+  defaultBotId = currentBot;
+  await loadBots();
+  status('bot-status', `"${currentBot}" is now the default bot`, true);
+}
+
+// Global config
+async function loadGlobalConfig() {
+  const c = await api('/config');
+  document.getElementById('model').value = c.model || '';
+  showMasked(document.getElementById('api-key'), c['api-key'] || '');
+  showMasked(document.getElementById('brave-key'), c['brave-key'] || '');
 }
 
 async function setKey() {
@@ -214,14 +278,12 @@ async function setKey() {
   showMasked(el, key);
   status('config-status', 'API key set', true);
 }
-
 async function setModel() {
-  const model = document.getElementById('model').value;
-  if (!model) return;
-  await post({action: 'set-model', model});
-  status('config-status', 'Model updated', true);
+  const m = document.getElementById('model').value;
+  if (!m) return;
+  await post({action: 'set-model', model: m});
+  status('config-status', 'Default model updated', true);
 }
-
 async function setBraveKey() {
   const el = document.getElementById('brave-key');
   const key = el.value;
@@ -231,161 +293,141 @@ async function setBraveKey() {
   status('config-status', 'Brave key set', true);
 }
 
-async function setBotName() {
-  const name = document.getElementById('bot-name').value;
-  await post({action: 'set-bot-name', name});
-  status('bot-status', name ? 'Bot name set to: ' + name : 'Bot name cleared', true);
+// Per-bot config
+async function loadBotConfig() {
+  if (!currentBot) return;
+  const c = await api(`/bot/${currentBot}/config`);
+  document.getElementById('bot-name').value = c.name || '';
+  document.getElementById('bot-avatar').value = c.avatar || '';
+  document.getElementById('bot-model').value = (c.model !== (await api('/config')).model) ? c.model || '' : '';
+  renderWhitelist(c.whitelist || {});
+  // Reload per-bot sections
+  loadBotContext();
+  loadChannels();
+  loadCrons();
 }
 
+function renderWhitelist(wl) {
+  const el = document.getElementById('whitelist-tags');
+  el.innerHTML = Object.entries(wl).map(([s, r]) =>
+    `<span class="tag">${s} (${r}) <span class="x" onclick="delShip('${s}')">&times;</span></span>`
+  ).join('') || '<span style="color:#555;font-size:13px">No ships whitelisted</span>';
+}
+
+async function setBotName() {
+  const name = document.getElementById('bot-name').value;
+  if (!name) return status('bot-status', 'Name is required', false);
+  await post({action: 'bot-set-name', id: currentBot, name});
+  await loadBots();
+  status('bot-status', 'Name set to: ' + name, true);
+}
 async function setBotAvatar() {
   const avatar = document.getElementById('bot-avatar').value;
-  await post({action: 'set-bot-avatar', avatar});
-  status('bot-status', avatar ? 'Bot avatar set' : 'Bot avatar cleared', true);
+  await post({action: 'bot-set-avatar', id: currentBot, avatar});
+  status('bot-status', avatar ? 'Avatar set' : 'Avatar cleared', true);
+}
+async function setBotModel() {
+  const m = document.getElementById('bot-model').value;
+  await post({action: 'bot-set-model', id: currentBot, model: m || ''});
+  status('bot-status', m ? 'Model override: ' + m : 'Using global default', true);
 }
 
 async function addShip() {
   const ship = document.getElementById('new-ship').value;
   const role = document.getElementById('new-role').value;
   if (!ship) return;
-  await post({action: 'add-ship', ship, role});
+  await post({action: 'bot-add-ship', id: currentBot, ship, role});
   document.getElementById('new-ship').value = '';
-  loadConfig();
+  loadBotConfig();
 }
-
 async function delShip(ship) {
-  await post({action: 'del-ship', ship});
-  loadConfig();
+  await post({action: 'bot-del-ship', id: currentBot, ship});
+  loadBotConfig();
 }
 
-// Channel Permissions
+// Channel Permissions (per-bot)
 async function loadChannels() {
   const el = document.getElementById('channel-list');
   try {
-    const perms = await api('/channel-perms');
+    const c = await api(`/bot/${currentBot}/config`);
+    // channel-perms not in bot config endpoint yet, use main for now
+    const perms = {}; // TODO: add per-bot channel-perms endpoint
     allChannels = [];
-
-    // Build channel list from saved perms
-    for (const [nest, perm] of Object.entries(perms)) {
-      allChannels.push({nest, title: nest, gtitle: '', perm});
-    }
-
-    // Try scrying groups for channel metadata
     try {
       const r = await fetch('/~/scry/groups/groups/light.json', {credentials: 'include'});
       if (r.ok) {
         const groups = await r.json();
-        const seen = new Set(allChannels.map(c => c.nest));
         for (const [flag, group] of Object.entries(groups || {})) {
           const gtitle = group?.meta?.title || flag;
           const chans = group?.channels || {};
           for (const [nest, ch] of Object.entries(chans)) {
             if (!nest.startsWith('chat/')) continue;
-            const title = ch?.meta?.title || nest;
-            if (seen.has(nest)) {
-              const existing = allChannels.find(c => c.nest === nest);
-              if (existing) { existing.title = title; existing.gtitle = gtitle; }
-            } else {
-              allChannels.push({nest, title, gtitle, perm: 'whitelist'});
-            }
+            allChannels.push({nest, title: ch?.meta?.title || nest, gtitle, perm: perms[nest] || 'whitelist'});
           }
         }
       }
-    } catch(e) { /* groups scry failed, only show saved perms */ }
-
+    } catch(e) {}
     renderChannels();
   } catch(e) {
     el.innerHTML = '<span style="color:#a44">Error loading channels</span>';
   }
 }
-
 function renderChannels() {
   const el = document.getElementById('channel-list');
   const filter = (document.getElementById('chan-filter').value || '').toLowerCase();
   const filtered = allChannels.filter(c =>
-    c.nest.toLowerCase().includes(filter) ||
-    c.title.toLowerCase().includes(filter) ||
-    c.gtitle.toLowerCase().includes(filter)
+    c.nest.toLowerCase().includes(filter) || c.title.toLowerCase().includes(filter) || c.gtitle.toLowerCase().includes(filter)
   );
-  if (!filtered.length) {
-    el.innerHTML = '<span style="color:#555;font-size:13px">No channels' + (filter ? ' matching filter' : ' found') + '</span>';
-    return;
-  }
+  if (!filtered.length) { el.innerHTML = '<span style="color:#555;font-size:13px">No channels found</span>'; return; }
   el.innerHTML = filtered.map(c => {
     const isOpen = c.perm === 'open';
     const badge = isOpen
       ? `<span class="perm-badge open" onclick="togglePerm('${c.nest}','whitelist')">open</span>`
       : `<span class="perm-badge wl" onclick="togglePerm('${c.nest}','open')">whitelist</span>`;
-    return `<div class="perm-row">
-      <div>
-        <div style="font-size:13px;color:#e0e0e0">${c.title}${c.gtitle ? ' <span style="color:#555">in ' + c.gtitle + '</span>' : ''}</div>
-        <div style="font-size:11px;color:#555;font-family:monospace">${c.nest}</div>
-      </div>
-      ${badge}
-    </div>`;
+    return `<div class="perm-row"><div><div style="font-size:13px;color:#e0e0e0">${c.title}${c.gtitle ? ' <span style="color:#555">in '+c.gtitle+'</span>' : ''}</div><div style="font-size:11px;color:#555;font-family:monospace">${c.nest}</div></div>${badge}</div>`;
   }).join('');
 }
-
 function filterChannels() { renderChannels(); }
-
 async function togglePerm(channel, newPerm) {
-  await post({action: 'set-channel-perm', channel, perm: newPerm});
-  // Update local state immediately
+  await post({action: 'bot-set-channel-perm', id: currentBot, channel, perm: newPerm});
   const ch = allChannels.find(c => c.nest === channel);
   if (ch) ch.perm = newPerm;
-  else allChannels.push({nest: channel, title: channel, gtitle: '', perm: newPerm});
   renderChannels();
-  status('perm-status', channel.split('/').pop() + ' → ' + newPerm, true);
+  status('perm-status', channel.split('/').pop() + ' -> ' + newPerm, true);
 }
 
-// Cron Jobs
+// Cron Jobs (per-bot)
 async function loadCrons() {
   const el = document.getElementById('cron-list');
   try {
-    const jobs = await api('/cron-jobs');
-    if (!jobs.length) {
-      el.innerHTML = '<span style="color:#555;font-size:13px">No scheduled tasks</span>';
-      return;
-    }
-    el.innerHTML = jobs.map(j => {
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a1a">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:12px;color:#4a8;font-family:monospace">${j.schedule || '?'}</div>
-          <div style="font-size:13px;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${j.prompt}</div>
-        </div>
-        <button class="danger" onclick="removeCron(${j.id})" style="font-size:11px;padding:3px 8px;margin-left:8px;flex-shrink:0">×</button>
-      </div>`;
-    }).join('');
-  } catch(e) {
-    el.innerHTML = '<span style="color:#a44">Error loading tasks</span>';
-  }
+    const jobs = await api('/cron-jobs'); // TODO: per-bot cron endpoint
+    if (!jobs.length) { el.innerHTML = '<span style="color:#555;font-size:13px">No scheduled tasks</span>'; return; }
+    el.innerHTML = jobs.map(j => `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a1a"><div style="flex:1;min-width:0"><div style="font-size:12px;color:#4a8;font-family:monospace">${j.schedule||'?'}</div><div style="font-size:13px;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${j.prompt}</div></div><button class="danger" onclick="removeCron(${j.id})" style="font-size:11px;padding:3px 8px;margin-left:8px;flex-shrink:0">&times;</button></div>`).join('');
+  } catch(e) { el.innerHTML = '<span style="color:#a44">Error loading tasks</span>'; }
 }
-
 async function addCron() {
   const schedule = document.getElementById('cron-schedule').value.trim();
   const prompt = document.getElementById('cron-prompt').value.trim();
   if (!schedule || !prompt) return status('cron-status', 'Schedule and prompt required', false);
-  // Validate: should have 5 space-separated fields
-  const fields = schedule.split(/\s+/);
-  if (fields.length !== 5) return status('cron-status', 'Need 5 fields: min hour dom month dow', false);
-  await post({action: 'cron-add', schedule, prompt});
+  if (schedule.split(/\s+/).length !== 5) return status('cron-status', 'Need 5 fields: min hour dom month dow', false);
+  await post({action: 'bot-cron-add', id: currentBot, schedule, prompt});
   document.getElementById('cron-schedule').value = '';
   document.getElementById('cron-prompt').value = '';
   status('cron-status', 'Task scheduled', true);
   loadCrons();
 }
-
 async function removeCron(id) {
-  await post({action: 'cron-remove', 'cron-id': id});
+  await post({action: 'bot-cron-remove', id: currentBot, 'cron-id': id});
   status('cron-status', 'Task removed', true);
   loadCrons();
 }
 
-// Context Files
-async function loadContext() {
-  ctx = await api('/context');
+// Context Files (per-bot)
+async function loadBotContext() {
+  ctx = await api('/context'); // TODO: per-bot context endpoint
+  activeCtxTab = null;
   renderCtxTabs();
 }
-
 function renderCtxTabs() {
   const tabs = document.getElementById('ctx-tabs');
   const keys = Object.keys(ctx);
@@ -395,45 +437,43 @@ function renderCtxTabs() {
   ).join('');
   if (activeCtxTab && ctx[activeCtxTab] !== undefined) {
     document.getElementById('ctx-editor').value = ctx[activeCtxTab];
+  } else {
+    document.getElementById('ctx-editor').value = '';
   }
 }
-
-function selectCtx(k) {
-  activeCtxTab = k;
-  renderCtxTabs();
-}
-
+function selectCtx(k) { activeCtxTab = k; renderCtxTabs(); }
 async function saveCtx() {
   if (!activeCtxTab) return;
   const content = document.getElementById('ctx-editor').value;
-  await post({action: 'set-context', field: activeCtxTab, content});
+  await post({action: 'bot-set-context', id: currentBot, field: activeCtxTab, content});
   ctx[activeCtxTab] = content;
   status('ctx-status', `${activeCtxTab} saved`, true);
 }
-
 async function delCtx() {
   if (!activeCtxTab) return;
-  await post({action: 'del-context', field: activeCtxTab});
+  await post({action: 'bot-del-context', id: currentBot, field: activeCtxTab});
   delete ctx[activeCtxTab];
   activeCtxTab = Object.keys(ctx)[0] || null;
   renderCtxTabs();
   status('ctx-status', 'Deleted', true);
 }
-
 async function addCtx() {
   const key = document.getElementById('new-ctx-key').value.trim();
   if (!key) return;
-  await post({action: 'set-context', field: key, content: ''});
+  await post({action: 'bot-set-context', id: currentBot, field: key, content: ''});
   ctx[key] = '';
   activeCtxTab = key;
   document.getElementById('new-ctx-key').value = '';
   renderCtxTabs();
 }
 
-loadConfig();
-loadContext();
-loadChannels();
-loadCrons();
+// Init
+async function init() {
+  await loadBots();
+  await loadGlobalConfig();
+  await loadBotConfig();
+}
+init();
 </script>
 </body>
 </html>

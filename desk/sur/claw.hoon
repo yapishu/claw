@@ -4,12 +4,47 @@
 +$  msg  [role=@t content=@t]
 +$  ship-role  ?(%owner %allowed)
 ::
+::  $bot-config: per-bot identity and configuration
+::
++$  bot-config
+  $:  bot-name=(unit @t)
+      bot-avatar=(unit @t)
+      model=(unit @t)
+      api-key=(unit @t)
+      brave-key=(unit @t)
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      channel-perms=(map @t channel-perm)
+      cron-jobs=(map @ud cron-job)
+      next-cron-id=@ud
+  ==
+::
 +$  action
-  $%  [%set-key key=@t]
+  $%  ::  global defaults
+      [%set-key key=@t]
       [%set-model model=@t]
       [%set-brave-key key=@t]
       [%prompt content=@t]
       [%clear ~]
+      ::  bot management
+      [%add-bot id=@tas]
+      [%del-bot id=@tas]
+      [%set-default-bot id=@tas]
+      ::  per-bot config (scoped by bot-id)
+      [%bot-set-name id=@tas name=(unit @t)]
+      [%bot-set-avatar id=@tas avatar=(unit @t)]
+      [%bot-set-model id=@tas model=(unit @t)]
+      [%bot-set-key id=@tas key=(unit @t)]
+      [%bot-set-brave-key id=@tas key=(unit @t)]
+      [%bot-set-context id=@tas field=@tas content=@t]
+      [%bot-append-context id=@tas field=@tas content=@t]
+      [%bot-del-context id=@tas field=@tas]
+      [%bot-add-ship id=@tas =ship role=ship-role]
+      [%bot-del-ship id=@tas =ship]
+      [%bot-set-channel-perm id=@tas channel=@t perm=channel-perm]
+      [%bot-cron-add id=@tas schedule=@t prompt=@t]
+      [%bot-cron-remove id=@tas cron-id=@ud]
+      ::  legacy single-bot actions (operate on default bot)
       [%set-context field=@tas content=@t]
       [%append-context field=@tas content=@t]
       [%del-context field=@tas]
@@ -333,6 +368,28 @@
       bot-avatar=(unit @t)
   ==
 ::
+::  state-14: multi-bot support
++$  state-14
+  $:  %14
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      seen-msgs=(set @t)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+      msg-queue=(map ship [txt=@t src=msg-source])
+      ::  per-bot state
+      bots=(map @tas bot-config)
+      default-bot=@tas
+      dm-pending=(set [@tas ship])
+      pending-src=(map [@tas ship] msg-source)
+      participated=(map @tas (set @t))
+      bot-counts=(map [@tas @t] @ud)
+      tool-loops=(map @tas tool-pending)
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
@@ -348,5 +405,6 @@
       state-11
       state-12
       state-13
+      state-14
   ==
 --

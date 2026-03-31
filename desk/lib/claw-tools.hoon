@@ -109,31 +109,25 @@
   [ship=our.bowl nickname=bname avatar=bavatar]
 ::
 ++  execute-tool
-  |=  [=bowl:gall name=@t arguments=@t brave-key=@t owner=? bname=(unit @t) bavatar=(unit @t)]
+  |=  [=bowl:gall name=@t arguments=@t brave-key=@t owner=? bot-id=@tas bname=(unit @t) bavatar=(unit @t)]
   ^-  tool-result
   =/  args=(unit json)  (de:json:html arguments)
   ?~  args  [%sync ~ 'error: invalid json arguments']
   ::
-  ::  update_profile: poke %contacts
+  ::  update_profile: update this bot's name/avatar
   ::
   ?:  =('update_profile' name)
     =,  dejs-soft:format
     =/  nick=(unit @t)  ((ot ~[nickname+so]) u.args)
     =/  avatar=(unit @t)  ((ot ~[avatar+so]) u.args)
-    =/  con=contact:ct
-      =/  m=contact:ct  *contact:ct
-      =?  m  ?=(^ nick)   (~(put by m) 'nickname' [%text u.nick])
-      =?  m  ?=(^ avatar)  (~(put by m) 'avatar' [%look u.avatar])
-      m
-    ?:  =(~ con)  [%sync ~ 'error: no nickname or avatar provided']
-    =/  act=action:ct  [%self con]
-    =/  result=@t
-      %+  rap  3
-      :~  'profile updated'
-          ?~(nick '' (rap 3 ' nickname=' u.nick ~))
-          ?~(avatar '' ' avatar set')
-      ==
-    [%sync :~([%pass /tool/profile %agent [our.bowl %contacts] %poke %contact-action-1 !>(act)]) result]
+    ?:  &(=(~ nick) =(~ avatar))  [%sync ~ 'error: no nickname or avatar provided']
+    ::  prefer name update; avatar handled separately if needed
+    ?^  nick
+      =/  result=@t  (rap 3 'bot profile updated name=' u.nick ?~(avatar '' ' (set avatar too)') ~)
+      [%sync :~([%pass /tool/profile %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%bot-set-name bot-id `u.nick])]) result]
+    ?^  avatar
+      [%sync :~([%pass /tool/profile %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%bot-set-avatar bot-id `u.avatar])]) 'bot avatar updated']
+    [%sync ~ 'error: no nickname or avatar provided']
   ::
   ::  send_dm: poke %chat with optional image block
   ::
