@@ -210,7 +210,7 @@
           ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/'web_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'web_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
   ::
   ::  image_search: bare GET (no headers - token in query string)
   ::
@@ -231,7 +231,7 @@
           ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/'image_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'image_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
   ::
   ::  http_fetch: bare GET
   ::
@@ -253,7 +253,7 @@
       [%sync ~ 'error: no S3 configuration found.']
     %-  (slog leaf+"claw: upload_image: fetching {(trip url)}" ~)
     ::  fetch the source image - bare GET
-    [%async [%pass /tool-http/'upload_image'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'upload_image'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
   ::
   ::  add_reaction: react to channel message
@@ -441,7 +441,7 @@
       (thread-builder.tool args-map)
     ?:  ?=(%| -.thread-result)
       [%sync ~ (rap 3 'error: MCP tool "' tool-name '" rejected arguments. Check argument types and names.' ~)]
-    [%async [%pass /tool-http/'local-mcp'/(scot %da now.bowl) %arvo %k %lard %mcp p.thread-result]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'local-mcp'/(scot %da now.bowl) %arvo %k %lard %mcp p.thread-result]]
   ::
 ::
   ::  join_group: join an Urbit group (owner only)
@@ -887,7 +887,7 @@
   ?:  =('http_fetch' name)
     =,  dejs:format
     =/  url=@t  ((ot ~[url+so]) u.args)
-    [%async [%pass /tool-http/'http_fetch'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'http_fetch'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
   ::  cron_add: schedule a recurring task (owner only)
   ::
