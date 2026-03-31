@@ -1615,10 +1615,12 @@
           %post
         =/  from=ship  p.id.key.incoming
         ?:  =(from our.bowl)  `this
-        ::  find ALL bots tagged in this message
+        ::  find bots: by tag first, then by nickname in text as fallback
         =/  tagged=(list @tas)  (find-tagged-bots bots content.incoming)
-        ?~  tagged  `this
         =/  text=@t  (story-to-text content.incoming)
+        =/  named=(list @tas)  ?^(tagged ~ (find-named-bots bots text))
+        =/  tagged  (weld tagged named)
+        ?~  tagged  `this
         ?:  =('' text)  `this
         ::  dedup
         =/  evt-id=@t  (rap 3 'post/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
@@ -1973,7 +1975,7 @@
     [%pass /cron/(scot %ud u.cid)/(scot %ud next-ver) %arvo %b %wait u.nxt]
   ::
       [%cron-query ~]
-    (handle-llm-response sign [%direct ~] ~)
+    (handle-llm-response sign [%direct ~] ~ default-bot)
   ::
   ::  model info response from OpenRouter
   ::
@@ -2040,22 +2042,22 @@
     (finish-tool tl tc-id result)
   ::
       [%query ~]
-    (handle-llm-response sign [%direct ~] ~)
+    (handle-llm-response sign [%direct ~] ~ default-bot)
   ::
       [%query-tools *]
-    (handle-llm-response sign [%direct ~] ~)
+    (handle-llm-response sign [%direct ~] ~ default-bot)
   ::
       [%dm-query @ @ *]
     =/  bot-id=@tas  (slav %tas i.t.wire)
     =/  who=ship  (slav %p i.t.t.wire)
     =/  src=msg-source:claw  (fall (~(get by pending-src) [bot-id who]) [%dm who])
-    (handle-llm-response sign src `who)
+    (handle-llm-response sign src `who bot-id)
   ::
       [%dm-query-tools @ @ *]
     =/  bot-id=@tas  (slav %tas i.t.wire)
     =/  who=ship  (slav %p i.t.t.wire)
     =/  src=msg-source:claw  (fall (~(get by pending-src) [bot-id who]) [%dm who])
-    (handle-llm-response sign src `who)
+    (handle-llm-response sign src `who bot-id)
   ::
       [%tool @ ~]  `this  ::  tool poke-acks
   ::
@@ -2221,9 +2223,10 @@
   |=  $:  sign=sign-arvo
           source=msg-source:claw
           dm-who=(unit ship)
+          resp-bot-id=@tas
       ==
   ^-  (quip card _this)
-  =/  hlr-cfg=bot-config:claw  (get-bot bots default-bot)
+  =/  hlr-cfg=bot-config:claw  (get-bot bots resp-bot-id)
   ?.  ?=([%iris %http-response *] sign)  `this
   =/  resp=client-response:iris  client-response.sign
   ?.  ?=(%finished -.resp)  `this
@@ -2234,7 +2237,7 @@
     %-  (slog leaf+"claw error [{(a-co:co code)}]" ~)
     =.  last-error  err
     =?  pending  =(-.source %direct)  %.n
-    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [default-bot (src-ship source)])
+    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [resp-bot-id (src-ship source)])
     ::  self-DM: record sent timestamp so returning fact is skipped
     =?  seen-msgs  &(!=(-.source %direct) =((src-ship source) our.bowl))
       (~(put in seen-msgs) (rap 3 'sds/' (scot %da now.bowl) ~))
@@ -2244,7 +2247,7 @@
     :~  (send-reply-card bowl source 'Sorry, I hit an error talking to the LLM provider.' bot-name.hlr-cfg bot-avatar.hlr-cfg)  ==
   ?~  full-file.resp
     =?  pending  =(-.source %direct)  %.n
-    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [default-bot (src-ship source)])
+    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [resp-bot-id (src-ship source)])
     `this
   =/  body=@t  q.data.u.full-file.resp
   =/  is-owner=?
@@ -2257,7 +2260,7 @@
     %-  (slog leaf+"claw error: parse failed" ~)
     =.  last-error  body
     =?  pending  =(-.source %direct)  %.n
-    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [default-bot (src-ship source)])
+    =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [resp-bot-id (src-ship source)])
     :_  this
     ?:  =(-.source %direct)  ~
     :~  (send-reply-card bowl source 'Sorry, I had trouble understanding the response from my LLM provider.' bot-name.hlr-cfg bot-avatar.hlr-cfg)  ==
@@ -2287,19 +2290,19 @@
         %direct     our.bowl
       ==
     ::  assistant response ingested into lcm via card below
-    =?  dm-pending  (~(has in dm-pending) [default-bot who])  (~(del in dm-pending) [default-bot who])
-    =.  pending-src  (~(del by pending-src) [default-bot who])
+    =?  dm-pending  (~(has in dm-pending) [resp-bot-id who])  (~(del in dm-pending) [resp-bot-id who])
+    =.  pending-src  (~(del by pending-src) [resp-bot-id who])
     ::  track participated: mark channel/thread so we respond to follow-ups
-    =/  hlr-part=(set @t)  (~(gut by participated) default-bot ~)
+    =/  hlr-part=(set @t)  (~(gut by participated) resp-bot-id ~)
     =.  participated
       ?+  -.source  participated
-        %channel  (~(put by participated) default-bot (~(put in hlr-part) (rap 3 kind.source '/' (scot %p host.source) '/' name.source ~)))
-        %thread   (~(put by participated) default-bot (~(put in hlr-part) (lcm-key source)))
+        %channel  (~(put by participated) resp-bot-id (~(put in hlr-part) (rap 3 kind.source '/' (scot %p host.source) '/' name.source ~)))
+        %thread   (~(put by participated) resp-bot-id (~(put in hlr-part) (lcm-key source)))
       ==
     ::  bot rate limiting: increment count for this conversation key
     =/  resp-rl-key=@t  (lcm-key source)
-    =/  cur-bot-count=@ud  (~(gut by bot-counts) [default-bot resp-rl-key] 0)
-    =.  bot-counts  (~(put by bot-counts) [default-bot resp-rl-key] +(cur-bot-count))
+    =/  cur-bot-count=@ud  (~(gut by bot-counts) [resp-bot-id resp-rl-key] 0)
+    =.  bot-counts  (~(put by bot-counts) [resp-bot-id resp-rl-key] +(cur-bot-count))
     %-  (slog leaf+"claw reply to {(scow %p who)} via {<-.source>}: {(trip (end 3^80 content))}" ~)
     ::  self-DM: record sent timestamp so returning fact is skipped
     =?  seen-msgs  =(who our.bowl)
