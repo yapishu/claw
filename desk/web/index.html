@@ -54,6 +54,19 @@
     .perm-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; }
     .perm-badge.open { background: #1a3a2a; color: #4a8; }
     .perm-badge.wl { background: #2a2a2a; color: #888; }
+    .model-item { padding: 8px; border-bottom: 1px solid #1a1a1a; cursor: pointer; }
+    .model-item:hover { background: #1a1a1a; }
+    .model-item.selected { background: #1a2a3a; border-left: 2px solid #4a8; }
+    .model-name { font-size: 13px; color: #e0e0e0; font-weight: 500; }
+    .model-slug { font-size: 11px; color: #666; font-family: monospace; }
+    .model-meta { font-size: 11px; color: #555; margin-top: 2px; }
+    .model-meta span { margin-right: 12px; }
+    .model-meta .free { color: #4a8; }
+    .toggle-row { display: flex; align-items: center; gap: 8px; }
+    .toggle { position: relative; width: 36px; height: 20px; background: #333; border-radius: 10px; cursor: pointer; }
+    .toggle.on { background: #2a5a3a; }
+    .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #888; border-radius: 50%; transition: .2s; }
+    .toggle.on::after { left: 18px; background: #4a8; }
     .bot-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 24px; padding: 12px 16px; background: #141414; border: 1px solid #222; border-radius: 8px; }
     .bot-selector select { flex: 1; font-size: 14px; padding: 8px; }
     .bot-selector .default-badge { font-size: 10px; color: #4a8; background: #1a3a2a; padding: 2px 6px; border-radius: 3px; }
@@ -67,9 +80,23 @@
     <label style="width:auto">Bot</label>
     <select id="bot-select" onchange="switchBot()"></select>
     <span id="default-badge" class="default-badge" style="display:none">default</span>
-    <button onclick="addBot()">+ New</button>
+    <button onclick="showAddBot()">+ New</button>
     <button onclick="setDefaultBot()">Set Default</button>
-    <button class="danger" onclick="delBot()">Delete</button>
+    <button class="danger" onclick="showDelBot()">Delete</button>
+  </div>
+  <div id="add-bot-row" style="display:none;margin-top:8px">
+    <div class="row">
+      <input type="text" id="new-bot-id" placeholder="bot id (lowercase, no spaces)" style="flex:1">
+      <button class="primary" onclick="confirmAddBot()">Create</button>
+      <button onclick="cancelAddBot()">Cancel</button>
+    </div>
+  </div>
+  <div id="del-bot-confirm" style="display:none;margin-top:8px">
+    <div class="row">
+      <span style="color:#a44;font-size:13px" id="del-bot-msg"></span>
+      <button class="danger" onclick="confirmDelBot()">Confirm Delete</button>
+      <button onclick="cancelDelBot()">Cancel</button>
+    </div>
   </div>
 
   <h2>Global Defaults</h2>
@@ -81,8 +108,20 @@
     </div>
     <div class="row">
       <label>Default Model</label>
-      <input type="text" id="model" placeholder="anthropic/claude-sonnet-4">
+      <input type="text" id="model" placeholder="anthropic/claude-sonnet-4" style="flex:1" >
       <button onclick="setModel()">Set</button>
+    </div>
+    <div style="margin-top:8px">
+      <div class="row">
+        <input type="text" class="filter-input" id="model-filter" placeholder="Filter models..." oninput="filterModels()" style="margin-bottom:0;flex:1">
+        <div class="toggle-row">
+          <div class="toggle" id="free-toggle" onclick="toggleFree()"></div>
+          <span style="font-size:12px;color:#888">Free only</span>
+        </div>
+      </div>
+      <div class="scroll-box" id="model-list" style="max-height:200px;margin-top:8px">
+        <span style="color:#555;font-size:13px">Set an API key to browse models</span>
+      </div>
     </div>
     <div class="row">
       <label>Brave Key</label>
@@ -106,8 +145,19 @@
     </div>
     <div class="row">
       <label>Model Override</label>
-      <input type="text" id="bot-model" placeholder="(uses global default)">
+      <input type="text" id="bot-model" placeholder="(uses global default)" style="flex:1" >
       <button onclick="setBotModel()">Set</button>
+      <button onclick="clearBotModel()">Clear</button>
+    </div>
+    <div style="margin-top:8px">
+      <div class="row">
+        <input type="text" class="filter-input" id="bot-model-filter" placeholder="Filter models..." oninput="filterBotModels()" style="margin-bottom:0;flex:1">
+        <div class="toggle-row">
+          <div class="toggle" id="bot-free-toggle" onclick="toggleBotFree()"></div>
+          <span style="font-size:12px;color:#888">Free only</span>
+        </div>
+      </div>
+      <div class="scroll-box" id="bot-model-list" style="max-height:200px;margin-top:8px"></div>
     </div>
     <div class="status" id="bot-status"></div>
   </div>
@@ -232,11 +282,20 @@ function switchBot() {
   loadBotConfig();
 }
 
-async function addBot() {
-  const id = prompt('Bot ID (lowercase, no spaces, e.g. "coder"):');
+function showAddBot() {
+  document.getElementById('add-bot-row').style.display = '';
+  document.getElementById('new-bot-id').focus();
+}
+function cancelAddBot() {
+  document.getElementById('add-bot-row').style.display = 'none';
+  document.getElementById('new-bot-id').value = '';
+}
+async function confirmAddBot() {
+  const id = document.getElementById('new-bot-id').value.trim().toLowerCase().replace(/\s+/g, '-');
   if (!id) return;
   try {
     await post({action: 'add-bot', id});
+    cancelAddBot();
     await loadBots();
     document.getElementById('bot-select').value = id;
     currentBot = id;
@@ -245,10 +304,17 @@ async function addBot() {
   } catch(e) { status('bot-status', 'Failed to create bot', false); }
 }
 
-async function delBot() {
+function showDelBot() {
   if (!currentBot) return;
   if (currentBot === defaultBotId) return status('bot-status', 'Cannot delete default bot', false);
-  if (!confirm(`Delete bot "${currentBot}"?`)) return;
+  document.getElementById('del-bot-msg').textContent = `Delete bot "${currentBot}"?`;
+  document.getElementById('del-bot-confirm').style.display = '';
+}
+function cancelDelBot() {
+  document.getElementById('del-bot-confirm').style.display = 'none';
+}
+async function confirmDelBot() {
+  cancelDelBot();
   await post({action: 'del-bot', id: currentBot});
   await loadBots();
   loadBotConfig();
@@ -262,12 +328,99 @@ async function setDefaultBot() {
   status('bot-status', `"${currentBot}" is now the default bot`, true);
 }
 
+// Model browser
+let allModels = [];
+let freeOnly = false;
+let botFreeOnly = false;
+let cachedApiKey = '';
+
+async function fetchModels(apiKey) {
+  if (!apiKey || apiKey.length < 10) return;
+  if (cachedApiKey === apiKey && allModels.length > 0) { renderModels(); renderBotModels(); return; }
+  cachedApiKey = apiKey;
+  try {
+    const r = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    if (!r.ok) return;
+    const data = await r.json();
+    allModels = (data.data || []).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    renderModels();
+    renderBotModels();
+  } catch(e) { console.warn('model fetch failed:', e); }
+}
+
+function fmtCost(v) {
+  const n = parseFloat(v || '0');
+  if (n === 0) return 'free';
+  return '$' + (n * 1_000_000).toFixed(2);
+}
+
+function renderModelList(models, targetEl, inputField, freeFlag, selectFn) {
+  const filter = (document.getElementById(inputField).value || '').toLowerCase();
+  let filtered = models.filter(m =>
+    (m.name || '').toLowerCase().includes(filter) ||
+    (m.id || '').toLowerCase().includes(filter)
+  );
+  if (freeFlag) filtered = filtered.filter(m => parseFloat(m.pricing?.prompt || '1') === 0);
+  if (!filtered.length) { targetEl.innerHTML = '<span style="color:#555;font-size:13px">No models found</span>'; return; }
+  targetEl.innerHTML = filtered.slice(0, 50).map(m => {
+    const promptCost = fmtCost(m.pricing?.prompt);
+    const compCost = fmtCost(m.pricing?.completion);
+    const ctx = m.context_length ? (m.context_length / 1000).toFixed(0) + 'k' : '?';
+    const isFree = parseFloat(m.pricing?.prompt || '1') === 0;
+    return `<div class="model-item" onclick="${selectFn}('${m.id}')">
+      <div class="model-name">${m.name || m.id}</div>
+      <div class="model-slug">${m.id}</div>
+      <div class="model-meta">
+        <span>in: ${promptCost}/M</span>
+        <span>out: ${compCost}/M</span>
+        <span>ctx: ${ctx}</span>
+        ${isFree ? '<span class="free">FREE</span>' : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderModels() {
+  renderModelList(allModels, document.getElementById('model-list'), 'model-filter', freeOnly, 'selectGlobalModel');
+}
+function renderBotModels() {
+  renderModelList(allModels, document.getElementById('bot-model-list'), 'bot-model-filter', botFreeOnly, 'selectBotModel');
+}
+function filterModels() { renderModels(); }
+function filterBotModels() { renderBotModels(); }
+function toggleFree() {
+  freeOnly = !freeOnly;
+  document.getElementById('free-toggle').classList.toggle('on', freeOnly);
+  renderModels();
+}
+function toggleBotFree() {
+  botFreeOnly = !botFreeOnly;
+  document.getElementById('bot-free-toggle').classList.toggle('on', botFreeOnly);
+  renderBotModels();
+}
+function selectGlobalModel(id) {
+  document.getElementById('model').value = id;
+  document.getElementById('model-filter').value = '';
+}
+function selectBotModel(id) {
+  document.getElementById('bot-model').value = id;
+  document.getElementById('bot-model-filter').value = '';
+}
+async function clearBotModel() {
+  document.getElementById('bot-model').value = '';
+  await post({action: 'bot-set-model', id: currentBot, model: ''});
+  status('bot-status', 'Using global default model', true);
+}
+
 // Global config
 async function loadGlobalConfig() {
   const c = await api('/config');
   document.getElementById('model').value = c.model || '';
   showMasked(document.getElementById('api-key'), c['api-key'] || '');
   showMasked(document.getElementById('brave-key'), c['brave-key'] || '');
+  if (c['api-key']) fetchModels(c['api-key']);
 }
 
 async function setKey() {
@@ -277,6 +430,8 @@ async function setKey() {
   await post({action: 'set-key', key});
   showMasked(el, key);
   status('config-status', 'API key set', true);
+  cachedApiKey = '';
+  fetchModels(key);
 }
 async function setModel() {
   const m = document.getElementById('model').value;
@@ -299,7 +454,7 @@ async function loadBotConfig() {
   const c = await api(`/bot/${currentBot}/config`);
   document.getElementById('bot-name').value = c.name || '';
   document.getElementById('bot-avatar').value = c.avatar || '';
-  document.getElementById('bot-model').value = (c.model !== (await api('/config')).model) ? c.model || '' : '';
+  document.getElementById('bot-model').value = c.model || '';
   renderWhitelist(c.whitelist || {});
   // Reload per-bot sections
   loadBotContext();
@@ -424,7 +579,8 @@ async function removeCron(id) {
 
 // Context Files (per-bot)
 async function loadBotContext() {
-  ctx = await api('/context'); // TODO: per-bot context endpoint
+  if (!currentBot) return;
+  ctx = await api(`/bot/${currentBot}/context`);
   activeCtxTab = null;
   renderCtxTabs();
 }

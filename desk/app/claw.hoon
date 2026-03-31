@@ -1012,9 +1012,10 @@
         %-  pairs:enjs:format
         :~  ['name' s+(fall bot-name.cfg '')]
             ['avatar' s+(fall bot-avatar.cfg '')]
-            ['model' s+(fall model.cfg model)]
-            ['api-key' s+(fall api-key.cfg api-key)]
-            ['brave-key' s+(fall brave-key.cfg brave-key)]
+            ['model' s+(fall model.cfg '')]
+            ['model-effective' s+(fall model.cfg model)]
+            ['api-key' s+(fall api-key.cfg '')]
+            ['brave-key' s+(fall brave-key.cfg '')]
             :-  'whitelist'
             %-  pairs:enjs:format
             %+  turn  ~(tap by whitelist.cfg)
@@ -1023,6 +1024,28 @@
             :-  'context-keys'
             a+(turn ~(tap in ~(key by context.cfg)) |=(k=@tas s+(scot %tas k)))
         ==
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
+    ::
+        [%bot @ %context ~]
+      =/  bid=@tas  (slav %tas i.t.api-path)
+      ?.  (~(has by bots) bid)
+        [[404 ~] `(as-octs:mimes:html '"bot not found"')]
+      =/  cfg=bot-config:claw  (get-bot bots bid)
+      =/  j=json
+        %-  pairs:enjs:format
+        %+  turn  ~(tap by context.cfg)
+        |=  [k=@tas v=@t]
+        [(scot %tas k) s+v]
+      [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
+    ::
+        [%bot @ %context @ ~]
+      =/  bid=@tas  (slav %tas i.t.api-path)
+      ?.  (~(has by bots) bid)
+        [[404 ~] `(as-octs:mimes:html '"bot not found"')]
+      =/  cfg=bot-config:claw  (get-bot bots bid)
+      =/  field=@tas  (slav %tas i.t.t.t.api-path)
+      =/  val=(unit @t)  (~(get by context.cfg) field)
+      =/  j=json  ?~(val ~ s+u.val)
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::
         [%config ~]
@@ -1244,9 +1267,8 @@
   ::
       %set-bot-name
     %-  (slog leaf+"claw: bot name set to {<name.act>}" ~)
-    =/  cfg=bot-config:claw  (get-bot bots default-bot)
-    =.  bots  (~(put by bots) default-bot cfg(bot-name name.act))
-    `this
+    ::  delegate to %bot-set-name for the default bot
+    (on-poke %claw-action !>(`action:claw`[%bot-set-name default-bot name.act]))
   ::
       %set-bot-avatar
     %-  (slog leaf+"claw: bot avatar set to {<avatar.act>}" ~)
@@ -1272,9 +1294,8 @@
     %-  (slog leaf+"claw: add-bot {(trip id.act)}" ~)
     ?:  (~(has by bots) id.act)
       ~|(%claw-bot-exists !!)
-    ::  auto-generate bot name: "<ship>'s bot #N"
-    =/  bot-num=@ud  ~(wyt by bots)
-    =/  auto-name=@t  (crip "{(scow %p our.bowl)}'s bot #{(a-co:co +(bot-num))}")
+    ::  default bot name = bot-id
+    =/  auto-name=@t  (scot %tas id.act)
     ::  check name uniqueness
     =/  names-taken=(set @t)
       %-  ~(gas in *(set @t))
@@ -1282,7 +1303,29 @@
       |=(c=bot-config:claw bot-name.c)
     =?  auto-name  (~(has in names-taken) auto-name)
       (crip "{(trip auto-name)}-{(trip (scot %tas id.act))}")
-    =/  cfg=bot-config:claw  [`auto-name ~ ~ ~ ~ ~ ~ ~ ~ 0]
+    =/  default-ctx=(map @tas @t)
+      %-  ~(gas by *(map @tas @t))
+      :~  [%identity (crip "You are {(trip auto-name)}, an AI bot running on {(scow %p our.bowl)}.")]
+          :-  %soul
+          %-  crip
+          ;:  weld
+            "You are helpful, knowledgeable, and concise.\0a"
+            "You have opinions and share them when relevant.\0a"
+            "You are honest about what you don't know.\0a"
+            "Keep responses focused. Avoid unnecessary verbosity."
+          ==
+          :-  %agent
+          %-  crip
+          ;:  weld
+            "You are claw, a native Urbit LLM agent.\0a"
+            "Your text response is automatically routed back to wherever the message came from.\0a"
+            "You do NOT need to call any tool to reply. Just respond."
+          ==
+      ==
+    ::  default whitelist: host ship as owner
+    =/  def-wl=(map ship ship-role:claw)
+      (~(put by *(map ship ship-role:claw)) our.bowl %owner)
+    =/  cfg=bot-config:claw  [`auto-name ~ ~ ~ ~ default-ctx def-wl ~ ~ 0]
     =.  bots  (~(put by bots) id.act cfg)
     %-  (slog leaf+"claw: bot {(trip id.act)} created with name '{(trip auto-name)}'" ~)
     `this
@@ -1314,7 +1357,22 @@
       bot-name.c
     ?:  (~(has in names-taken) u.name.act)  ~|(%claw-bot-name-duplicate !!)
     %-  (slog leaf+"claw: bot {(trip id.act)} name set to '{(trip u.name.act)}'" ~)
-    =.  bots  (~(put by bots) id.act cfg(bot-name name.act))
+    ::  update identity context: replace old name with new name
+    =/  old-name=@t  (fall bot-name.cfg '')
+    =/  new-ctx=(map @tas @t)
+      =/  ident=(unit @t)  (~(get by context.cfg) %identity)
+      ?~  ident  context.cfg
+      ?:  =('' old-name)  context.cfg
+      ::  replace old name with new name in identity text
+      =/  old-tape=tape  (trip u.ident)
+      =/  old-n=tape  (trip old-name)
+      =/  new-n=tape  (trip u.name.act)
+      =/  idx=(unit @ud)  (find old-n old-tape)
+      ?~  idx  context.cfg
+      =/  before=tape  (scag u.idx old-tape)
+      =/  after=tape  (slag (add u.idx (lent old-n)) old-tape)
+      (~(put by context.cfg) %identity (crip (weld before (weld new-n after))))
+    =.  bots  (~(put by bots) id.act cfg(bot-name name.act, context new-ctx))
     `this
   ::
       %bot-set-avatar
