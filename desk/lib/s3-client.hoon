@@ -200,24 +200,28 @@
   ?:  ?=(%| -.token-result)
     %-  (slog leaf+"claw: memex: failed to get genuine token" ~)
     ~
+  ::  genuine returns a @uv atom — convert to text representation
   =/  token=@t
     =/  raw  p.token-result
-    ::  genuine returns [%s @t] json or bare @t
-    ?@  raw  ;;(@t raw)
-    (fall (mole |.(;;(@t +.raw))) '')
-  ::  generate filename
+    ::  genuine returns @uv atom or [%s @t] json
+    ?@  raw  (scot %uv raw)
+    =/  inner  +.raw
+    ?@  inner  (scot %uv inner)
+    ;;(@t inner)
+  %-  (slog leaf+"claw: memex token={<(end 3^20 token)>}" ~)
+  ::  generate filename: ship/timestamp-uuid.ext
   =/  ext=@t
     ?:  (test content-type 'image/png')  'png'
     ?:  (test content-type 'image/gif')  'gif'
     ?:  (test content-type 'image/webp')  'webp'
     'jpg'
-  =/  filename=@t  (rap 3 (scot %uv (sham now.bowl)) '.' ext ~)
-  ::  strip ~ from ship name for URL
+  ::  strip ~ from ship name
   =/  ship-name=@t
     =/  raw=tape  (trip (scot %p our.bowl))
     ?~  raw  (scot %p our.bowl)
     ?:  =(i.raw '~')  (crip t.raw)
     (crip raw)
+  =/  filename=@t  (rap 3 ship-name '/' (scot %da now.bowl) '-' (scot %uv (sham now.bowl)) '.' ext ~)
   ::  build memex request body
   =/  body=json
     %-  pairs:enjs:format
