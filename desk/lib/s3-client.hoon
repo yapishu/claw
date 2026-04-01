@@ -234,6 +234,7 @@
     ==
   =/  body-cord=@t  (en:json:html body)
   =/  url=@t  (rap 3 memex-url '/v1/' ship-name '/upload' ~)
+  %-  (slog leaf+"claw: memex body={<(end 3^200 body-cord)>}" ~)
   =/  hed=(list [key=@t value=@t])
     :~  ['Content-Type' 'application/json']
     ==
