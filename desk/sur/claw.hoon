@@ -30,6 +30,7 @@
       [%add-bot id=@tas]
       [%del-bot id=@tas]
       [%set-default-bot id=@tas]
+      [%set-memex-url url=@t]
       ::  per-bot config (scoped by bot-id)
       [%bot-set-name id=@tas name=(unit @t)]
       [%bot-set-avatar id=@tas avatar=(unit @t)]
@@ -390,6 +391,28 @@
       tool-loops=(map @tas tool-pending)
   ==
 ::
+::  state-15: memex url
++$  state-15
+  $:  %15
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      seen-msgs=(set @t)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+      msg-queue=(map ship [txt=@t src=msg-source])
+      bots=(map @tas bot-config)
+      default-bot=@tas
+      dm-pending=(set [@tas ship])
+      pending-src=(map [@tas ship] msg-source)
+      participated=(map @tas (set @t))
+      bot-counts=(map [@tas @t] @ud)
+      tool-loops=(map @tas tool-pending)
+      memex-url=@t
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
@@ -406,5 +429,6 @@
       state-12
       state-13
       state-14
+      state-15
   ==
 --

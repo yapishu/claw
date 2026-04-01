@@ -192,15 +192,19 @@
 ::    4. PUT image data to the presigned url (separate step)
 ::
 ++  memex-upload-request
-  |=  [=bowl:gall image-data=octs content-type=@t bot-id=@tas]
+  |=  [=bowl:gall image-data=octs content-type=@t bot-id=@tas memex-url=@t]
   ^-  (unit [card=card:agent:gall public-url=@t])
-  ::  get auth token from %genuine
-  =/  token-result=(each @t tang)
-    (mule |.(.^(@t %gx /(scot %p our.bowl)/genuine/(scot %da now.bowl)/secret/noun)))
+  ::  get auth token from %genuine (returns json [%s token])
+  =/  token-result=(each * tang)
+    (mule |.(.^(* %gx /(scot %p our.bowl)/genuine/(scot %da now.bowl)/secret/noun)))
   ?:  ?=(%| -.token-result)
     %-  (slog leaf+"claw: memex: failed to get genuine token" ~)
     ~
-  =/  token=@t  p.token-result
+  =/  token=@t
+    =/  raw  p.token-result
+    ::  genuine returns [%s @t] json or bare @t
+    ?@  raw  ;;(@t raw)
+    (fall (mole |.(;;(@t +.raw))) '')
   ::  generate filename
   =/  ext=@t
     ?:  (test content-type 'image/png')  'png'
@@ -223,7 +227,7 @@
         ['fileName' s+filename]
     ==
   =/  body-cord=@t  (en:json:html body)
-  =/  url=@t  (rap 3 'https://memex.tlon.network/v1/' ship-name '/upload' ~)
+  =/  url=@t  (rap 3 memex-url '/v1/' ship-name '/upload' ~)
   =/  hed=(list [key=@t value=@t])
     :~  ['Content-Type' 'application/json']
     ==

@@ -14,7 +14,7 @@
 /+  *story-parse, *cron
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw state-12:claw state-13:claw state-14:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw state-12:claw state-13:claw state-14:claw state-15:claw)
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t) owner-ts=@da]
@@ -614,7 +614,7 @@
 --
 ::
 %-  agent:dbug
-=|  state-14:claw
+=|  state-15:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -693,7 +693,7 @@
         ==
     ==
   =/  default-cfg=bot-config:claw  [~ ~ ~ ~ ~ default-ctx ~ ~ ~ 0]
-  :_  this(model 'anthropic/claude-sonnet-4', pending %.n, bots (~(put by *(map @tas bot-config:claw)) %default default-cfg), default-bot %default)
+  :_  this(model 'anthropic/claude-sonnet-4', pending %.n, bots (~(put by *(map @tas bot-config:claw)) %default default-cfg), default-bot %default, memex-url 'https://memex.tlon.network')
   :~  [%pass /eyre/connect %arvo %e %connect [`/apps/claw/api dap.bowl]]
       ::  subscribe to activity for mentions and group invites
       [%pass /activity %agent [our.bowl %activity] %watch /v4]
@@ -709,8 +709,8 @@
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
   ::  state-14 already current - skip migration
-  ?:  ?=(%14 -.old)
-    =/  new=state-14:claw  old
+  ?:  ?=(%15 -.old)
+    =/  new=state-15:claw  old
     =/  def-cfg=bot-config:claw  (get-bot bots.new %default)
     =/  sub-cards=(list card)
       :~  [%pass /activity %agent [our.bowl %activity] %leave ~]
@@ -732,6 +732,34 @@
       `[%pass /cron/(scot %ud cid)/(scot %ud version.job) %arvo %b %wait u.nxt]
     :_  this(state new)
     :(weld sub-cards dm-cards cron-cards)
+  ::  state-14: migrate to state-15 by adding memex-url
+  ?:  ?=(%14 -.old)
+    =/  new=state-15:claw
+      :*  %15
+          api-key.old  brave-key.old  model.old
+          pending.old  last-error.old
+          seen-msgs.old  pending-approvals.old
+          owner-last-msg.old  msg-queue.old
+          bots.old  default-bot.old
+          dm-pending.old  pending-src.old
+          participated.old  bot-counts.old
+          tool-loops.old
+          'https://memex.tlon.network'
+      ==
+    =/  def-cfg=bot-config:claw  (get-bot bots.new %default)
+    =/  sub-cards=(list card)
+      :~  [%pass /activity %agent [our.bowl %activity] %leave ~]
+          [%pass /activity %agent [our.bowl %activity] %watch /v4]
+      ==
+    =/  dm-cards=(list card)
+      :-  [%pass /dm-watch/(scot %p our.bowl) %agent [our.bowl %chat] %leave ~]
+      :-  [%pass /dm-watch/(scot %p our.bowl) %agent [our.bowl %chat] %watch /dm/(scot %p our.bowl)]
+      %+  murn  ~(tap by whitelist.def-cfg)
+      |=  [s=ship r=ship-role:claw]
+      ?:  =(s our.bowl)  ~
+      `[%pass /dm-watch/(scot %p s) %agent [our.bowl %chat] %watch /dm/(scot %p s)]
+    :_  this(state new)
+    (weld sub-cards dm-cards)
   ::  first migrate everything to state-13
   =/  mid=state-13:claw
     ?-  -.old
@@ -767,7 +795,7 @@
       [%13 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~ ~ ~]
     ==
   ::  now migrate state-13 to state-14
-  =/  new=state-14:claw
+  =/  new=state-15:claw
     =/  cfg=bot-config:claw
       :*  bot-name.mid  bot-avatar.mid
           ~  ~  ~
@@ -775,7 +803,7 @@
           channel-perms.mid  cron-jobs.mid
           next-cron-id.mid
       ==
-    :*  %14
+    :*  %15
         api-key.mid  brave-key.mid  model.mid
         pending.mid  last-error.mid
         seen-msgs.mid  pending-approvals.mid
@@ -797,6 +825,7 @@
         ::  tool-loops: migrate tool-loop
         ?~  tool-loop.mid  *(map @tas tool-pending:claw)
         (~(put by *(map @tas tool-pending:claw)) %default u.tool-loop.mid)
+        'https://memex.tlon.network'
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -1352,6 +1381,10 @@
     ?.  (~(has by bots) id.act)
       ~|(%claw-bot-not-found !!)
     `this(default-bot id.act)
+  ::
+      %set-memex-url
+    %-  (slog leaf+"claw: memex url set to {(trip url.act)}" ~)
+    `this(memex-url url.act)
   ::
       %bot-set-name
     =/  cfg=bot-config:claw  (get-bot bots id.act)
@@ -2274,7 +2307,7 @@
       ::  check configured storage method: S3 or memex (presigned-url)
       ?:  (is-memex-configured:tools bowl)
         ::  memex flow: get presigned URL then PUT image
-        =/  memex-result  (memex-upload-request:tools bowl data.u.full-file.resp ct active-bot)
+        =/  memex-result  (memex-upload-request:tools bowl data.u.full-file.resp ct active-bot memex-url)
         ?~  memex-result
           %-  (slog leaf+"claw: memex upload request failed" ~)
           (finish-tool active-bot tl tc-id 'error: memex upload failed (could not get auth token)')
