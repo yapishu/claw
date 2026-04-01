@@ -2487,7 +2487,13 @@
       $(tl [msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest])
     =.  tool-loops  (~(put by tool-loops) active-bot [msg-source.tl conv-key.tl new-fmsgs rest])
     :_  this  [card.res]~
-  ::  all done - fire LLM follow-up
+  ::  all done - fire LLM follow-up (with killswitch)
+  ?:  (gth (lent new-fmsgs) 20)
+    %-  (slog leaf+"claw: KILLSWITCH in finish-tool — too many tool msgs" ~)
+    =.  tool-loops  (~(del by tool-loops) active-bot)
+    :_  this
+    :~  (send-reply-card bowl msg-source.tl 'I hit my tool call limit for this turn. Please ask again if you need more.' bot-name.ft-cfg bot-avatar.ft-cfg)
+    ==
   =/  sys-prompt=@t  (build-bot-prompt bowl active-bot ft-cfg bots owner-last-msg)
   =/  follow-wire=path
     ?:  =(-.msg-source.tl %direct)  /query-tools/(scot %da now.bowl)
@@ -2607,6 +2613,18 @@
   ::  tool call response - execute tools and loop back
   ::
       %tools
+    ::  killswitch: check if we already have a tool loop running for this bot
+    ::  if so, count accumulated follow-msgs — bail if too many
+    =/  existing-loop  (~(get by tool-loops) resp-bot-id)
+    =/  tool-iterations=@ud  ?~(existing-loop 0 (lent follow-msgs.u.existing-loop))
+    ?:  (gth tool-iterations 20)
+      %-  (slog leaf+"claw: KILLSWITCH — {(a-co:co tool-iterations)} tool msgs, forcing response" ~)
+      =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [resp-bot-id (src-ship source)])
+      =.  tool-loops  (~(del by tool-loops) resp-bot-id)
+      :_  this
+      ?:  =(-.source %direct)  ~
+      :~  (send-reply-card bowl source 'I hit my tool call limit for this turn. Please ask again if you need more.' bot-name.hlr-cfg bot-avatar.hlr-cfg)
+      ==
     %-  (slog leaf+"claw: executing {<(lent calls.u.parsed)>} tool call(s)" ~)
     ::  process tool calls: sync ones immediately, async ones queued
     =/  tool-cards=(list card)  ~
