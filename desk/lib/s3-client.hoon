@@ -201,13 +201,15 @@
     %-  (slog leaf+"claw: memex: failed to get genuine token" ~)
     ~
   ::  genuine returns a @uv atom — convert to text representation
+  ::  scry genuine as json to get the token as a string
+  =/  token-json=(each json tang)
+    (mule |.(.^(json %gx /(scot %p our.bowl)/genuine/(scot %da now.bowl)/secret/json)))
+  ?:  ?=(%| -.token-json)
+    %-  (slog leaf+"claw: memex: failed to get genuine token (json)" ~)
+    ~
   =/  token=@t
-    =/  raw  p.token-result
-    ::  genuine returns @uv atom or [%s @t] json
-    ?@  raw  (scot %uv raw)
-    =/  inner  +.raw
-    ?@  inner  (scot %uv inner)
-    ;;(@t inner)
+    ?.  ?=([%s *] p.token-json)  ''
+    p.p.token-json
   %-  (slog leaf+"claw: memex token={<(end 3^20 token)>}" ~)
   ::  generate filename: ship/timestamp-uuid.ext
   =/  ext=@t
