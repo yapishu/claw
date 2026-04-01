@@ -142,6 +142,14 @@
         ['tools' tool-defs:tools]
     ==
   =/  body-cord=@t  (en:json:html body)
+  ::  debug: log message count and roles
+  =/  msg-count=@ud  (lent trimmed)
+  =/  extra-count=@ud  (lent extra-msgs)
+  %-  (slog leaf+"claw: LLM request: {(a-co:co msg-count)} history msgs + {(a-co:co extra-count)} extra msgs on key '{(trip key)}'" ~)
+  =/  dbg=(list tank)
+    %+  turn  trimmed
+    |=(m=msg:claw leaf+"  [{(trip role.m)}] {(trip (end 3^80 content.m))}")
+  %-  (slog dbg)
   =/  hed=(list [key=@t value=@t])
     :~  ['Content-Type' 'application/json']
         ['Authorization' (crip "Bearer {(trip api-key)}")]
