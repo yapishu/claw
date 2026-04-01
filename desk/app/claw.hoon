@@ -122,14 +122,15 @@
   =/  budget=@ud  (model-budget model)
   =/  trimmed=(list msg:claw)
     =/  ctx  (lcm-context bowl key budget)
-    ::  strip tool-related messages from history (they don't round-trip correctly)
-    ::  tool results and assistant tool_call messages break the API format
+    ::  only keep clean user/assistant messages — strip everything else
+    ::  tool results, tool_call messages, and any other roles break the API
     =/  clean=(list msg:claw)
-      %+  skip  ctx
+      %+  skim  ctx
       |=  m=msg:claw
-      ?|  =(role.m 'tool')
-          =(role.m 'tool_result')
-          &(=(role.m 'assistant') !=(~ (find "tool_calls" (trip content.m))))
+      ?&  ?=(?(%user %assistant %system) role.m)
+          =(~ (find "tool_call" (trip content.m)))
+          =(~ (find "tool_use" (trip content.m)))
+          =(~ (find "tool_result" (trip content.m)))
       ==
     ::  append pending msg if set (not yet ingested into lcm)
     ?~  pending-msg  clean
@@ -1777,7 +1778,7 @@
           %group-invite
         =/  from=ship  ship.incoming
         =/  cfg=bot-config:claw  (get-bot bots default-bot)
-        ?.  (~(has by whitelist.cfg) from)
+        ?.  |(=(from our.bowl) (~(has by whitelist.cfg) from))
           %-  (slog leaf+"claw: ignoring group invite from {(scow %p from)}" ~)
           `this
         %-  (slog leaf+"claw: accepting group invite from {(scow %p from)}" ~)
@@ -1815,7 +1816,8 @@
         =/  cfg=bot-config:claw  (get-bot bots bot-id)
         ::  check THIS bot's permissions
         =/  ch-perm=(unit channel-perm:claw)  (~(get by channel-perms.cfg) ch-key)
-        ?.  ?|  (~(has by whitelist.cfg) from)
+        ?.  ?|  =(from our.bowl)
+                (~(has by whitelist.cfg) from)
                 &(?=(^ ch-perm) =(u.ch-perm %open))
             ==
           ::  approval workflow for this bot
@@ -1878,7 +1880,7 @@
         =/  named=(list @tas)  (find-named-bots bots dm-text-raw)
         =/  bot-id=@tas  ?~(named default-bot i.named)
         =/  cfg=bot-config:claw  (get-bot bots bot-id)
-        ?.  (~(has by whitelist.cfg) from)
+        ?.  |(=(from our.bowl) (~(has by whitelist.cfg) from))
           ::  approval workflow: notify owner of DM from unknown ship
           =/  dm-text=@t  (story-to-text content.incoming)
           ?:  =('' dm-text)  `this
@@ -1944,7 +1946,7 @@
         =/  named=(list @tas)  (find-named-bots bots reply-text)
         =/  bot-id=@tas  ?~(named default-bot i.named)
         =/  cfg=bot-config:claw  (get-bot bots bot-id)
-        ?.  (~(has by whitelist.cfg) from)  `this
+        ?.  |(=(from our.bowl) (~(has by whitelist.cfg) from))  `this
         =/  text=@t  reply-text
         ?:  =('' text)  `this
         =/  pid=[p=@p q=@da]  [p.id.parent.incoming q.id.parent.incoming]
@@ -2024,7 +2026,8 @@
         =/  bot-id=@tas  i.rsp-remaining
         =/  cfg=bot-config:claw  (get-bot bots bot-id)
         =/  ch-perm=(unit channel-perm:claw)  (~(get by channel-perms.cfg) ch-key)
-        ?.  ?|  (~(has by whitelist.cfg) from)
+        ?.  ?|  =(from our.bowl)
+                (~(has by whitelist.cfg) from)
                 &(?=(^ ch-perm) =(u.ch-perm %open))
             ==
           $(rsp-remaining t.rsp-remaining)

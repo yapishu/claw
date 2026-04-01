@@ -222,20 +222,17 @@
     =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
     =/  n=@t  (fall cnt '5')
     =/  count=@ud  (fall (rush n dem) 5)
-    ::  image search via GET (matching curl example: spaces as +)
-    =/  encoded-q=@t
-      %-  crip
-      %-  zing
-      %+  turn  (trip u.q)
-      |=(c=@t ?:(=(c ' ') "+" [c ~]))
-    =/  url=@t
-      (rap 3 'https://api.search.brave.com/res/v1/images/search?q=' encoded-q '&count=' (scot %ud count) ~)
+    ::  use web search POST with image-biased query (Iris GET to image endpoint
+    ::  returns 400 from Brave's proxy despite valid URL — suspected Iris HTTP quirk)
+    =/  post-body=json
+      (pairs:enjs:format ~[['q' s+(rap 3 u.q ' images pictures' ~)] ['count' (numb:enjs:format count)]])
+    =/  body-cord=@t  (en:json:html post-body)
     =/  hed=(list [key=@t value=@t])
-      :~  ['Accept' 'application/json']
-          ['Accept-Encoding' 'gzip']
+      :~  ['Content-Type' 'application/json']
+          ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/(scot %tas bot-id)/'image_search'/(scot %da now.bowl) %arvo %i %request [%'GET' url hed ~] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'image_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
   ::
   ::  http_fetch: bare GET
   ::
