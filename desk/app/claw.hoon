@@ -2599,7 +2599,7 @@
     =/  response-cards=(list card)
       :~  (send-reply-card bowl source content bot-name.hlr-cfg bot-avatar.hlr-cfg)
           [%give %fact ~[/updates] %claw-update !>(`update:claw`[%dm-response who ['assistant' content]])]
-          (lcm-ingest bowl (lcm-key source) 'assistant' content)
+          (lcm-ingest bowl (effective-lcm-key resp-bot-id source) 'assistant' content)
       ==
     :_  this
     response-cards
@@ -2645,7 +2645,7 @@
         ?.  ?=(%async -.res)
           $(async-pending t.async-pending, follow-msgs (snoc follow-msgs (tool-result-json id.first 'unexpected sync')))
         =.  tool-loops
-          (~(put by tool-loops) resp-bot-id [source (lcm-key source) follow-msgs async-pending])
+          (~(put by tool-loops) resp-bot-id [source (effective-lcm-key resp-bot-id source) follow-msgs async-pending])
         :_  this
         (weld (flop tool-cards) [card.res]~)
       ::  all sync - fire llm follow-up immediately
@@ -2655,7 +2655,7 @@
         /dm-query-tools/(scot %tas resp-bot-id)/(scot %p (src-ship source))/(scot %da now.bowl)
       :_  this
       %+  weld  (flop tool-cards)
-      :~  (make-llm-request bowl (bot-api-key hlr-cfg api-key) (bot-model hlr-cfg model) sys-prompt (lcm-key source) follow-wire follow-msgs ~)
+      :~  (make-llm-request bowl (bot-api-key hlr-cfg api-key) (bot-model hlr-cfg model) sys-prompt (effective-lcm-key resp-bot-id source) follow-wire follow-msgs ~)
       ==
     ::  execute this tool
     =/  tc  i.remaining
