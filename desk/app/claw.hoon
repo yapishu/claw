@@ -122,16 +122,11 @@
   =/  budget=@ud  (model-budget model)
   =/  trimmed=(list msg:claw)
     =/  ctx  (lcm-context bowl key budget)
-    ::  only keep clean user/assistant messages — strip everything else
-    ::  tool results, tool_call messages, and any other roles break the API
+    ::  only keep user and assistant messages from history
+    ::  tool/tool_result/system roles break the API when replayed
     =/  clean=(list msg:claw)
       %+  skim  ctx
-      |=  m=msg:claw
-      ?&  ?=(?(%user %assistant %system) role.m)
-          =(~ (find "tool_call" (trip content.m)))
-          =(~ (find "tool_use" (trip content.m)))
-          =(~ (find "tool_result" (trip content.m)))
-      ==
+      |=(m=msg:claw ?=(?(%user %assistant) role.m))
     ::  append pending msg if set (not yet ingested into lcm)
     ?~  pending-msg  clean
     (snoc clean u.pending-msg)
