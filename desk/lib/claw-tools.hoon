@@ -221,17 +221,21 @@
     ?~  q  [%sync ~ 'error: query required']
     =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
     =/  n=@t  (fall cnt '5')
-    ::  use web search POST (image endpoint rejects our GET)
-    ::  prefix query to bias toward image results
-    =/  post-body=json
-      (pairs:enjs:format ~[['q' s+(rap 3 u.q ' images pictures' ~)] ['count' (numb:enjs:format (fall (rush n dem) 5))]])
-    =/  body-cord=@t  (en:json:html post-body)
+    =/  count=@ud  (fall (rush n dem) 5)
+    ::  image search via GET (matching curl example: spaces as +)
+    =/  encoded-q=@t
+      %-  crip
+      %-  zing
+      %+  turn  (trip u.q)
+      |=(c=@t ?:(=(c ' ') "+" [c ~]))
+    =/  url=@t
+      (rap 3 'https://api.search.brave.com/res/v1/images/search?q=' encoded-q '&count=' (scot %ud count) ~)
     =/  hed=(list [key=@t value=@t])
-      :~  ['Content-Type' 'application/json']
-          ['Accept' 'application/json']
+      :~  ['Accept' 'application/json']
+          ['Accept-Encoding' 'gzip']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/(scot %tas bot-id)/'image_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'image_search'/(scot %da now.bowl) %arvo %i %request [%'GET' url hed ~] *outbound-config:iris]]
   ::
   ::  http_fetch: bare GET
   ::
@@ -305,23 +309,30 @@
     =,  dejs:format
     =/  s=@t  ((ot ~[ship+so]) u.args)
     =/  target=ship  (slav %p s)
+    ::  scry the full rolodex (always succeeds) then look up the ship
     =/  result=(each @t tang)
       %-  mule  |.
-      =/  con=contact:ct
-        .^(contact:ct %gx /(scot %p our.bowl)/contacts/(scot %da now.bowl)/v1/contact/(scot %p target)/contact-1)
-      %-  crip
-      %-  zing
-      %+  turn  ~(tap by con)
-      |=  [k=@tas v=value:ct]
-      ^-  tape
-      ?+  -.v  "{(trip k)}: (complex)\0a"
-        %text  "{(trip k)}: {(trip p.v)}\0a"
-        %look  "{(trip k)}: {(trip p.v)}\0a"
-        %tint  "{(trip k)}: {(scow %ux p.v)}\0a"
-        %ship  "{(trip k)}: {(scow %p p.v)}\0a"
-        %numb  "{(trip k)}: {(a-co:co p.v)}\0a"
-      ==
-    ?:  ?=(%| -.result)  [%sync ~ 'error: could not fetch contact']
+      =/  all=*
+        .^(* %gx /(scot %p our.bowl)/contacts/(scot %da now.bowl)/all/noun)
+      ::  all is a map, find the target ship's entry
+      =/  entry  (~(get by ;;((map ship *) all)) target)
+      ?~  entry  'no contact data'
+      ::  entry is [foreign-0] with [for=? contact-data]
+      ::  extract what we can from the raw noun
+      =/  con=*  u.entry
+      ::  con is foreign-0: [for=? con=[nick bio status color avatar cover groups]]
+      =/  profile=*  +.con
+      =/  nick=@t   (fall (mole |.(;;(@t -.profile))) '')
+      =/  bio=@t    (fall (mole |.(;;(@t +<.profile))) '')
+      =/  stat=@t   (fall (mole |.(;;(@t +>-.profile))) '')
+      =/  out=tape
+        ;:  weld
+          ?:(=('' nick) "" "nickname: {(trip nick)}\0a")
+          ?:(=('' bio) "" "bio: {(trip bio)}\0a")
+          ?:(=('' stat) "" "status: {(trip stat)}\0a")
+        ==
+      ?~(out 'contact exists but no profile data' (crip out))
+    ?:  ?=(%| -.result)  [%sync ~ (rap 3 'no contact info found for ' s ~)]
     [%sync ~ ?:(=('' p.result) 'no profile data found' p.result)]
   ::
   ::  list_groups: scry %groups
@@ -358,6 +369,12 @@
     =/  n=@ud  (fall (rush (fall cnt '10') dem) 10)
     =/  parsed-nest  (parse-nest u.ch)
     ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    ::  check if channel exists before scrying
+    =/  has-chan=?
+      =/  r=(each ? tang)
+        (mule |.(.^(? %gu /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest])))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-chan  [%sync ~ 'error: channel not found or not synced']
     =/  result=(each @t tang)
       %-  mule  |.
       =/  history=json
@@ -376,10 +393,11 @@
     =/  n=@ud  (fall (rush (fall cnt '20') dem) 20)
     =/  target=(unit @p)  (slaw %p u.who)
     ?~  target  [%sync ~ 'error: bad ship name']
+    ::  check if DM exists before scrying
     =/  result=(each @t tang)
       %-  mule  |.
       =/  history=json
-        .^(json %gx /(scot %p our.bowl)/chat/(scot %da now.bowl)/dm/(scot %p u.target)/search/text/0/(scot %ud n)/e/json)
+        .^(json %gx /(scot %p our.bowl)/chat/(scot %da now.bowl)/dm/(scot %p u.target)/writs/newest/(scot %ud n)/light/json)
       (crip (scag 6.000 (trip (en:json:html history))))
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not read DM history']
     [%sync ~ ?:(=('' p.result) 'no messages found' p.result)]
@@ -760,11 +778,19 @@
     =/  n=@ud  (fall (rush (fall cnt '50') dem) 50)
     =/  parsed-nest  (parse-nest u.ch)
     ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    ::  check if channel exists before scrying
+    =/  has-chan=?
+      =/  r=(each ? tang)
+        (mule |.(.^(? %gu /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest])))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-chan  [%sync ~ 'error: channel not found or not synced']
     =/  result=(each @t tang)
       %-  mule  |.
-      =/  history=json
-        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/search/text/0/(scot %ud n)/[u.query]/channel-scan-3)
-      (crip (scag 6.000 (trip (en:json:html history))))
+      =/  history
+        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/search/text/0/(scot %ud n)/(scot %t u.query)/json)
+      =/  as-json=(unit @t)  (mole |.((en:json:html ;;(json history))))
+      ?^  as-json  (crip (scag 6.000 (trip u.as-json)))
+      'search completed but results not JSON-serializable'
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not search channel']
     [%sync ~ ?:(=('' p.result) 'no matches found' p.result)]
   ::

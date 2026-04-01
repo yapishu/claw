@@ -122,9 +122,18 @@
   =/  budget=@ud  (model-budget model)
   =/  trimmed=(list msg:claw)
     =/  ctx  (lcm-context bowl key budget)
+    ::  strip tool-related messages from history (they don't round-trip correctly)
+    ::  tool results and assistant tool_call messages break the API format
+    =/  clean=(list msg:claw)
+      %+  skip  ctx
+      |=  m=msg:claw
+      ?|  =(role.m 'tool')
+          =(role.m 'tool_result')
+          &(=(role.m 'assistant') !=(~ (find "tool_calls" (trip content.m))))
+      ==
     ::  append pending msg if set (not yet ingested into lcm)
-    ?~  pending-msg  ctx
-    (snoc ctx u.pending-msg)
+    ?~  pending-msg  clean
+    (snoc clean u.pending-msg)
   =/  api-msgs=json
     :-  %a
     %+  weld
@@ -2053,8 +2062,9 @@
         $(rsp-remaining t.rsp-remaining)
       ==
       ?~  result
-        %-  (slog leaf+"claw: activity parse failed (mole caught)" ~)
-        `this
+        %-  (slog leaf+"claw: activity parse failed (mole caught) on wire {<wire>}" ~)
+        ::  reset stuck state so bot isn't blocked
+        `this(tool-loops ~, dm-pending ~)
       u.result
     ==
   ::
@@ -2099,6 +2109,8 @@
   |=  [=wire sign=sign-arvo]
   ^-  (quip card _this)
   |^
+  =/  result=(each (quip card _this) tang)
+    %-  mule  |.
   ?+  wire  (on-arvo:def wire sign)
   ::
       [%eyre %connect ~]
@@ -2335,6 +2347,18 @@
     :~  (make-llm-request bowl (bot-api-key th-cfg api-key) (bot-model th-cfg model) sys-prompt conv-key.tl follow-wire new-fmsgs ~)
     ==
   ==
+  ::  end of mule — handle result or recover from crash
+  ?:  ?=(%& -.result)  p.result
+  ::  crash recovery: log error, clean up stuck state, notify source
+  %-  (slog leaf+"claw: on-arvo crash on wire {<wire>}" ~)
+  %-  (slog p.result)
+  =/  error-cards=(list card)
+    %+  murn  ~(tap by tool-loops)
+    |=  [bot-id=@tas tl=tool-pending:claw]
+    =/  cfg=bot-config:claw  (~(gut by bots) bot-id *bot-config:claw)
+    `(send-reply-card bowl msg-source.tl 'Sorry, I hit an error processing a tool call. Please try again.' bot-name.cfg bot-avatar.cfg)
+  :_  this(tool-loops ~, dm-pending ~)
+  error-cards
 ::
 ::  +finish-tool: complete a tool call with result and continue the loop
 ::    ensures errors never leave the bot stuck
@@ -2395,18 +2419,19 @@
   =/  code=@ud  status-code.response-header.resp
   ::  error handling
   ?.  =(200 code)
-    =/  err=@t  ?~(full-file.resp 'http error' q.data.u.full-file.resp)
-    %-  (slog leaf+"claw error [{(a-co:co code)}]" ~)
+    =/  err=@t  ?~(full-file.resp 'http error' (crip (scag 500 (trip q.data.u.full-file.resp))))
+    %-  (slog leaf+"claw error [{(a-co:co code)}]: {(trip (end 3^200 err))}" ~)
     =.  last-error  err
     =?  pending  =(-.source %direct)  %.n
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [resp-bot-id (src-ship source)])
     ::  self-DM: record sent timestamp so returning fact is skipped
     =?  seen-msgs  &(!=(-.source %direct) =((src-ship source) our.bowl))
       (~(put in seen-msgs) (rap 3 'sds/' (scot %da now.bowl) ~))
+    =/  err-msg=@t  (rap 3 'Sorry, I hit an error (HTTP ' (scot %ud code) '). ' (end 3^200 err) ~)
     :_  this
     ?:  =(-.source %direct)
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error err])]  ==
-    :~  (send-reply-card bowl source 'Sorry, I hit an error talking to the LLM provider.' bot-name.hlr-cfg bot-avatar.hlr-cfg)  ==
+    :~  (send-reply-card bowl source err-msg bot-name.hlr-cfg bot-avatar.hlr-cfg)  ==
   ?~  full-file.resp
     =?  pending  =(-.source %direct)  %.n
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [resp-bot-id (src-ship source)])
