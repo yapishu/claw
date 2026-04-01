@@ -2295,7 +2295,7 @@
         ?~(found 'unknown' id.i.found)
       ?.  =(200 status-code.response-header.resp)
         %-  (slog leaf+"claw: image fetch failed {<status-code.response-header.resp>}" ~)
-        (finish-tool active-bot tl tc-id 'error: could not fetch image from that URL')
+        (finish-tool active-bot tl tc-id 'FAILED: could not fetch this image (HTTP error). Do NOT retry upload_image. Tell the user the image upload failed.')
       ?~  full-file.resp
         (finish-tool active-bot tl tc-id 'error: empty image response')
       ::  extract content-type
@@ -2308,7 +2308,7 @@
         =/  memex-result  (memex-upload-request:tools bowl data.u.full-file.resp ct active-bot memex-url)
         ?~  memex-result
           %-  (slog leaf+"claw: memex upload request failed" ~)
-          (finish-tool active-bot tl tc-id 'error: memex upload failed (could not get auth token)')
+          (finish-tool active-bot tl tc-id 'FAILED: memex auth failed. Do NOT retry. Tell the user image upload is not available.')
         ::  store base64-encoded image data for phase 3 PUT
         =/  img-encoded=@t  (en:base64:mimes:html p.data.u.full-file.resp q.data.u.full-file.resp)
         =.  tool-loops
@@ -2331,7 +2331,7 @@
         ?~(found 'unknown' id.i.found)
       ?.  =(200 status-code.response-header.resp)
         %-  (slog leaf+"claw: memex upload failed {<status-code.response-header.resp>}" ~)
-        (finish-tool active-bot tl tc-id 'error: memex upload request failed')
+        (finish-tool active-bot tl tc-id 'FAILED: memex upload returned 403. Do NOT retry. Tell the user image upload failed.')
       ?~  full-file.resp
         (finish-tool active-bot tl tc-id 'error: empty memex response')
       ::  parse response: {url: "presigned-put-url", filePath: "public-url"}
@@ -2390,7 +2390,7 @@
       ?.  s3-ok
         =/  err-body=@t  ?~(full-file.resp '' (crip (scag 200 (trip q.data.u.full-file.resp))))
         %-  (slog leaf+"claw: s3 error: {(trip err-body)}" ~)
-        (finish-tool active-bot tl tc-id 'error: S3 upload failed')
+        (finish-tool active-bot tl tc-id 'FAILED: S3 upload failed. Do NOT retry. Tell the user image upload failed.')
       ::  get stored URL from follow-msgs (last entry is s+url from phase 1)
       =/  stored-url=@t
         =/  last  (rear follow-msgs.tl)
@@ -2613,19 +2613,20 @@
   ::  tool call response - execute tools and loop back
   ::
       %tools
-    ::  killswitch: check if we already have a tool loop running for this bot
-    ::  if so, count accumulated follow-msgs — bail if too many
-    =/  existing-loop  (~(get by tool-loops) resp-bot-id)
-    =/  tool-iterations=@ud  ?~(existing-loop 0 (lent follow-msgs.u.existing-loop))
-    ?:  (gth tool-iterations 20)
-      %-  (slog leaf+"claw: KILLSWITCH — {(a-co:co tool-iterations)} tool msgs, forcing response" ~)
+    ::  killswitch: count total bot responses in this conversation to detect loops
+    ::  bot-counts tracks per-bot-per-key response count; bail if too many in one burst
+    =/  resp-key=@t  ?~(dm-who 'direct' (effective-lcm-key resp-bot-id source))
+    =/  cur-count=@ud  (~(gut by bot-counts) [resp-bot-id resp-key] 0)
+    ?:  (gth cur-count 5)
+      %-  (slog leaf+"claw: KILLSWITCH — {(a-co:co cur-count)} iterations, forcing response" ~)
       =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) [resp-bot-id (src-ship source)])
       =.  tool-loops  (~(del by tool-loops) resp-bot-id)
       :_  this
       ?:  =(-.source %direct)  ~
       :~  (send-reply-card bowl source 'I hit my tool call limit for this turn. Please ask again if you need more.' bot-name.hlr-cfg bot-avatar.hlr-cfg)
       ==
-    %-  (slog leaf+"claw: executing {<(lent calls.u.parsed)>} tool call(s)" ~)
+    =.  bot-counts  (~(put by bot-counts) [resp-bot-id resp-key] +(cur-count))
+    %-  (slog leaf+"claw: executing {<(lent calls.u.parsed)>} tool call(s) (iteration {(a-co:co +(cur-count))})" ~)
     ::  process tool calls: sync ones immediately, async ones queued
     =/  tool-cards=(list card)  ~
     ::  rebuild assistant message from parsed calls for clean round-trip
