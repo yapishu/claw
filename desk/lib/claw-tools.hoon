@@ -408,12 +408,18 @@
   ::  mcp_list_tools: scry %mcp-server for available tools
   ::
   ?:  =('local_mcp_list' name)
+    ::  check if mcp desk exists before scrying
+    =/  has-mcp=?
+      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl))))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-mcp
+      [%sync ~ 'The %mcp desk is not installed. Use install_local_mcp to install it from ~matwet.']
     =/  result=(each @t tang)
       %-  mule  |.
       =/  tools-json=json
         .^(json %gx /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/tools/json)
       (crip (scag 6.000 (trip (en:json:html tools-json))))
-    ?:  ?=(%| -.result)  [%sync ~ 'error: MCP server not available. Install the %mcp desk to enable MCP tools.']
+    ?:  ?=(%| -.result)  [%sync ~ 'MCP server agent not running. The %mcp desk may need to be started.']
     [%sync ~ p.result]
   ::
   ::  mcp_tool: build and execute an MCP tool via Khan
@@ -422,6 +428,12 @@
     =,  dejs:format
     =/  tool-name=@t  ((ot ~[name+so]) u.args)
     =/  args-str=@t  ((ot ~[arguments+so]) u.args)
+    ::  check if mcp desk exists
+    =/  has-mcp=?
+      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl))))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-mcp
+      [%sync ~ 'The %mcp desk is not installed. Use install_local_mcp to install it from ~matwet.']
     ::  parse arguments JSON into MCP argument map
     =/  args-json=(unit json)  (de:json:html args-str)
     ?~  args-json  [%sync ~ 'error: invalid arguments JSON']
