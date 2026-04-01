@@ -2271,15 +2271,83 @@
       =/  ct=@t
         =/  ct-hdr  (skim headers.response-header.resp |=([k=@t v=@t] =(k 'content-type')))
         ?~(ct-hdr 'image/jpeg' value.i.ct-hdr)
-      ::  sign and fire S3 PUT
+      ::  check configured storage method: S3 or memex (presigned-url)
+      ?:  (is-memex-configured:tools bowl)
+        ::  memex flow: get presigned URL then PUT image
+        =/  memex-result  (memex-upload-request:tools bowl data.u.full-file.resp ct active-bot)
+        ?~  memex-result
+          %-  (slog leaf+"claw: memex upload request failed" ~)
+          (finish-tool active-bot tl tc-id 'error: memex upload failed (could not get auth token)')
+        ::  store base64-encoded image data for phase 3 PUT
+        =/  img-encoded=@t  (en:base64:mimes:html p.data.u.full-file.resp q.data.u.full-file.resp)
+        =.  tool-loops
+          (~(put by tool-loops) active-bot tl(follow-msgs (snoc follow-msgs.tl (pairs:enjs:format ~[['memex-image' s+img-encoded] ['memex-ct' s+ct] ['memex-len' (numb:enjs:format p.data.u.full-file.resp)]]))))
+        :_  this
+        [card.u.memex-result]~
+      ::  S3 flow: sign and PUT directly
       =/  s3-result  (make-s3-put:tools bowl data.u.full-file.resp ct)
       ?~  s3-result
         %-  (slog leaf+"claw: s3 signing failed" ~)
         (finish-tool active-bot tl tc-id 'error: S3 credentials not configured')
-      ::  fire S3 PUT - phase 2, store URL for later
       =.  tool-loops  (~(put by tool-loops) active-bot tl(follow-msgs (snoc follow-msgs.tl s+url.u.s3-result)))
       :_  this
       [card.u.s3-result]~
+    ::
+    ::  handle memex_upload response: got presigned URL, now PUT image
+    ?:  =('memex_upload' tool-name)
+      =/  tc-id=@t
+        =/  found  (skim pending.tl |=([id=@t n=@t a=@t] =(n 'upload_image')))
+        ?~(found 'unknown' id.i.found)
+      ?.  =(200 status-code.response-header.resp)
+        %-  (slog leaf+"claw: memex upload failed {<status-code.response-header.resp>}" ~)
+        (finish-tool active-bot tl tc-id 'error: memex upload request failed')
+      ?~  full-file.resp
+        (finish-tool active-bot tl tc-id 'error: empty memex response')
+      ::  parse response: {url: "presigned-put-url", filePath: "public-url"}
+      =/  resp-json=(unit json)  (de:json:html q.data.u.full-file.resp)
+      ?~  resp-json
+        (finish-tool active-bot tl tc-id 'error: invalid memex response')
+      =/  me  |=(=json ^-((unit (map @t ^json)) ?.(?=([%o *] json) ~ `p.json)))
+      =/  resp-map=(unit (map @t json))  (me u.resp-json)
+      ?~  resp-map
+        (finish-tool active-bot tl tc-id 'error: malformed memex response')
+      =/  presigned-url=(unit json)  (~(get by u.resp-map) 'url')
+      =/  file-path=(unit json)  (~(get by u.resp-map) 'filePath')
+      ?~  presigned-url
+        (finish-tool active-bot tl tc-id 'error: no presigned URL in memex response')
+      ?~  file-path
+        (finish-tool active-bot tl tc-id 'error: no filePath in memex response')
+      ?.  ?=([%s *] u.presigned-url)
+        (finish-tool active-bot tl tc-id 'error: bad presigned URL type')
+      ?.  ?=([%s *] u.file-path)
+        (finish-tool active-bot tl tc-id 'error: bad filePath type')
+      ::  retrieve stored image data from follow-msgs (last entry)
+      =/  stored  (rear follow-msgs.tl)
+      =/  stored-map=(unit (map @t json))  (me stored)
+      ?~  stored-map
+        (finish-tool active-bot tl tc-id 'error: lost image data')
+      =/  img-b64=(unit json)  (~(get by u.stored-map) 'memex-image')
+      =/  img-ct=(unit json)   (~(get by u.stored-map) 'memex-ct')
+      =/  img-len=(unit json)  (~(get by u.stored-map) 'memex-len')
+      ?~  img-b64
+        (finish-tool active-bot tl tc-id 'error: no image data stored')
+      ?.  ?=([%s *] u.img-b64)
+        (finish-tool active-bot tl tc-id 'error: bad image data type')
+      ::  decode base64 image data
+      =/  img-octs=octs
+        =/  decoded=(unit octs)  (de:base64:mimes:html p.u.img-b64)
+        ?~  decoded  [0 0]
+        u.decoded
+      =/  ct=@t  ?~(img-ct 'image/jpeg' ?:(?=([%s *] u.img-ct) p.u.img-ct 'image/jpeg'))
+      ::  replace stored image data with public URL for later retrieval
+      =.  follow-msgs.tl  (snip follow-msgs.tl)
+      =.  follow-msgs.tl  (snoc follow-msgs.tl s+p.u.file-path)
+      %-  (slog leaf+"claw: memex presigned URL received, uploading image..." ~)
+      ::  fire PUT to presigned URL
+      =.  tool-loops  (~(put by tool-loops) active-bot tl)
+      :_  this
+      :~  (memex-put-request:tools p.u.presigned-url img-octs ct active-bot now.bowl)
+      ==
     ::
     ::  handle upload_put phase 2: S3 PUT completed
     ?:  =('upload_put' tool-name)
