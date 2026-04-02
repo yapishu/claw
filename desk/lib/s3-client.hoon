@@ -180,6 +180,107 @@
 ::  +scry-s3-creds: extract S3 credentials from %storage agent scries
 ::    takes the JSON results from credentials and configuration scries
 ::
+::
+::  +memex-upload-request: build a memex presigned-url upload request
+::    phase 1: PUT JSON to memex to get presigned URL
+::    returns [card:agent:gall] for the HTTP request
+::
+::  flow:
+::    1. scry %genuine for auth token
+::    2. PUT to memex.tlon.network/v1/{ship}/upload with token + file info
+::    3. response: {url: "presigned-put-url", filePath: "public-url"}
+::    4. PUT image data to the presigned url (separate step)
+::
+++  memex-upload-request
+  |=  [=bowl:gall image-data=octs content-type=@t bot-id=@tas memex-url=@t]
+  ^-  (unit [card=card:agent:gall public-url=@t])
+  ::  get auth token from %genuine (returns json [%s token])
+  =/  token-result=(each * tang)
+    (mule |.(.^(* %gx /(scot %p our.bowl)/genuine/(scot %da now.bowl)/secret/noun)))
+  ?:  ?=(%| -.token-result)
+    %-  (slog leaf+"claw: memex: failed to get genuine token" ~)
+    ~
+  ::  genuine returns a @uv atom — convert to text representation
+  ::  scry genuine as json to get the token as a string
+  =/  token-json=(each json tang)
+    (mule |.(.^(json %gx /(scot %p our.bowl)/genuine/(scot %da now.bowl)/secret/json)))
+  ?:  ?=(%| -.token-json)
+    %-  (slog leaf+"claw: memex: failed to get genuine token (json)" ~)
+    ~
+  =/  token=@t
+    ?.  ?=([%s *] p.token-json)  ''
+    p.p.token-json
+  %-  (slog leaf+"claw: memex token={<(end 3^20 token)>}" ~)
+  ::  generate filename: ship/timestamp-uuid.ext
+  =/  ext=@t
+    ?:  (test content-type 'image/png')  'png'
+    ?:  (test content-type 'image/gif')  'gif'
+    ?:  (test content-type 'image/webp')  'webp'
+    'jpg'
+  ::  strip ~ from ship name
+  =/  ship-name=@t
+    =/  raw=tape  (trip (scot %p our.bowl))
+    ?~  raw  (scot %p our.bowl)
+    ?:  =(i.raw '~')  (crip t.raw)
+    (crip raw)
+  =/  filename=@t  (rap 3 ship-name '/' (scot %da now.bowl) '-' (scot %uv (sham now.bowl)) '.' ext ~)
+  ::  build memex request body
+  =/  body=json
+    %-  pairs:enjs:format
+    :~  ['token' s+token]
+        ['contentLength' (numb:enjs:format p.image-data)]
+        ['contentType' s+content-type]
+        ['fileName' s+filename]
+    ==
+  =/  body-cord=@t  (en:json:html body)
+  =/  url=@t  (rap 3 memex-url '/v1/' ship-name '/upload' ~)
+  %-  (slog leaf+"claw: memex body={<(end 3^200 body-cord)>}" ~)
+  =/  hed=(list [key=@t value=@t])
+    :~  ['Content-Type' 'application/json']
+    ==
+  %-  (slog leaf+"claw: memex upload to {(trip url)}" ~)
+  :-  ~
+  ::  public-url placeholder — will be replaced with actual filePath from response
+  :_  'memex-pending'
+  [%pass /tool-http/(scot %tas bot-id)/'memex_upload'/(scot %da now.bowl) %arvo %i %request [%'PUT' url hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]
+::
+::  +memex-put-request: build the actual PUT request to the presigned URL
+::    takes the presigned URL from memex response and the image data
+::
+++  memex-put-request
+  |=  [presigned-url=@t image-data=octs content-type=@t bot-id=@tas now=@da]
+  ^-  card:agent:gall
+  =/  hed=(list [key=@t value=@t])
+    :~  ['Content-Type' content-type]
+        ['Cache-Control' 'public, max-age=3600']
+        ['Content-Length' (crip (a-co:co p.image-data))]
+    ==
+  [%pass /tool-http/(scot %tas bot-id)/'upload_put'/(scot %da now) %arvo %i %request [%'PUT' presigned-url hed `image-data] *outbound-config:iris]
+::
+::  +is-memex-configured: check if storage is set to presigned-url service
+::
+++  is-memex-configured
+  |=  =bowl:gall
+  ^-  ?
+  =/  conf-result=(each json tang)
+    (mule |.(.^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/json)))
+  ?:  ?=(%| -.conf-result)  %.n
+  =/  me  |=(=json ^-((unit (map @t ^json)) ?.(?=([%o *] json) ~ `p.json)))
+  =/  top=(unit (map @t json))  (me p.conf-result)
+  ?~  top  %.n
+  =/  su=(unit json)  (~(get by u.top) 'storage-update')
+  ?~  su  %.n
+  =/  su-map=(unit (map @t json))  (me u.su)
+  ?~  su-map  %.n
+  =/  cr=(unit json)  (~(get by u.su-map) 'configuration')
+  ?~  cr  %.n
+  =/  cr-map=(unit (map @t json))  (me u.cr)
+  ?~  cr-map  %.n
+  =/  svc=(unit json)  (~(get by u.cr-map) 'service')
+  ?~  svc  %.n
+  ?:  ?=([%s %'presigned-url'] u.svc)  %.y
+  %.n
+::
 ++  scry-s3-creds
   |=  [cred-json=json conf-json=json]
   ^-  s3-creds

@@ -102,32 +102,32 @@
 ::
 ::  +execute-tool: run a tool, returns sync result or async card
 ::
+++  bot-author
+  |=  [=bowl:gall bname=(unit @t) bavatar=(unit @t)]
+  ^-  author:channels
+  ?~  bname  our.bowl
+  [ship=our.bowl nickname=bname avatar=bavatar]
+::
 ++  execute-tool
-  |=  [=bowl:gall name=@t arguments=@t brave-key=@t owner=?]
+  |=  [=bowl:gall name=@t arguments=@t brave-key=@t owner=? bot-id=@tas bname=(unit @t) bavatar=(unit @t)]
   ^-  tool-result
   =/  args=(unit json)  (de:json:html arguments)
   ?~  args  [%sync ~ 'error: invalid json arguments']
   ::
-  ::  update_profile: poke %contacts
+  ::  update_profile: update this bot's name/avatar
   ::
   ?:  =('update_profile' name)
     =,  dejs-soft:format
     =/  nick=(unit @t)  ((ot ~[nickname+so]) u.args)
     =/  avatar=(unit @t)  ((ot ~[avatar+so]) u.args)
-    =/  con=contact:ct
-      =/  m=contact:ct  *contact:ct
-      =?  m  ?=(^ nick)   (~(put by m) 'nickname' [%text u.nick])
-      =?  m  ?=(^ avatar)  (~(put by m) 'avatar' [%look u.avatar])
-      m
-    ?:  =(~ con)  [%sync ~ 'error: no nickname or avatar provided']
-    =/  act=action:ct  [%self con]
-    =/  result=@t
-      %+  rap  3
-      :~  'profile updated'
-          ?~(nick '' (rap 3 ' nickname=' u.nick ~))
-          ?~(avatar '' ' avatar set')
-      ==
-    [%sync :~([%pass /tool/profile %agent [our.bowl %contacts] %poke %contact-action-1 !>(act)]) result]
+    ?:  &(=(~ nick) =(~ avatar))  [%sync ~ 'error: no nickname or avatar provided']
+    ::  prefer name update; avatar handled separately if needed
+    ?^  nick
+      =/  result=@t  (rap 3 'bot profile updated name=' u.nick ?~(avatar '' ' (set avatar too)') ~)
+      [%sync :~([%pass /tool/profile %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%bot-set-name bot-id `u.nick])]) result]
+    ?^  avatar
+      [%sync :~([%pass /tool/profile %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%bot-set-avatar bot-id `u.avatar])]) 'bot avatar updated']
+    [%sync ~ 'error: no nickname or avatar provided']
   ::
   ::  send_dm: poke %chat with optional image block
   ::
@@ -147,7 +147,7 @@
       :~  [%inline `(list inline:story)`~[u.m]]
           [%block `block:story`[%image src=u.img height=0 width=0 alt='']]
       ==
-    =/  dm-memo=memo:channels  [content=verses author=our.bowl sent=now.bowl]
+    =/  dm-memo=memo:channels  [content=verses author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  dm-essay=essay:chat  [dm-memo [%chat /] ~ ~]
     =/  dm-delta=delta:writs:chat  [%add dm-essay ~]
     =/  dm-diff=diff:writs:chat  [[our.bowl now.bowl] dm-delta]
@@ -190,7 +190,7 @@
       :~  [%inline `(list inline:story)`~[u.m]]
           [%block `block:story`[%image src=u.img height=0 width=0 alt='']]
       ==
-    =/  ch-memo=memo:channels  [content=verses author=our.bowl sent=now.bowl]
+    =/  ch-memo=memo:channels  [content=verses author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
     =/  act=a-channels:channels  [%channel nest [%post [%add ch-essay]]]
     [%sync :~([%pass /tool/ch-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) (rap 3 'posted in ' u.ch ?~(img '' ' with image') ~)]
@@ -210,7 +210,7 @@
           ['Accept' 'application/json']
           ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/'web_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'web_search'/(scot %da now.bowl) %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
   ::
   ::  image_search: bare GET (no headers - token in query string)
   ::
@@ -221,17 +221,16 @@
     ?~  q  [%sync ~ 'error: query required']
     =/  cnt=(unit @t)  ((ot ~[count+so]) u.args)
     =/  n=@t  (fall cnt '5')
-    ::  use web search POST (image endpoint rejects our GET)
-    ::  prefix query to bias toward image results
-    =/  post-body=json
-      (pairs:enjs:format ~[['q' s+(rap 3 u.q ' images pictures' ~)] ['count' (numb:enjs:format (fall (rush n dem) 5))]])
-    =/  body-cord=@t  (en:json:html post-body)
+    =/  count=@ud  (fall (rush n dem) 5)
+    ::  GET to Brave image search endpoint
+    =/  encoded-q=@t  (crip (en-urlt:html (en-urlt:html (trip u.q))))
+    =/  url=@t
+      (rap 3 'https://api.search.brave.com/res/v1/images/search?q=' encoded-q '&count=' (scot %ud count) ~)
     =/  hed=(list [key=@t value=@t])
-      :~  ['Content-Type' 'application/json']
-          ['Accept' 'application/json']
-          ['X-Subscription-Token' brave-key]
+      :~  ['X-Subscription-Token' brave-key]
       ==
-    [%async [%pass /tool-http/'image_search' %arvo %i %request [%'POST' 'https://api.search.brave.com/res/v1/web/search' hed `(as-octs:mimes:html body-cord)] *outbound-config:iris]]
+    %-  (slog leaf+"claw: image_search GET {(trip url)}" ~)
+    [%async [%pass /tool-http/(scot %tas bot-id)/'image_search'/(scot %da now.bowl) %arvo %i %request [%'GET' url hed ~] *outbound-config:iris]]
   ::
   ::  http_fetch: bare GET
   ::
@@ -242,18 +241,21 @@
   ?:  =('upload_image' name)
     =,  dejs:format
     =/  url=@t  ((ot ~[url+so]) u.args)
-    ::  scry storage for credentials
+    ::  check if S3 creds exist or memex is configured
     =/  cred-result=(each json tang)
       (mule |.(.^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/credentials/json)))
-    ?:  ?=(%| -.cred-result)
-      [%sync ~ 'error: no S3 credentials configured. set up storage in system preferences.']
     =/  conf-result=(each json tang)
       (mule |.(.^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/json)))
-    ?:  ?=(%| -.conf-result)
-      [%sync ~ 'error: no S3 configuration found.']
-    %-  (slog leaf+"claw: upload_image: fetching {(trip url)}" ~)
+    =/  has-s3=?
+      ?&  ?=(%& -.cred-result)
+          ?=(%& -.conf-result)
+      ==
+    =/  has-memex=?  (is-memex-configured bowl)
+    ?.  |(has-s3 has-memex)
+      [%sync ~ 'error: no storage configured. set up S3 or enable presigned-url in storage settings.']
+    %-  (slog leaf+"claw: upload_image: fetching {(trip url)} (storage: {?:(has-memex "memex" "s3")})" ~)
     ::  fetch the source image - bare GET
-    [%async [%pass /tool-http/'upload_image' %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'upload_image'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
   ::
   ::  add_reaction: react to channel message
@@ -305,23 +307,30 @@
     =,  dejs:format
     =/  s=@t  ((ot ~[ship+so]) u.args)
     =/  target=ship  (slav %p s)
+    ::  scry the full rolodex (always succeeds) then look up the ship
     =/  result=(each @t tang)
       %-  mule  |.
-      =/  con=contact:ct
-        .^(contact:ct %gx /(scot %p our.bowl)/contacts/(scot %da now.bowl)/v1/contact/(scot %p target)/contact-1)
-      %-  crip
-      %-  zing
-      %+  turn  ~(tap by con)
-      |=  [k=@tas v=value:ct]
-      ^-  tape
-      ?+  -.v  "{(trip k)}: (complex)\0a"
-        %text  "{(trip k)}: {(trip p.v)}\0a"
-        %look  "{(trip k)}: {(trip p.v)}\0a"
-        %tint  "{(trip k)}: {(scow %ux p.v)}\0a"
-        %ship  "{(trip k)}: {(scow %p p.v)}\0a"
-        %numb  "{(trip k)}: {(a-co:co p.v)}\0a"
-      ==
-    ?:  ?=(%| -.result)  [%sync ~ 'error: could not fetch contact']
+      =/  all=*
+        .^(* %gx /(scot %p our.bowl)/contacts/(scot %da now.bowl)/all/noun)
+      ::  all is a map, find the target ship's entry
+      =/  entry  (~(get by ;;((map ship *) all)) target)
+      ?~  entry  'no contact data'
+      ::  entry is [foreign-0] with [for=? contact-data]
+      ::  extract what we can from the raw noun
+      =/  con=*  u.entry
+      ::  con is foreign-0: [for=? con=[nick bio status color avatar cover groups]]
+      =/  profile=*  +.con
+      =/  nick=@t   (fall (mole |.(;;(@t -.profile))) '')
+      =/  bio=@t    (fall (mole |.(;;(@t +<.profile))) '')
+      =/  stat=@t   (fall (mole |.(;;(@t +>-.profile))) '')
+      =/  out=tape
+        ;:  weld
+          ?:(=('' nick) "" "nickname: {(trip nick)}\0a")
+          ?:(=('' bio) "" "bio: {(trip bio)}\0a")
+          ?:(=('' stat) "" "status: {(trip stat)}\0a")
+        ==
+      ?~(out 'contact exists but no profile data' (crip out))
+    ?:  ?=(%| -.result)  [%sync ~ (rap 3 'no contact info found for ' s ~)]
     [%sync ~ ?:(=('' p.result) 'no profile data found' p.result)]
   ::
   ::  list_groups: scry %groups
@@ -358,6 +367,12 @@
     =/  n=@ud  (fall (rush (fall cnt '10') dem) 10)
     =/  parsed-nest  (parse-nest u.ch)
     ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    ::  check if channel exists before scrying
+    =/  has-chan=?
+      =/  r=(each ? tang)
+        (mule |.(.^(? %gu /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest])))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-chan  [%sync ~ 'error: channel not found or not synced']
     =/  result=(each @t tang)
       %-  mule  |.
       =/  history=json
@@ -376,10 +391,11 @@
     =/  n=@ud  (fall (rush (fall cnt '20') dem) 20)
     =/  target=(unit @p)  (slaw %p u.who)
     ?~  target  [%sync ~ 'error: bad ship name']
+    ::  check if DM exists before scrying
     =/  result=(each @t tang)
       %-  mule  |.
       =/  history=json
-        .^(json %gx /(scot %p our.bowl)/chat/(scot %da now.bowl)/dm/(scot %p u.target)/search/text/0/(scot %ud n)/e/json)
+        .^(json %gx /(scot %p our.bowl)/chat/(scot %da now.bowl)/dm/(scot %p u.target)/writs/newest/(scot %ud n)/light/json)
       (crip (scag 6.000 (trip (en:json:html history))))
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not read DM history']
     [%sync ~ ?:(=('' p.result) 'no messages found' p.result)]
@@ -392,12 +408,18 @@
   ::  mcp_list_tools: scry %mcp-server for available tools
   ::
   ?:  =('local_mcp_list' name)
+    ::  check if mcp desk exists before scrying
+    =/  has-mcp=?
+      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl))))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-mcp
+      [%sync ~ 'The %mcp desk is not installed. Use install_local_mcp to install it from ~matwet.']
     =/  result=(each @t tang)
       %-  mule  |.
       =/  tools-json=json
         .^(json %gx /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/tools/json)
       (crip (scag 6.000 (trip (en:json:html tools-json))))
-    ?:  ?=(%| -.result)  [%sync ~ 'error: MCP server not available. Install the %mcp desk to enable MCP tools.']
+    ?:  ?=(%| -.result)  [%sync ~ 'MCP server agent not running. The %mcp desk may need to be started.']
     [%sync ~ p.result]
   ::
   ::  mcp_tool: build and execute an MCP tool via Khan
@@ -406,6 +428,12 @@
     =,  dejs:format
     =/  tool-name=@t  ((ot ~[name+so]) u.args)
     =/  args-str=@t  ((ot ~[arguments+so]) u.args)
+    ::  check if mcp desk exists
+    =/  has-mcp=?
+      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl))))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-mcp
+      [%sync ~ 'The %mcp desk is not installed. Use install_local_mcp to install it from ~matwet.']
     ::  parse arguments JSON into MCP argument map
     =/  args-json=(unit json)  (de:json:html args-str)
     ?~  args-json  [%sync ~ 'error: invalid arguments JSON']
@@ -441,7 +469,7 @@
       (thread-builder.tool args-map)
     ?:  ?=(%| -.thread-result)
       [%sync ~ (rap 3 'error: MCP tool "' tool-name '" rejected arguments. Check argument types and names.' ~)]
-    [%async [%pass /tool-http/'local-mcp' %arvo %k %lard %mcp p.thread-result]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'local-mcp'/(scot %da now.bowl) %arvo %k %lard %mcp p.thread-result]]
   ::
 ::
   ::  join_group: join an Urbit group (owner only)
@@ -523,7 +551,7 @@
     ?~  msg-time  [%sync ~ 'error: bad message ID']
     =/  =nest:channels  [kind.u.parsed-nest ship.u.parsed-nest name.u.parsed-nest]
     =/  ch-story=story:story  ~[[%inline `(list inline:story)`~[con]]]
-    =/  ch-memo=memo:channels  [content=ch-story author=our.bowl sent=now.bowl]
+    =/  ch-memo=memo:channels  [content=ch-story author=(bot-author bowl bname bavatar) sent=now.bowl]
     =/  ch-essay=essay:channels  [ch-memo /chat ~ ~]
     =/  act  [%channel nest [%post [%edit u.msg-time ch-essay]]]
     [%sync :~([%pass /tool/edit-msg %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]) 'message edited']
@@ -760,11 +788,19 @@
     =/  n=@ud  (fall (rush (fall cnt '50') dem) 50)
     =/  parsed-nest  (parse-nest u.ch)
     ?~  parsed-nest  [%sync ~ 'error: bad channel format']
+    ::  check if channel exists before scrying
+    =/  has-chan=?
+      =/  r=(each ? tang)
+        (mule |.(.^(? %gu /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest])))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-chan  [%sync ~ 'error: channel not found or not synced']
     =/  result=(each @t tang)
       %-  mule  |.
-      =/  history=json
-        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/search/text/0/(scot %ud n)/[u.query]/channel-scan-3)
-      (crip (scag 6.000 (trip (en:json:html history))))
+      =/  history
+        .^(json %gx /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind.u.parsed-nest)/(scot %p ship.u.parsed-nest)/[name.u.parsed-nest]/search/text/0/(scot %ud n)/(scot %t u.query)/json)
+      =/  as-json=(unit @t)  (mole |.((en:json:html ;;(json history))))
+      ?^  as-json  (crip (scag 6.000 (trip u.as-json)))
+      'search completed but results not JSON-serializable'
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not search channel']
     [%sync ~ ?:(=('' p.result) 'no matches found' p.result)]
   ::
@@ -887,7 +923,7 @@
   ?:  =('http_fetch' name)
     =,  dejs:format
     =/  url=@t  ((ot ~[url+so]) u.args)
-    [%async [%pass /tool-http/'http_fetch' %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
+    [%async [%pass /tool-http/(scot %tas bot-id)/'http_fetch'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
   ::  cron_add: schedule a recurring task (owner only)
   ::

@@ -53,6 +53,7 @@
       %inline-code  p.i.ils
       %code         p.i.ils
       %ship         (scot %p p.i.ils)
+      %tag          (rap 3 '@' p.i.ils ~)
       %link         (rap 3 q.i.ils ' (' p.i.ils ')' ~)
       %break        '\0a'
     ==
@@ -222,6 +223,24 @@
       $(chars t.chars, buf ['~' buf])
     =/  flushed  (flush-buf buf out)
     $(chars +.u.result, buf ~, out [`inline:d`[%ship -.u.result] flushed])
+  ::  bot tag: @name (@ followed by letters/numbers, not ~ship)
+  ?:  =(i.chars '@')
+    =/  tag-chars=tape
+      |-  ^-  tape
+      ?~  t.chars  ~
+      =/  c=@t  i.t.chars
+      ?.  ?|  &((gte c 'a') (lte c 'z'))
+              &((gte c 'A') (lte c 'Z'))
+              &((gte c '0') (lte c '9'))
+              =(c '-')  =(c '_')
+          ==
+        ~
+      [c $(t.chars t.t.chars)]
+    ?~  tag-chars
+      $(chars t.chars, buf ['@' buf])
+    =/  flushed  (flush-buf buf out)
+    =/  tag-name=@t  (crip tag-chars)
+    $(chars (slag (lent tag-chars) t.chars), buf ~, out [`inline:d`[%tag tag-name] flushed])
   ::  inline code: `...`
   ?:  =(i.chars '`')
     =/  result  (try-delimited "`" t.chars)

@@ -16,14 +16,28 @@ The desk ships three agents:
 
 ## Features
 
+### Multi-Bot Identities
+- **Multiple bots per ship**: Run any number of independent bot identities on a single planet — each with its own name, avatar, personality, model, API key, whitelist, and conversation history
+- **Bot-meta author**: Bot messages display with the bot's nickname and avatar via the Tlon `bot-meta` author type, with a "Bot" badge in the UI
+- **Tag-based mentions**: Bots use `[%tag p=botname]` inline elements — type `@botname` in a channel to tag a specific bot. Host @p mentions are for the human, not the bot
+- **Nickname fallback**: Typing a bot's name as plain text in a channel activates it (no tag autocomplete needed for initial ping)
+- **DM routing by name**: DMs containing a bot's name route to that bot; unmatched DMs go to the default bot
+- **Multi-tag fan-out**: Tagging multiple bots in one message activates all of them independently
+- **Bot self-awareness**: System prompt tells each bot its identity, bot-id, and lists sibling bots with instructions not to respond to other bots
+- **Per-bot LCM keys**: Each bot has isolated conversation history (namespaced by bot-id in LCM)
+- **Concurrent tool loops**: Multiple bots can execute tool calls simultaneously via per-bot `tool-loops` map
+- **Auto-generated names**: New bots get a default name on creation; names must be unique and non-empty
+- **Default bot**: One bot handles unmatched DMs and direct prompts
+
 ### Messaging Integration
 - **DM responses**: Whitelisted ships can DM the bot and get LLM-powered responses
-- **Channel mentions**: When mentioned (@) in a group channel, responds in that channel
+- **Channel tag mentions**: Tag `@botname` in a group channel to activate a specific bot
 - **Thread replies**: Responds to replies on its own posts in channels; routes responses back into the same thread
 - **DM thread replies**: Handles thread replies in DMs
+- **Self-DM**: DM yourself to talk to the default bot; dedup via message-id timestamps prevents feedback loops
 - **Group invites**: Auto-accepts group invitations from whitelisted ships
 - **Rich content**: Sends messages with proper Tlon inline formatting (bold, italic, code, headers, mentions)
-- **Counterparty context**: Includes sender's @p and nickname (from %contacts) in the system prompt
+- **Counterparty context**: Includes sender's @p and nickname in the system prompt
 - **Participated thread tracking**: Auto-responds in threads/channels the bot has already participated in, without requiring @mention
 - **Message deduplication**: Tracks processed message IDs (up to 1000) to prevent double-processing
 
@@ -42,6 +56,8 @@ Messages starting with `/` are intercepted before the LLM:
 | `/approve ~ship` | Approve a pending ship (adds to whitelist as %allowed) | Owner |
 | `/deny ~ship` | Deny a pending approval request | Owner |
 | `/pending` | List ships awaiting approval | Owner |
+| `/botname <name>` | Set this bot's display name | Owner |
+| `/botavatar <url>` | Set this bot's avatar URL | Owner |
 
 ### Per-Channel Permissions
 - Each channel can be set to `%open` (anyone can interact) or `%whitelist` (only whitelisted ships, default)
@@ -112,7 +128,7 @@ Escalation pattern: `search_history` first to find relevant content, then `descr
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `update_profile` | sync | Change bot nickname/avatar via %contacts |
+| `update_profile` | sync | Change this bot's nickname/avatar (updates bot-config, not host contacts) |
 | `block_ship` / `unblock_ship` | sync | Block/unblock ships from DMs |
 | `join_group` | sync | Join a group (owner only) |
 | `leave_group` | sync | Leave a group (owner only) |
@@ -243,44 +259,53 @@ rsync -av --delete desk/ /path/to/your/pier/claw/
 
 After installation, open the GUI at `/apps/claw` or configure via dojo:
 
+### Global defaults
 ```
 :claw &claw-action [%set-key 'sk-or-v1-your-openrouter-key']
 :claw &claw-action [%set-model 'anthropic/claude-sonnet-4']
 :claw &claw-action [%set-brave-key 'your-brave-api-key']
-:claw &claw-action [%add-ship ~sampel-palnet %owner]
 ```
 
-Or via DM slash commands (from an owner ship):
+### Bot management
 ```
-/model anthropic/claude-sonnet-4
-/status
-/clear
-/open chat/~host/channel-name
-/approve ~new-ship
+:: The default bot is created on install. To add more:
+:claw &claw-action [%add-bot %coder]
+:claw &claw-action [%bot-set-name %coder `'coder']
+:claw &claw-action [%bot-set-avatar %coder `'https://example.com/coder.png']
+:claw &claw-action [%bot-set-model %coder `'anthropic/claude-sonnet-4']
+:claw &claw-action [%set-default-bot %coder]
+
+:: Per-bot whitelist and context
+:claw &claw-action [%bot-add-ship %coder ~sampel-palnet %owner]
+:claw &claw-action [%bot-set-context %coder %identity 'You are a coding assistant.']
+:claw &claw-action [%bot-set-context %coder %soul 'You write clean, idiomatic code.']
 ```
 
-### Whitelist roles
+Legacy single-bot actions (`%set-context`, `%add-ship`, etc.) operate on the default bot for backward compatibility.
+
+### Whitelist roles (per-bot)
 - `%owner` — full access, can change model, use owner-only tools, manage permissions
 - `%allowed` — can chat with the bot
 
-### Context files
-```
-:claw &claw-action [%set-context %identity 'You are a helpful assistant on ~your-ship.']
-:claw &claw-action [%set-context %soul 'You are concise and knowledgeable.']
-:claw &claw-action [%set-context %memory 'The user prefers short responses.']
-```
+### Web GUI
+The GUI at `/apps/claw` has a **bot selector dropdown** at the top. All configuration sections (Identity, Whitelist, Channel Permissions, Scheduled Tasks, Context Files) are scoped to the selected bot. Global defaults (API keys, model) are shared.
+
+### Tlon Groups integration
+Bot messages appear with the bot's nickname, avatar, and a "Bot" badge in the Tlon Groups UI. The bot-meta author type (`$@(ship bot-meta)`) is used for all bot messages. The frontend stores `isBot`, `botNickname`, and `botAvatar` on posts for display.
+
+Mention autocomplete in channels shows all bots when typing `@`. Bot mentions use `[%tag p='botname']` inline elements, distinguishing them from host `[%ship p=ship]` mentions. Rendered as **@botname** with mention styling.
 
 ## Architecture
 
 ```
 desk/
 ├── app/
-│   ├── claw.hoon              # Main agent — messaging, LLM, tools, slash commands (~1800 lines)
+│   ├── claw.hoon              # Main agent — multi-bot messaging, LLM, tools, slash commands (~2200 lines)
 │   ├── lcm.hoon               # LCM agent — conversation storage, DAG summarization (~900 lines)
 │   ├── claw-fileserver.hoon   # Static file server for GUI
 │   └── fileserver/config.hoon
 ├── sur/
-│   ├── claw.hoon              # Agent types (state-11, actions, msg-source, cron-job)
+│   ├── claw.hoon              # Agent types (state-14, bot-config, actions, msg-source, cron-job)
 │   ├── lcm.hoon               # LCM types (state-1, conversation, summary, lcm-config)
 │   ├── mcp.hoon               # MCP tool types
 │   ├── chat.hoon              # Groups chat types
@@ -320,21 +345,22 @@ desk/
 DM/mention/thread-reply arrives
     → %activity subscription (on-agent)
     → message deduplication check (seen-msgs)
-    → whitelist + channel permission check
-    → slash command check (/model, /clear, /help, /status, /open, /approve, etc.)
-    → approval workflow for non-whitelisted ships
-    → extract sender, content, channel, message ID
-    → look up sender nickname from %contacts
-    → ingest user message into %lcm
-    → build system prompt (context files + sender info + owner heartbeat)
-    → scry %lcm for assembled context (summaries + fresh tail within budget)
-    → POST to OpenRouter with tools
-    → parse response
-    ├── text response → markdown-to-story → ingest into %lcm → route to source
-    │   (DM, channel, or thread) → track participated → update bot-counts
-    └── tool_calls → execute tools → loop back to LLM
-        ├── sync tools: poke/scry, return immediately
-        └── async tools: fire Iris/Khan, wait for response, continue
+    → bot selection:
+    │   channels: find-tagged-bots (scan [%tag] elements) + find-named-bots (text fallback)
+    │   DMs: find-named-bots (scan text for bot names) → fallback to default-bot
+    → for EACH activated bot independently:
+        → check bot's whitelist + channel permissions
+        → slash command check (/model, /clear, /help, /status, /botname, etc.)
+        → approval workflow for non-whitelisted ships
+        → resolve effective config (per-bot API key/model or global fallback)
+        → ingest user message into %lcm (bot-namespaced key)
+        → build system prompt (bot identity + sibling awareness + context files)
+        → scry %lcm for assembled context (summaries + fresh tail within budget)
+        → POST to OpenRouter with tools (on bot-id-scoped wire)
+        → parse response
+        ├── text response → markdown-to-story → bot-meta author → route to source
+        │   → track participated → update per-bot bot-counts
+        └── tool_calls → execute tools (per-bot tool-loop) → loop back to LLM
 
 Compaction (automatic):
     → %lcm ingest triggers token check
@@ -347,20 +373,36 @@ Compaction (automatic):
 
 ### State
 
-**claw (state-11):**
+**claw (state-14):**
 ```hoon
+::  global defaults
 api-key, brave-key, model, pending, last-error,
-context (map @tas @t), whitelist (map ship ship-role),
-dm-pending (set ship), tool-loop (unit tool-pending),
-pending-src (map ship msg-source),
+seen-msgs (set @t), pending-approvals (map ship @t),
+owner-last-msg @da, msg-queue (map ship [txt src])
+
+::  multi-bot
+bots (map @tas bot-config),   ::  keyed by bot-id (%brap, %coder, etc.)
+default-bot @tas,             ::  handles unmatched DMs
+
+::  per-bot compound-keyed tracking
+dm-pending (set [@tas ship]),
+pending-src (map [@tas ship] msg-source),
+participated (map @tas (set @t)),
+bot-counts (map [@tas @t] @ud),
+tool-loops (map @tas tool-pending)   ::  concurrent per-bot tool execution
+```
+
+**bot-config** (per-bot state):
+```hoon
+bot-name (unit @t), bot-avatar (unit @t),
+model (unit @t),      ::  ~ = use global default
+api-key (unit @t),    ::  ~ = use global default
+brave-key (unit @t),  ::  ~ = use global default
+context (map @tas @t),
+whitelist (map ship ship-role),
 channel-perms (map @t channel-perm),
-participated (set @t), seen-msgs (set @t),
-bot-counts (map @t @ud),
-pending-approvals (map ship @t),
-owner-last-msg @da,
 cron-jobs (map @ud cron-job), next-cron-id @ud
 ```
-Each `cron-job` stores: schedule (5-field cron expression), prompt, active flag, version (for stale timer detection), created timestamp.
 
 **lcm (state-1):**
 ```hoon
@@ -437,4 +479,4 @@ Includes: HMAC-SHA256, signing key derivation, hex encoding, URI encoding, presi
 
 ## Credits
 
-Vibecoded with Opus 4.6 and [%mcp](https://github.com/gwbtc/urbit-mcp) by the GroundWire crew. Inspired by [picoclaw](https://github.com/user/picoclaw) and [openclaw-tlon](https://github.com/user/openclaw-tlon). LCM compaction prompts ported from [lossless-claw](https://github.com/user/lossless-claw). Built as a native Urbit alternative that doesn't require external infrastructure.
+Vibecoded with Opus 4.6 and [%mcp](https://github.com/gwbtc/urbit-mcp) by the [GroundWire](https://groundwire.io/) crew. Inspired by the [tlon](https://github.com/user/openclaw-tlon) OpenClaw plugin. LCM reimplemented from the example of [lossless-claw](https://github.com/user/lossless-claw). Built as a native Urbit alternative that doesn't require external infrastructure.
