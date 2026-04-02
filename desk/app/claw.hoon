@@ -1614,13 +1614,16 @@
       ?:  &(=(who our.bowl) (~(has in seen-msgs) self-key))
         =.  seen-msgs  (~(del in seen-msgs) self-key)
         `this
+      ::  extract text from story content
+      =/  text=@t  (story-to-text ;;(story:d content-noun))
+      ::  route to bot by name in text, fall back to default
+      =/  named=(list @tas)  (find-named-bots bots text)
+      =/  active-dm-bot=@tas  ?~(named default-bot i.named)
       ::  check whitelist (self-DM owner is always allowed)
-      =/  cfg=bot-config:claw  (get-bot bots default-bot)
+      =/  cfg=bot-config:claw  (get-bot bots active-dm-bot)
       ?.  |(=(who our.bowl) (~(has by whitelist.cfg) from))
         %-  (slog leaf+"claw: ignoring dm from {(scow %p from)}" ~)
         `this
-      ::  extract text from story content
-      =/  text=@t  (story-to-text ;;(story:d content-noun))
       ?:  =('' text)  `this
       ::  dedup: use message-id time
       =/  evt-id=@t  (rap 3 'dmw/' (scot %p from) '/' (scot %da msg-time) ~)
@@ -1633,33 +1636,33 @@
         now.bowl
       ::  bot rate limiting: reset count (human DM received)
       =/  dmw-rl-key=@t  (rap 3 'dm/' (scot %p from) ~)
-      =.  bot-counts  (~(put by bot-counts) [default-bot dmw-rl-key] 0)
-      %-  (slog leaf+"claw: dm from {(scow %p from)}: {(trip text)}" ~)
+      =.  bot-counts  (~(put by bot-counts) [active-dm-bot dmw-rl-key] 0)
+      %-  (slog leaf+"claw: dm from {(scow %p from)} → bot {(trip active-dm-bot)}: {(trip text)}" ~)
       ::  check for slash commands
       =/  src=msg-source:claw  [%dm from]
       =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist.cfg context.cfg pending-approvals owner-last-msg bot-name.cfg bot-avatar.cfg)
       ?^  slash-result  [u.slash-result this]
       ::  send to llm, history managed by lcm
-      =.  dm-pending  (~(put in dm-pending) [default-bot from])
-      ?:  =('' api-key)
-        =.  dm-pending  (~(del in dm-pending) [default-bot from])
+      =/  eff-key=@t  (bot-api-key cfg api-key)
+      =/  eff-model=@t  (bot-model cfg model)
+      =.  dm-pending  (~(put in dm-pending) [active-dm-bot from])
+      ?:  =('' eff-key)
+        =.  dm-pending  (~(del in dm-pending) [active-dm-bot from])
         :_  this
-        :~  (send-dm-card bowl from 'Sorry, I don\'t have an API key configured yet. My owner needs to set one up.' bot-name.cfg bot-avatar.cfg)
+        :~  (send-dm-card bowl from 'Sorry, no API key configured.' bot-name.cfg bot-avatar.cfg)
         ==
-      =/  base-prompt=@t  (build-bot-prompt bowl default-bot cfg bots owner-last-msg)
+      =/  base-prompt=@t  (build-bot-prompt bowl active-dm-bot cfg bots owner-last-msg)
       =/  sys-prompt=@t
         ?:  =(who our.bowl)
-          ::  self-DM: owner is talking directly to the bot
           (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYour owner is talking to you directly via self-DM. Respond naturally. Your responses will appear in the same DM conversation.' ~)
-        ::  regular DM: inject sender context
         =/  nick=@t  (get-nickname bowl from)
         =/  nick-str=@t
           ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
         (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM conversation with ' (scot %p from) nick-str '. When they ask you to send them something, use ship=' (scot %p from) ' in the send_dm tool.' ~)
-      =/  eff-lcm-key=@t  (effective-lcm-key default-bot src)
+      =/  eff-lcm-key=@t  (effective-lcm-key active-dm-bot src)
       :_  this
       :~  (lcm-ingest bowl eff-lcm-key 'user' text)
-          (make-llm-request bowl api-key model sys-prompt eff-lcm-key /dm-query/(scot %tas default-bot)/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
+          (make-llm-request bowl eff-key eff-model sys-prompt eff-lcm-key /dm-query/(scot %tas active-dm-bot)/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
       ==
     ==
   ::
