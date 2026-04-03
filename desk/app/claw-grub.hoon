@@ -69,7 +69,9 @@
   =^  jael-cards  state
     abet:sync-jael:hc
   :_  this
-  :(weld jael-cards clay-cards dill-cards cards)
+  :*  [%pass /eyre/connect %arvo %e %connect [~ /apps/claw] dap.bowl]
+      (weld jael-cards (weld clay-cards (weld dill-cards cards)))
+  ==
 ::
 ++  on-save
   ^-  vase
@@ -214,10 +216,182 @@
     ::
       %handle-http-request
     =+  !<([eyre-id=@ta req=inbound-request:eyre] vas)
-    =/  =give:nexus  [|+[src sap]:bowl /[eyre-id]]
-    =^  cards  state
-      abet:(poke:hc give [/'server.server' %'main.server-state'] handle-http-request+!>([eyre-id src.bowl req]))
-    [cards this]
+    ::  handle HTTP directly instead of forwarding to server nexus
+    =/  url=@t  url.request.req
+    =/  resp-cards=(list card)
+      ?:  ?|  =(url '/apps/claw/')
+              =(url '/apps/claw/index.html')
+              =(url '/apps/claw')
+          ==
+        ::  serve the management GUI from Clay
+        =/  html-result=(each @t tang)
+          (mule |.(.^(@t %cx /(scot %p our.bowl)/[q.byk.bowl]/(scot %da now.bowl)/web/claw-grub/html)))
+        ?:  ?=(%| -.html-result)
+          :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([404 ~])]
+              [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '<h1>GUI not found</h1>'))]
+              [%give %kick ~[/http-response/[eyre-id]] ~]
+          ==
+        =/  html-cord=@t  p.html-result
+        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'text/html']]])]
+            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html html-cord))]
+            [%give %kick ~[/http-response/[eyre-id]] ~]
+        ==
+      ::  API: return tarball tree as JSON
+      ?:  =(url '/apps/claw/api/tree')
+        =/  tree-json=json  (tree-to-json:tarball (ball-to-tree:tarball ball))
+        =/  body=@t  (en:json:html tree-json)
+        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'application/json']]])]
+            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html body))]
+            [%give %kick ~[/http-response/[eyre-id]] ~]
+        ==
+      ::  API: read a specific JSON file from tarball
+      ?:  =((end 3^21 url) '/apps/claw/api/file/')
+        =/  file-path=@t  (rsh 3^21 url)
+        =/  result=(unit json)
+          %-  mole  |.
+          =/  segs=(list @t)  (rash file-path (more fas sym))
+          =/  rpath=path  (turn (snip segs) |=(s=@t s))
+          =/  fname=@ta  (rear segs)
+          =/  content=(unit content:tarball)
+            (~(get ba:tarball ball) [rpath fname])
+          ?~  content  !!
+          !<(json q.cage.u.content)
+        =/  body=@t  ?~(result '{}' (en:json:html u.result))
+        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'application/json']]])]
+            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html body))]
+            [%give %kick ~[/http-response/[eyre-id]] ~]
+        ==
+      ::  API: read text file
+      ?:  =((end 3^20 url) '/apps/claw/api/txt/')
+        =/  file-path=@t  (rsh 3^20 url)
+        =/  result=(unit @t)
+          %-  mole  |.
+          =/  segs=(list @t)  (rash file-path (more fas sym))
+          =/  rpath=path  (turn (snip segs) |=(s=@t s))
+          =/  fname=@ta  (rear segs)
+          =/  content=(unit content:tarball)
+            (~(get ba:tarball ball) [rpath fname])
+          ?~  content  !!
+          =/  wain-val=wain  !<(wain q.cage.u.content)
+          (of-wain:format wain-val)
+        =/  body=@t  (fall result '')
+        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'text/plain']]])]
+            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html body))]
+            [%give %kick ~[/http-response/[eyre-id]] ~]
+        ==
+      ::  API: write operations (POST)
+      ?.  ?=(%'POST' method.request.req)
+        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([404 ~])]
+            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '404'))]
+            [%give %kick ~[/http-response/[eyre-id]] ~]
+        ==
+      =/  req-body=@t  ?~(body.request.req '' q.u.body.request.req)
+      =/  req-json=(unit json)  (de:json:html req-body)
+      ?~  req-json
+        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([400 ~])]
+            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html 'invalid json'))]
+            [%give %kick ~[/http-response/[eyre-id]] ~]
+        ==
+      =/  ok-resp=(list card)
+        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'application/json']]])]
+            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '{"ok":true}'))]
+            [%give %kick ~[/http-response/[eyre-id]] ~]
+        ==
+      ?:  =(url '/apps/claw/api/write-json')
+        ::  {"path": ["bots","brap"], "name": "config.json", "data": {...}}
+        ?.  ?=([%o *] u.req-json)  ok-resp
+        =/  jpath=(unit json)  (~(get by p.u.req-json) 'path')
+        =/  jname=(unit json)  (~(get by p.u.req-json) 'name')
+        =/  jdata=(unit json)  (~(get by p.u.req-json) 'data')
+        ?~  jpath  ok-resp
+        ?~  jname  ok-resp
+        ?~  jdata  ok-resp
+        ?.  ?=([%a *] u.jpath)  ok-resp
+        ?.  ?=([%s *] u.jname)  ok-resp
+        =/  pax=path
+          %+  turn  p.u.jpath
+          |=(j=json ?>(?=(%s -.j) (crip (trip p.j))))
+        =/  fname=@ta  (crip (trip p.u.jname))
+        =.  ball  (~(put ba:tarball ball) [pax fname] [~ %json !>(u.jdata)])
+        ok-resp
+      ?:  =(url '/apps/claw/api/write-txt')
+        ::  {"path": ["bots","brap","context"], "name": "identity.txt", "data": "You are..."}
+        ?.  ?=([%o *] u.req-json)  ok-resp
+        =/  jpath=(unit json)  (~(get by p.u.req-json) 'path')
+        =/  jname=(unit json)  (~(get by p.u.req-json) 'name')
+        =/  jdata=(unit json)  (~(get by p.u.req-json) 'data')
+        ?~  jpath  ok-resp
+        ?~  jname  ok-resp
+        ?~  jdata  ok-resp
+        ?.  ?=([%a *] u.jpath)  ok-resp
+        ?.  ?=([%s *] u.jname)  ok-resp
+        ?.  ?=([%s *] u.jdata)  ok-resp
+        =/  pax=path
+          %+  turn  p.u.jpath
+          |=(j=json ?>(?=(%s -.j) (crip (trip p.j))))
+        =/  fname=@ta  (crip (trip p.u.jname))
+        =.  ball  (~(put ba:tarball ball) [pax fname] [~ %txt !>((to-wain:format p.u.jdata))])
+        ok-resp
+      ?:  =(url '/apps/claw/api/add-bot')
+        ::  {"id": "wanda", "name": "Wanda"}
+        ?.  ?=([%o *] u.req-json)  ok-resp
+        =/  jid=(unit json)    (~(get by p.u.req-json) 'id')
+        =/  jname=(unit json)  (~(get by p.u.req-json) 'name')
+        ?~  jid    ok-resp
+        ?~  jname  ok-resp
+        ?.  ?=([%s *] u.jid)    ok-resp
+        ?.  ?=([%s *] u.jname)  ok-resp
+        =/  id=@tas  (crip (trip p.u.jid))
+        =/  bname=@t  p.u.jname
+        =/  bot-cfg=json
+          %-  pairs:enjs:format
+          :~  ['name' s+bname]
+              ['avatar' s+'']
+              ['model' s+'']
+              ['api_key' s+'']
+              ['brave_key' s+'']
+              ['whitelist' [%o (~(put by *(map @t json)) (scot %p our.bowl) s+'owner')]]
+          ==
+        =.  ball  (~(put ba:tarball ball) [/bots/[id] %'config.json'] [~ %json !>(bot-cfg)])
+        =.  ball  (~(put ba:tarball ball) [/bots/[id] %'main.sig'] [~ %sig !>(~)])
+        =/  reg-content=(unit content:tarball)
+          (~(get ba:tarball ball) [/ %'bots-registry.json'])
+        =/  reg=json
+          ?~  reg-content  [%o ~]
+          !<(json q.cage.u.reg-content)
+        =/  new-reg=json
+          ?.  ?=([%o *] reg)  (pairs:enjs:format ~[[id s+bname]])
+          [%o (~(put by p.reg) id s+bname)]
+        =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
+        ::  reload to spawn the new bot process
+        =^  reload-cards  state
+          abet:(reload-nexus:hc /)
+        (weld ok-resp reload-cards)
+      ?:  =(url '/apps/claw/api/del-bot')
+        ::  {"id": "wanda"}
+        ?.  ?=([%o *] u.req-json)  ok-resp
+        =/  jid=(unit json)  (~(get by p.u.req-json) 'id')
+        ?~  jid  ok-resp
+        ?.  ?=([%s *] u.jid)  ok-resp
+        =/  id=@tas  (crip (trip p.u.jid))
+        =^  cull-cards  state
+          abet:(cull:hc [%| /bots/[id]])
+        =/  reg-content=(unit content:tarball)
+          (~(get ba:tarball ball) [/ %'bots-registry.json'])
+        =/  reg=json
+          ?~  reg-content  [%o ~]
+          !<(json q.cage.u.reg-content)
+        =/  new-reg=json
+          ?.  ?=([%o *] reg)  reg
+          [%o (~(del by p.reg) id)]
+        =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
+        (weld ok-resp cull-cards)
+      ::  unknown endpoint
+      :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([404 ~])]
+          [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '404'))]
+          [%give %kick ~[/http-response/[eyre-id]] ~]
+      ==
+    [resp-cards this]
       ::
       %rebuild-caches
     ::  Rebuild all mark tube, dais, and nexus caches.

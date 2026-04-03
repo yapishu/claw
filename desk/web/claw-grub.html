@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Claw Bot Manager</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; }
+.app { max-width: 900px; margin: 0 auto; padding: 20px; }
+h1 { font-size: 24px; margin-bottom: 20px; color: #fff; }
+h2 { font-size: 18px; margin: 20px 0 12px; color: #a0a0ff; border-bottom: 1px solid #333; padding-bottom: 6px; }
+h3 { font-size: 15px; margin: 14px 0 8px; color: #8888cc; }
+.card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 16px; border: 1px solid #2a2a4a; }
+label { display: block; font-size: 13px; color: #888; margin-bottom: 4px; }
+input, textarea, select { width: 100%; padding: 8px 10px; background: #0f1629; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; font-family: inherit; font-size: 14px; margin-bottom: 10px; }
+textarea { min-height: 100px; resize: vertical; }
+input:focus, textarea:focus { border-color: #6666cc; outline: none; }
+button { padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+.btn { background: #4444aa; color: #fff; }
+.btn:hover { background: #5555cc; }
+.btn-danger { background: #882222; color: #fff; }
+.btn-danger:hover { background: #aa3333; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.row { display: flex; gap: 10px; align-items: flex-end; }
+.row > * { flex: 1; }
+.row > button { flex: 0 0 auto; margin-bottom: 10px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab { padding: 8px 16px; border-radius: 4px 4px 0 0; background: #16213e; border: 1px solid #2a2a4a; border-bottom: none; color: #888; cursor: pointer; font-size: 14px; }
+.tab.active { background: #1e2d50; color: #fff; border-color: #4444aa; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: #0f1629; border: 1px solid #333; border-radius: 16px; padding: 4px 10px; margin: 2px; font-size: 13px; }
+.chip button { background: none; color: #666; padding: 0; font-size: 16px; }
+.chip button:hover { color: #f44; }
+.status { padding: 6px 10px; border-radius: 4px; font-size: 13px; margin-bottom: 10px; }
+.status.ok { background: #1a3a1a; color: #4a4; }
+.status.err { background: #3a1a1a; color: #a44; }
+.hidden { display: none; }
+.masked { font-family: monospace; letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<div class="app">
+<h1>Claw Bot Manager</h1>
+<div id="status" class="status ok">Loading...</div>
+
+<h2>Global Config</h2>
+<div class="card" id="global-config">
+  <div class="row">
+    <div><label>API Key</label><input type="password" id="cfg-api-key" placeholder="OpenRouter API key"></div>
+    <div><label>Model</label><input id="cfg-model" placeholder="e.g. anthropic/claude-sonnet-4.5"></div>
+  </div>
+  <div class="row">
+    <div><label>Brave Key</label><input type="password" id="cfg-brave-key" placeholder="Brave Search API key"></div>
+    <button class="btn" onclick="saveGlobalConfig()">Save</button>
+  </div>
+</div>
+
+<h2>Bots</h2>
+<div class="row" style="margin-bottom:12px">
+  <input id="new-bot-id" placeholder="Bot ID (term, e.g. wanda)">
+  <input id="new-bot-name" placeholder="Display name (e.g. Wanda)">
+  <button class="btn" onclick="addBot()">Add Bot</button>
+</div>
+<div class="tabs" id="bot-tabs"></div>
+<div id="bot-panel" class="card hidden"></div>
+</div>
+
+<script>
+const BASE = '/apps/claw/api';
+let bots = {};
+let currentBot = null;
+
+async function api(path) {
+  const r = await fetch(BASE + path);
+  if (!r.ok) return null;
+  const ct = r.headers.get('content-type') || '';
+  return ct.includes('json') ? r.json() : r.text();
+}
+
+async function post(path, data) {
+  const r = await fetch(BASE + path, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  return r.ok;
+}
+
+function setStatus(msg, ok=true) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + (ok ? 'ok' : 'err');
+}
+
+async function loadAll() {
+  try {
+    const reg = await api('/file/bots-registry.json');
+    if (!reg) { setStatus('No registry found', false); return; }
+    bots = reg;
+    const cfg = await api('/file/config.json');
+    if (cfg) {
+      document.getElementById('cfg-api-key').value = cfg.api_key || '';
+      document.getElementById('cfg-model').value = cfg.model || '';
+      document.getElementById('cfg-brave-key').value = cfg.brave_key || '';
+    }
+    renderBotTabs();
+    setStatus('Connected');
+  } catch(e) { setStatus('Error: ' + e.message, false); }
+}
+
+async function saveGlobalConfig() {
+  const data = {
+    api_key: document.getElementById('cfg-api-key').value,
+    model: document.getElementById('cfg-model').value,
+    brave_key: document.getElementById('cfg-brave-key').value
+  };
+  if (await post('/write-json', {path: [], name: 'config.json', data})) {
+    setStatus('Global config saved');
+  } else { setStatus('Failed to save config', false); }
+}
+
+function renderBotTabs() {
+  const tabs = document.getElementById('bot-tabs');
+  tabs.innerHTML = '';
+  for (const [id, name] of Object.entries(bots)) {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (id === currentBot ? ' active' : '');
+    tab.textContent = name || id;
+    tab.onclick = () => selectBot(id);
+    tabs.appendChild(tab);
+  }
+  if (currentBot && bots[currentBot]) loadBotPanel(currentBot);
+  else document.getElementById('bot-panel').classList.add('hidden');
+}
+
+async function selectBot(id) {
+  currentBot = id;
+  renderBotTabs();
+  await loadBotPanel(id);
+}
+
+async function loadBotPanel(id) {
+  const panel = document.getElementById('bot-panel');
+  panel.classList.remove('hidden');
+  const cfg = await api('/file/bots/' + id + '/config.json') || {};
+  const wl = cfg.whitelist || {};
+  const cron = cfg.cron || [];
+
+  // Load context files
+  const identity = await api('/txt/bots/' + id + '/context/identity.txt') || '';
+  const soul = await api('/txt/bots/' + id + '/context/soul.txt') || '';
+  const agent = await api('/txt/bots/' + id + '/context/agent.txt') || '';
+  const memory = await api('/txt/bots/' + id + '/context/memory.txt') || '';
+
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">Bot: ${id}</h3>
+      <button class="btn-danger btn-sm" onclick="delBot('${id}')">Delete Bot</button>
+    </div>
+
+    <h3>Config</h3>
+    <div class="row">
+      <div><label>Name</label><input id="bot-name" value="${cfg.name || ''}"></div>
+      <div><label>Avatar URL</label><input id="bot-avatar" value="${cfg.avatar || ''}"></div>
+    </div>
+    <div class="row">
+      <div><label>Model Override</label><input id="bot-model" value="${cfg.model || ''}" placeholder="(uses global)"></div>
+      <div><label>API Key Override</label><input type="password" id="bot-key" value="${cfg.api_key || ''}" placeholder="(uses global)"></div>
+    </div>
+    <div class="row">
+      <div><label>Brave Key Override</label><input type="password" id="bot-brave" value="${cfg.brave_key || ''}" placeholder="(uses global)"></div>
+      <button class="btn" onclick="saveBotConfig('${id}')">Save Config</button>
+    </div>
+
+    <h3>Context</h3>
+    <label>Identity</label>
+    <textarea id="ctx-identity" placeholder="Who is this bot?">${esc(identity)}</textarea>
+    <label>Soul</label>
+    <textarea id="ctx-soul" placeholder="Personality and voice">${esc(soul)}</textarea>
+    <label>Agent Instructions</label>
+    <textarea id="ctx-agent" placeholder="Behavioral rules and capabilities">${esc(agent)}</textarea>
+    <label>Memory</label>
+    <textarea id="ctx-memory" placeholder="Persistent memory">${esc(memory)}</textarea>
+    <button class="btn" onclick="saveContext('${id}')">Save Context</button>
+
+    <h3>Whitelist</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:8px">Empty = open to all. Add ships to restrict access.</p>
+    <div id="wl-chips">
+      ${Object.entries(wl).map(([ship, role]) =>
+        `<span class="chip">${ship} <small>(${role})</small> <button onclick="removeWl('${id}','${ship}')">&times;</button></span>`
+      ).join('')}
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="wl-ship" placeholder="~sampel-palnet">
+      <select id="wl-role"><option value="owner">owner</option><option value="allowed">allowed</option></select>
+      <button class="btn btn-sm" onclick="addWl('${id}')">Add</button>
+    </div>
+
+    <h3>Cron Jobs</h3>
+    <div id="cron-list">
+      ${cron.map((j, i) =>
+        `<div class="chip" style="display:flex;width:100%;border-radius:4px;padding:8px">
+          <code style="flex:0 0 140px">${j.schedule}</code>
+          <span style="flex:1">${esc(j.prompt)}</span>
+          <button onclick="removeCron('${id}', ${i})">&times;</button>
+        </div>`
+      ).join('')}
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="cron-schedule" placeholder="*/30 * * * *" style="flex:0 0 160px">
+      <input id="cron-prompt" placeholder="Check the weather">
+      <button class="btn btn-sm" onclick="addCron('${id}')">Add</button>
+    </div>
+  `;
+}
+
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function saveBotConfig(id) {
+  // Preserve whitelist and cron from existing config
+  const existing = await api('/file/bots/' + id + '/config.json') || {};
+  const data = {
+    name: document.getElementById('bot-name').value,
+    avatar: document.getElementById('bot-avatar').value,
+    model: document.getElementById('bot-model').value,
+    api_key: document.getElementById('bot-key').value,
+    brave_key: document.getElementById('bot-brave').value,
+    whitelist: existing.whitelist || {},
+    cron: existing.cron || []
+  };
+  if (await post('/write-json', {path: ['bots', id], name: 'config.json', data})) {
+    setStatus('Bot config saved');
+  } else { setStatus('Failed to save', false); }
+}
+
+async function saveContext(id) {
+  const fields = ['identity', 'soul', 'agent', 'memory'];
+  for (const f of fields) {
+    const val = document.getElementById('ctx-' + f).value;
+    await post('/write-txt', {path: ['bots', id, 'context'], name: f + '.txt', data: val});
+  }
+  setStatus('Context saved');
+}
+
+async function addWl(id) {
+  const ship = document.getElementById('wl-ship').value.trim();
+  const role = document.getElementById('wl-role').value;
+  if (!ship) return;
+  const cfg = await api('/file/bots/' + id + '/config.json') || {};
+  cfg.whitelist = cfg.whitelist || {};
+  cfg.whitelist[ship] = role;
+  await post('/write-json', {path: ['bots', id], name: 'config.json', data: cfg});
+  loadBotPanel(id);
+}
+
+async function removeWl(id, ship) {
+  const cfg = await api('/file/bots/' + id + '/config.json') || {};
+  if (cfg.whitelist) delete cfg.whitelist[ship];
+  await post('/write-json', {path: ['bots', id], name: 'config.json', data: cfg});
+  loadBotPanel(id);
+}
+
+async function addCron(id) {
+  const schedule = document.getElementById('cron-schedule').value.trim();
+  const prompt = document.getElementById('cron-prompt').value.trim();
+  if (!schedule || !prompt) return;
+  const cfg = await api('/file/bots/' + id + '/config.json') || {};
+  cfg.cron = cfg.cron || [];
+  cfg.cron.push({schedule, prompt});
+  await post('/write-json', {path: ['bots', id], name: 'config.json', data: cfg});
+  loadBotPanel(id);
+}
+
+async function removeCron(id, idx) {
+  const cfg = await api('/file/bots/' + id + '/config.json') || {};
+  if (cfg.cron) cfg.cron.splice(idx, 1);
+  await post('/write-json', {path: ['bots', id], name: 'config.json', data: cfg});
+  loadBotPanel(id);
+}
+
+async function addBot() {
+  const id = document.getElementById('new-bot-id').value.trim();
+  const name = document.getElementById('new-bot-name').value.trim();
+  if (!id || !name) return;
+  if (await post('/add-bot', {id, name})) {
+    bots[id] = name;
+    currentBot = id;
+    document.getElementById('new-bot-id').value = '';
+    document.getElementById('new-bot-name').value = '';
+    renderBotTabs();
+    loadBotPanel(id);
+    setStatus('Bot "' + name + '" created');
+  } else { setStatus('Failed to create bot', false); }
+}
+
+async function delBot(id) {
+  if (!confirm('Delete bot "' + id + '"?')) return;
+  if (await post('/del-bot', {id})) {
+    delete bots[id];
+    if (currentBot === id) currentBot = null;
+    renderBotTabs();
+    document.getElementById('bot-panel').classList.add('hidden');
+    setStatus('Bot deleted');
+  } else { setStatus('Failed to delete', false); }
+}
+
+loadAll();
+</script>
+</body>
+</html>
