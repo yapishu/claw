@@ -101,13 +101,72 @@
   |=  [mak=mark vas=vase]
   ^-  (quip card _this)
   ?+    mak  (on-poke:def mak vas)
-  ::  write json to a tarball file: [path name json]
+  ::  claw management API: [%cmd args...]
       %noun
     ?>  =(src our):bowl
-    =/  [pax=path name=@ta dat=json]  !<([path @ta json] vas)
-    =.  ball
-      (~(put ba:tarball ball) [pax name] [~ %json !>(dat)])
-    `this
+    ?.  ?=([@tas *] q.vas)  (on-poke:def mak vas)
+    =/  cmd=@tas  -.q.vas
+    ?+    cmd  (on-poke:def mak vas)
+    ::
+    ::  write json: [%write-json path name json]
+        %write-json
+      =/  [* pax=path name=@ta dat=json]  !<([@tas path @ta json] vas)
+      =.  ball  (~(put ba:tarball ball) [pax name] [~ %json !>(dat)])
+      `this
+    ::
+    ::  write text: [%write-txt path name @t]
+        %write-txt
+      =/  [* pax=path name=@ta txt=@t]  !<([@tas path @ta @t] vas)
+      =.  ball  (~(put ba:tarball ball) [pax name] [~ %txt !>((to-wain:format txt))])
+      `this
+    ::
+    ::  add bot: [%add-bot id name] — creates dir + config + process + updates registry
+        %add-bot
+      =/  [* id=@tas name=@t]  !<([@tas @tas @t] vas)
+      =/  bot-cfg=json
+        %-  pairs:enjs:format
+        :~  ['name' s+name]
+            ['avatar' s+'']
+            ['model' s+'']
+            ['api_key' s+'']
+            ['brave_key' s+'']
+            ['whitelist' [%o (~(put by *(map @t json)) (scot %p our.bowl) s+'owner')]]
+        ==
+      ::  write bot files directly to tarball
+      =.  ball  (~(put ba:tarball ball) [/bots/[id] %'config.json'] [~ %json !>(bot-cfg)])
+      =.  ball  (~(put ba:tarball ball) [/bots/[id] %'main.sig'] [~ %sig !>(~)])
+      ::  update registry
+      =/  reg-content=(unit content:tarball)
+        (~(get ba:tarball ball) [/ %'bots-registry.json'])
+      =/  reg=json
+        ?~  reg-content  [%o ~]
+        !<(json q.cage.u.reg-content)
+      =/  new-reg=json
+        ?.  ?=([%o *] reg)  (pairs:enjs:format ~[[id s+name]])
+        [%o (~(put by p.reg) id s+name)]
+      =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
+      ::  reload nexus to spawn the new bot process
+      =^  cards  state
+        abet:(reload-nexus:hc /)
+      [cards this]
+    ::
+    ::  delete bot: [%del-bot id]
+        %del-bot
+      =/  [* id=@tas]  !<([@tas @tas] vas)
+      =^  cards  state
+        abet:(cull:hc [%| /bots/[id]])
+      ::  update registry
+      =/  reg-content=(unit content:tarball)
+        (~(get ba:tarball ball) [/ %'bots-registry.json'])
+      =/  reg=json
+        ?~  reg-content  [%o ~]
+        !<(json q.cage.u.reg-content)
+      =/  new-reg=json
+        ?.  ?=([%o *] reg)  reg
+        [%o (~(del by p.reg) id)]
+      =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
+      [cards this]
+    ==
       %grubbery-action
     =+  !<(=action:nexus vas)
     ?-    +<.action
