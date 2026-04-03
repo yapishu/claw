@@ -8,7 +8,7 @@
 /-  c=chat
 /-  claw
 /-  lcm
-/+  nexus, tarball, io=fiberio, loader, story-parse, tools=claw-tools
+/+  nexus, tarball, io=fiberio, loader, story-parse, tools=claw-tools, cron
 !:
 ^-  nexus:nexus
 =>
@@ -141,23 +141,28 @@
     |=  input:fiber:nexus
     :+  ~  state
     ?~  in  [%wait ~]
-    ?.  ?=(%agent -.u.in)  [%skip ~]
-    ?:  ?&  =(wire.u.in /activity)
-            ?=([%fact *] sign.u.in)
+    ?:  ?=(%agent -.u.in)
+      ?:  ?&  =(wire.u.in /activity)
+              ?=([%fact *] sign.u.in)
+          ==
+        [%done %activity cage.sign.u.in]
+      ?:  ?&  =(wire.u.in /activity)
+              ?=([%kick ~] sign.u.in)
+          ==
+        [%done %kick-activity *cage]
+      ?:  ?&  =(wire.u.in /self-dm)
+              ?=([%fact *] sign.u.in)
+          ==
+        [%done %self-dm cage.sign.u.in]
+      ?:  ?&  =(wire.u.in /self-dm)
+              ?=([%kick ~] sign.u.in)
+          ==
+        [%done %kick-dm *cage]
+      [%skip ~]
+    ?:  ?&  ?=(%arvo -.u.in)
+            =(wire.u.in /cron)
         ==
-      [%done %activity cage.sign.u.in]
-    ?:  ?&  =(wire.u.in /activity)
-            ?=([%kick ~] sign.u.in)
-        ==
-      [%done %kick-activity *cage]
-    ?:  ?&  =(wire.u.in /self-dm)
-            ?=([%fact *] sign.u.in)
-        ==
-      [%done %self-dm cage.sign.u.in]
-    ?:  ?&  =(wire.u.in /self-dm)
-            ?=([%kick ~] sign.u.in)
-        ==
-      [%done %kick-dm *cage]
+      [%done %cron *cage]
     [%skip ~]
   ::
   ?+    tag.ev  $
@@ -300,6 +305,56 @@
   ::
       %self-dm
     $  :: TODO
+  ::
+      %cron
+    ::  cron tick: scan all bots for due cron jobs, fire them, re-arm timer
+    ;<  now=@da  bind:m  get-time:io
+    ;<  bots-for-cron=(map @tas bot-info)  bind:m  scan-bots
+    =/  bot-list=(list [@tas bot-info])  ~(tap by `(map @tas bot-info)`bots-for-cron)
+    |-
+    ?~  bot-list
+      ::  re-arm timer for next minute
+      ;<  ~  bind:m  (send-card:io [%pass /cron %arvo %b %wait (add now ~m1)])
+      ^$
+    =/  [bot-id=@tas bi=bot-info]  i.bot-list
+    ::  read bot config for cron jobs
+    ;<  cfg-seen=seen:nexus  bind:m
+      (peek:io /cron-cfg/[bot-id] (cord-to-road:tarball (crip "./bots/{(trip bot-id)}/config.json")) `%json)
+    ?.  ?=([%& %file *] cfg-seen)
+      $(bot-list t.bot-list)
+    =/  cfg=json  !<(json q.cage.p.cfg-seen)
+    ?.  ?=([%o *] cfg)
+      $(bot-list t.bot-list)
+    =/  cron-json=(unit json)  (~(get by p.cfg) 'cron')
+    ?~  cron-json
+      $(bot-list t.bot-list)
+    ?.  ?=([%a *] u.cron-json)
+      $(bot-list t.bot-list)
+    ::  check each cron job
+    =/  jobs=(list json)  p.u.cron-json
+    |-
+    ?~  jobs  ^$(bot-list t.bot-list)
+    =/  job=json  i.jobs
+    ?.  ?=([%o *] job)  $(jobs t.jobs)
+    =/  schedule=@t  (jget job 'schedule' '')
+    =/  prompt=@t  (jget job 'prompt' '')
+    ?:  |(=('' schedule) =('' prompt))  $(jobs t.jobs)
+    ::  check if this job should fire now (within the last minute)
+    =/  check-time=@da  (sub now ~m1)
+    =/  next-fire=(unit @da)  (next-cron-fire:cron schedule check-time)
+    ?~  next-fire  $(jobs t.jobs)
+    ?.  (lte u.next-fire now)  $(jobs t.jobs)
+    ::  fire! poke the bot with a cron prompt
+    %-  (slog leaf+"claw-grub: cron firing for bot '{(trip bot-id)}': {(trip (end 3^40 prompt))}" ~)
+    =/  cron-event=json
+      %-  pairs:enjs:format
+      :~  ['from' s+(scot %p our)]
+          ['text' s+prompt]
+          ['msg_id' s+(scot %da now)]
+      ==
+    ;<  ~  bind:m
+      (poke:io /cron (bot-road bot-id) %json !>(cron-event))
+    $(jobs t.jobs)
   ==
 ::
 ++  bot-road
@@ -810,8 +865,15 @@
       %-  (slog leaf+"claw-grub: subscribed to activity" ~)
       ;<  ~  bind:m  (gall-watch:io /self-dm [our %chat] /dm/(scot %p our))
       %-  (slog leaf+"claw-grub: watching self-DMs" ~)
+      ::  start cron timer (fires every minute)
+      ;<  now=@da  bind:m  get-time:io
+      ;<  ~  bind:m  (send-card:io [%pass /cron %arvo %b %wait (add now ~m1)])
+      %-  (slog leaf+"claw-grub: cron timer armed" ~)
       (root-loop our)
     %-  (slog leaf+"claw-grub: restarted (keeping existing subs)" ~)
+    ::  re-arm cron timer on restart
+    ;<  now=@da  bind:m  get-time:io
+    ;<  ~  bind:m  (send-card:io [%pass /cron %arvo %b %wait (add now ~m1)])
     (root-loop our)
   ::
   ::  BOT PROCESS: /bots/{id}/main.sig
