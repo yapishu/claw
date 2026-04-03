@@ -22,6 +22,14 @@
     ::
         %pending
       (pairs ~[['type' s+'pending']])
+    ::
+        %dm-response
+      %-  pairs
+      :~  ['type' s+'dm-response']
+          ['ship' s+(scot %p ship.upd)]
+          ['role' s+role.msg.upd]
+          ['content' s+content.msg.upd]
+      ==
     ==
   --
 ++  grab
