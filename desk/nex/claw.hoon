@@ -524,7 +524,14 @@
   =/  sys-prompt=@t
     %+  rap  3
     :~  ctx-text
-        '\0a\0a---\0a\0a# Current Conversation\0a\0a'
+        '\0a\0a---\0a\0a# Tools\0a\0a'
+        'You have tools available. ALWAYS use the appropriate tool when the user asks you to do something - '
+        'do NOT pretend or hallucinate tool results. If a tool fails, report the actual error.\0a'
+        'Key tools: web_search, image_search, send_dm, send_channel_message, read_channel_history, '
+        'read_dm_history, list_groups, list_channels, get_contact, list_contacts, http_fetch, '
+        'add_reaction, local_mcp (for Urbit system access), local_mcp_list (list MCP tools).\0a'
+        'For local_mcp: call local_mcp_list first to get exact tool names, then call local_mcp with name and arguments.\0a'
+        '\0a---\0a\0a# Current Conversation\0a\0a'
         ?:  is-dm
           (rap 3 'You are in a DM with ' (scot %p from) '. Your text response is automatically sent as a DM reply.' ~)
         %+  rap  3
@@ -614,18 +621,19 @@
   =/  asst-msg=json
     %-  pairs:enjs:format
     :~  ['role' s+'assistant']
-        ?:(=('' tc-text) ['content' ~] ['content' s+tc-text])
+        ['content' s+?:(=('' tc-text) '' tc-text)]
         ['tool_calls' [%a tc-json]]
     ==
-  ::  execute each tool and collect results
-  ;<  nbowl=bowl:nexus  bind:m  (get-bowl:io /bowl)
+  ::  execute each tool and collect results — get fresh time for scries
+  ;<  nbowl=bowl:nexus  bind:m  (get-bowl:io /tool-bowl)
+  ;<  fresh-now=@da  bind:m  get-time:io
   =/  =bowl:gall
     %*  .  *bowl:gall
       our  our.nbowl
       src  our.nbowl
       dap  dap.nbowl
-      now  now.nbowl
-      byk  byk.nbowl
+      now  fresh-now
+      byk  [our.nbowl q.byk.nbowl [%da fresh-now]]
       eny  eny.nbowl
     ==
   ;<  tool-results=(list json)  bind:m
@@ -661,19 +669,25 @@
   ?~  pending  (pure:m results)
   =/  [tid=@t tname=@t targs=@t]  i.pending
   =/  rest=(list [id=@t name=@t arguments=@t])  t.pending
-  %-  (slog leaf+"claw-grub: tool '{(trip tname)}'" ~)
+  %-  (slog leaf+"claw-grub: executing tool '{(trip tname)}' args={<(end 3^80 targs)>}" ~)
   =/  result=tool-result:tools
     (execute-tool:tools bowl tname targs bbrave is-owner bot-id bname-u bavatar-u)
   ::  build tool result json message
   =/  make-result
     |=  content=@t
+    ::  cap tool results at 6000 chars
+    =/  capped=@t
+      ?.  (gth (met 3 content) 6.000)  content
+      (rap 3 (end 3^5.900 content) '\0a...[truncated]' ~)
+    %-  (slog leaf+"claw-grub: tool '{(trip tname)}' result ({<(met 3 content)>} bytes): {(trip (end 3^120 content))}" ~)
     %-  pairs:enjs:format
     :~  ['role' s+'tool']
         ['tool_call_id' s+tid]
-        ['content' s+content]
+        ['content' s+capped]
     ==
   ?:  ?=([%sync *] result)
     ::  sync tool: send any gall cards, collect result text
+    %-  (slog leaf+"claw-grub: tool '{(trip tname)}' sync, {<(lent cards.result)>} cards" ~)
     =/  sync-cards=(list card:agent:gall)  cards.result
     |-
     ?~  sync-cards
@@ -684,6 +698,7 @@
     ;<  ~  bind:m  (send-card:io i.sync-cards)
     $(sync-cards t.sync-cards)
   ::  async tool: execute HTTP request
+  %-  (slog leaf+"claw-grub: tool '{(trip tname)}' async" ~)
   ?>  ?=([%async *] result)
   =/  async-card=card:agent:gall  card.result
   ?.  ?=([%pass * %arvo %i %request * *] async-card)
@@ -696,12 +711,26 @@
       ?.  ?=(%arvo -.u.in)  [%skip ~]
       [%done sign.u.in]
     =/  tool-body=@t
-      %-  crip  %-  (cury scag 6.000)  %-  trip
-      ?+  sign-arvo  'tool completed'
-        [%iris %http-response %finished *]
-          ?~  full-file.client-response.sign-arvo  'no response'
-          q.data.u.full-file.client-response.sign-arvo
-      ==
+      ?:  ?=([%khan %arow %| *] sign-arvo)
+        ::  khan thread error — include trace for the bot
+        =/  err-tang=tang  p.p.sign-arvo
+        =/  trace=tape
+          %-  zing
+          %+  turn  (scag 10 `tang`err-tang)
+          |=(t=tank ~(ram re t))
+        (crip (scag 2.000 (weld "error: thread failed:\0a" trace)))
+      ?:  ?=([%khan %arow %& *] sign-arvo)
+        ::  khan success — extract result
+        =/  res-noun  q.p.p.sign-arvo
+        =/  as-json=(unit @t)  (mole |.((en:json:html ;;(json res-noun))))
+        ?^  as-json  (crip (scag 6.000 (trip u.as-json)))
+        =/  as-cord=(unit @t)  (mole |.(;;(@t res-noun)))
+        ?^  as-cord  (crip (scag 4.000 (trip u.as-cord)))
+        'tool returned non-text result'
+      ?:  ?=([%iris %http-response %finished *] sign-arvo)
+        %-  crip  %-  (cury scag 6.000)  %-  trip
+        ?~(full-file.client-response.sign-arvo 'no response' q.data.u.full-file.client-response.sign-arvo)
+      'tool completed (unknown response type)'
     (exec-tool-list rest [(make-result tool-body) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
   ::  iris HTTP request
   =/  ireq=request:http  +>+>+<.async-card

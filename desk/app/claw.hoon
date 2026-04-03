@@ -146,10 +146,6 @@
   =/  msg-count=@ud  (lent trimmed)
   =/  extra-count=@ud  (lent extra-msgs)
   %-  (slog leaf+"claw: LLM request: {(a-co:co msg-count)} history msgs + {(a-co:co extra-count)} extra msgs on key '{(trip key)}'" ~)
-  =/  dbg=(list tank)
-    %+  turn  trimmed
-    |=(m=msg:claw leaf+"  [{(trip role.m)}] {(trip (end 3^80 content.m))}")
-  %-  (slog dbg)
   =/  hed=(list [key=@t value=@t])
     :~  ['Content-Type' 'application/json']
         ['Authorization' (crip "Bearer {(trip api-key)}")]
@@ -2243,10 +2239,15 @@
       ?~(found 'unknown' id.i.found)
     =/  result=@t
       ?:  ?=(%| -.p.sign)
-        'error: MCP tool execution failed'
+        ::  include error trace so the bot can diagnose
+        =/  err-tang=tang  p.p.sign
+        =/  trace=tape
+          %-  zing
+          %+  turn  (scag 10 `tang`err-tang)
+          |=(t=tank ~(ram re t))
+        (crip (scag 2.000 (weld "error: MCP thread failed:\0a" trace)))
       ::  extract text from the result vase
       =/  res-noun  q.p.p.sign
-      ::  try JSON first, then cord, then just describe it
       =/  as-json=(unit @t)  (mole |.((en:json:html ;;(json res-noun))))
       ?^  as-json  (crip (scag 6.000 (trip u.as-json)))
       =/  as-cord=(unit @t)  (mole |.(;;(@t res-noun)))

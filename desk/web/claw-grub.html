@@ -1,310 +1,1386 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Claw Bot Manager</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; }
-.app { max-width: 900px; margin: 0 auto; padding: 20px; }
-h1 { font-size: 24px; margin-bottom: 20px; color: #fff; }
-h2 { font-size: 18px; margin: 20px 0 12px; color: #a0a0ff; border-bottom: 1px solid #333; padding-bottom: 6px; }
-h3 { font-size: 15px; margin: 14px 0 8px; color: #8888cc; }
-.card { background: #16213e; border-radius: 8px; padding: 16px; margin-bottom: 16px; border: 1px solid #2a2a4a; }
-label { display: block; font-size: 13px; color: #888; margin-bottom: 4px; }
-input, textarea, select { width: 100%; padding: 8px 10px; background: #0f1629; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; font-family: inherit; font-size: 14px; margin-bottom: 10px; }
-textarea { min-height: 100px; resize: vertical; }
-input:focus, textarea:focus { border-color: #6666cc; outline: none; }
-button { padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
-.btn { background: #4444aa; color: #fff; }
-.btn:hover { background: #5555cc; }
-.btn-danger { background: #882222; color: #fff; }
-.btn-danger:hover { background: #aa3333; }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-.row { display: flex; gap: 10px; align-items: flex-end; }
-.row > * { flex: 1; }
-.row > button { flex: 0 0 auto; margin-bottom: 10px; }
-.tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
-.tab { padding: 8px 16px; border-radius: 4px 4px 0 0; background: #16213e; border: 1px solid #2a2a4a; border-bottom: none; color: #888; cursor: pointer; font-size: 14px; }
-.tab.active { background: #1e2d50; color: #fff; border-color: #4444aa; }
-.chip { display: inline-flex; align-items: center; gap: 6px; background: #0f1629; border: 1px solid #333; border-radius: 16px; padding: 4px 10px; margin: 2px; font-size: 13px; }
-.chip button { background: none; color: #666; padding: 0; font-size: 16px; }
-.chip button:hover { color: #f44; }
-.status { padding: 6px 10px; border-radius: 4px; font-size: 13px; margin-bottom: 10px; }
-.status.ok { background: #1a3a1a; color: #4a4; }
-.status.err { background: #3a1a1a; color: #a44; }
-.hidden { display: none; }
-.masked { font-family: monospace; letter-spacing: 2px; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>claw grub</title>
+  <style>
+    :root {
+      --bg-0: #0c0c0e;
+      --bg-1: #131316;
+      --bg-2: #1a1a1f;
+      --bg-3: #222228;
+      --border: #2a2a32;
+      --border-focus: #44446a;
+      --text-0: #e8e8ec;
+      --text-1: #b0b0b8;
+      --text-2: #78788a;
+      --text-3: #55555f;
+      --accent: #6e8afa;
+      --accent-dim: #3d4d8a;
+      --accent-glow: rgba(110,138,250,0.12);
+      --green: #5cb88a;
+      --green-dim: #1e3a2c;
+      --red: #d15858;
+      --red-dim: #3a1e1e;
+      --yellow: #d1a858;
+      --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { font-size: 14px; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg-0);
+      color: var(--text-0);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    ::selection { background: var(--accent-dim); color: var(--text-0); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-focus); }
+
+    /* Layout */
+    .shell {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+    }
+    .header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      background: var(--bg-1);
+      border-bottom: 1px solid var(--border);
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-0);
+    }
+    .logo-sub {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text-2);
+      letter-spacing: 0.04em;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .ship-badge {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-2);
+      background: var(--bg-2);
+      padding: 4px 10px;
+      border-radius: 4px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 1000;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.ok { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+    .toast.err { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
+
+    /* Sidebar */
+    .sidebar {
+      background: var(--bg-1);
+      border-right: 1px solid var(--border);
+      padding: 12px 0;
+      overflow-y: auto;
+    }
+    .sidebar-section {
+      padding: 0 12px;
+      margin-bottom: 16px;
+    }
+    .sidebar-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0 8px;
+      margin-bottom: 6px;
+    }
+    .bot-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-1);
+      transition: background 0.1s;
+    }
+    .bot-item:hover { background: var(--bg-2); }
+    .bot-item.active {
+      background: var(--accent-glow);
+      color: var(--text-0);
+    }
+    .bot-item .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      flex-shrink: 0;
+    }
+    .bot-item.active .dot { background: var(--accent); }
+    .bot-item .bot-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bot-item .default-mark {
+      font-size: 9px;
+      color: var(--accent);
+      background: var(--accent-glow);
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .sidebar-actions {
+      display: flex;
+      gap: 6px;
+      padding: 8px 8px 0;
+    }
+
+    /* Main */
+    .main {
+      padding: 24px 28px;
+      overflow-y: auto;
+      max-height: calc(100vh - 49px);
+    }
+    .panel-nav {
+      display: flex;
+      gap: 2px;
+      margin-bottom: 20px;
+      background: var(--bg-1);
+      border-radius: 8px;
+      padding: 3px;
+      border: 1px solid var(--border);
+    }
+    .panel-tab {
+      padding: 7px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-2);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      border: none;
+      background: none;
+    }
+    .panel-tab:hover { color: var(--text-1); background: var(--bg-2); }
+    .panel-tab.active {
+      color: var(--text-0);
+      background: var(--bg-3);
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Cards */
+    .card {
+      background: var(--bg-1);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-0);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .icon {
+      font-size: 14px;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-3);
+      border-radius: 5px;
+    }
+
+    /* Form elements */
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .field:last-child { margin-bottom: 0; }
+    .field-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-2);
+      width: 100px;
+      flex-shrink: 0;
+      text-align: right;
+    }
+    .field-wide .field-label { width: 120px; }
+    input[type=text], input[type=password] {
+      flex: 1;
+      background: var(--bg-0);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text-0);
+      font-size: 13px;
+      font-family: var(--mono);
+      outline: none;
+      transition: border-color 0.15s;
+      min-width: 0;
+    }
+    input:focus { border-color: var(--border-focus); }
+    input.masked { color: var(--text-3); }
+    textarea {
+      width: 100%;
+      background: var(--bg-0);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: var(--text-0);
+      font-size: 13px;
+      font-family: var(--mono);
+      line-height: 1.6;
+      resize: vertical;
+      min-height: 120px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    textarea:focus { border-color: var(--border-focus); }
+    select {
+      background: var(--bg-0);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      color: var(--text-0);
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+    select:focus { border-color: var(--border-focus); }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: var(--sans);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-2);
+      color: var(--text-1);
+      cursor: pointer;
+      transition: all 0.12s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--bg-3); color: var(--text-0); }
+    .btn-sm { padding: 4px 10px; font-size: 11px; }
+    .btn-primary {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn-primary:hover { background: var(--accent); color: #fff; }
+    .btn-danger {
+      background: var(--red-dim);
+      border-color: rgba(209,88,88,0.3);
+      color: var(--red);
+    }
+    .btn-danger:hover { background: var(--red); color: #fff; }
+    .btn-ghost {
+      background: transparent;
+      border-color: transparent;
+      color: var(--text-2);
+    }
+    .btn-ghost:hover { color: var(--text-0); background: var(--bg-2); }
+
+    /* Tags */
+    .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--text-1);
+      font-family: var(--mono);
+    }
+    .tag .role {
+      font-family: var(--sans);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+    .tag .role.owner { background: var(--accent-glow); color: var(--accent); }
+    .tag .role.allowed { background: var(--bg-3); color: var(--text-2); }
+    .tag .x {
+      cursor: pointer;
+      color: var(--text-3);
+      font-size: 14px;
+      line-height: 1;
+      margin-left: 2px;
+    }
+    .tag .x:hover { color: var(--red); }
+
+    /* Context tabs */
+    .ctx-tabs {
+      display: flex;
+      gap: 2px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .ctx-tab {
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-2);
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.12s;
+      background: var(--bg-2);
+      border: 1px solid transparent;
+    }
+    .ctx-tab:hover { color: var(--text-1); border-color: var(--border); }
+    .ctx-tab.active {
+      color: var(--accent);
+      background: var(--accent-glow);
+      border-color: var(--accent-dim);
+    }
+
+    /* Cron table */
+    .cron-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--bg-2);
+    }
+    .cron-row:last-child { border-bottom: none; }
+    .cron-schedule {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      background: var(--accent-glow);
+      padding: 3px 8px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      min-width: 120px;
+    }
+    .cron-prompt {
+      flex: 1;
+      font-size: 13px;
+      color: var(--text-1);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Channel list */
+    .chan-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--bg-2);
+    }
+    .chan-row:last-child { border-bottom: none; }
+    .chan-name { font-size: 13px; color: var(--text-0); }
+    .chan-group { font-size: 11px; color: var(--text-3); }
+    .chan-nest { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+    .perm-toggle {
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.12s;
+      border: none;
+    }
+    .perm-toggle.open { background: var(--green-dim); color: var(--green); }
+    .perm-toggle.wl { background: var(--bg-3); color: var(--text-2); }
+
+    /* Model browser */
+    .model-browser { max-height: 220px; overflow-y: auto; margin-top: 8px; }
+    .model-row {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--bg-2);
+      cursor: pointer;
+      transition: background 0.1s;
+      border-radius: 4px;
+    }
+    .model-row:hover { background: var(--bg-2); }
+    .model-name { font-size: 13px; color: var(--text-0); font-weight: 500; }
+    .model-id { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+    .model-info { font-size: 11px; color: var(--text-3); margin-top: 2px; display: flex; gap: 12px; }
+    .model-info .free { color: var(--green); }
+
+    /* Scroll container */
+    .scroll-box { max-height: 300px; overflow-y: auto; }
+
+    /* Empty state */
+    .empty { font-size: 13px; color: var(--text-3); padding: 12px 0; }
+
+    /* Separator */
+    .sep { height: 1px; background: var(--bg-2); margin: 14px 0; }
+
+    /* Toggle switch */
+    .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+    .toggle {
+      position: relative;
+      width: 34px;
+      height: 18px;
+      background: var(--bg-3);
+      border-radius: 9px;
+      cursor: pointer;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .toggle.on { background: var(--accent-dim); }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      background: var(--text-2);
+      border-radius: 50%;
+      transition: all 0.2s;
+    }
+    .toggle.on::after { left: 18px; background: var(--accent); }
+    .toggle-text { font-size: 12px; color: var(--text-2); }
+
+    /* Inline dialog */
+    .inline-form {
+      display: none;
+      padding: 12px;
+      margin-top: 8px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .inline-form.show { display: block; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .main { padding: 16px; }
+    }
+  </style>
 </head>
 <body>
-<div class="app">
-<h1>Claw Bot Manager</h1>
-<div id="status" class="status ok">Loading...</div>
-
-<h2>Global Config</h2>
-<div class="card" id="global-config">
-  <div class="row">
-    <div><label>API Key</label><input type="password" id="cfg-api-key" placeholder="OpenRouter API key"></div>
-    <div><label>Model</label><input id="cfg-model" placeholder="e.g. anthropic/claude-sonnet-4.5"></div>
+<div class="shell">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <span class="logo">claw</span>
+      <span class="logo-sub">grub</span>
+    </div>
+    <div class="header-right">
+      <span class="ship-badge" id="ship-name">~</span>
+    </div>
   </div>
-  <div class="row">
-    <div><label>Brave Key</label><input type="password" id="cfg-brave-key" placeholder="Brave Search API key"></div>
-    <button class="btn" onclick="saveGlobalConfig()">Save</button>
+
+  <!-- Sidebar: Bot List -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Bots</div>
+      <div id="bot-list"></div>
+      <div class="sidebar-actions">
+        <button class="btn btn-sm btn-primary" style="flex:1" onclick="showAddBot()">+ New Bot</button>
+      </div>
+      <div class="inline-form" id="add-bot-form">
+        <div class="field">
+          <input type="text" id="new-bot-id" placeholder="bot-id" style="flex:1;font-size:12px;padding:6px 10px">
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-sm btn-primary" onclick="confirmAddBot()">Create</button>
+          <button class="btn btn-sm" onclick="hideAddBot()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Bot Actions</div>
+      <div style="display:flex;flex-direction:column;gap:4px;padding:0 4px">
+        <button class="btn btn-sm btn-ghost" onclick="setDefaultBot()">Set as Default</button>
+        <button class="btn btn-sm btn-danger" onclick="showDelBot()">Delete Bot</button>
+      </div>
+      <div class="inline-form" id="del-bot-form">
+        <div style="font-size:12px;color:var(--red);margin-bottom:8px" id="del-bot-msg"></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm btn-danger" onclick="confirmDelBot()">Confirm</button>
+          <button class="btn btn-sm" onclick="hideDelBot()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+    <!-- Panel navigation tabs -->
+    <div class="panel-nav">
+      <button class="panel-tab active" data-panel="global" onclick="switchPanel('global')">Global</button>
+      <button class="panel-tab" data-panel="identity" onclick="switchPanel('identity')">Identity</button>
+      <button class="panel-tab" data-panel="context" onclick="switchPanel('context')">Context</button>
+      <button class="panel-tab" data-panel="access" onclick="switchPanel('access')">Access</button>
+      <button class="panel-tab" data-panel="cron" onclick="switchPanel('cron')">Cron</button>
+    </div>
+
+    <!-- PANEL: Global Config -->
+    <div class="panel active" id="panel-global">
+      <div class="card">
+        <div class="card-title"><span class="icon">&#9881;</span> Global Defaults</div>
+        <div class="field">
+          <span class="field-label">API Key</span>
+          <input type="text" id="g-api-key" placeholder="sk-or-v1-..." onfocus="unmask(this)">
+          <button class="btn btn-sm btn-primary" onclick="saveGlobalKey()">Save</button>
+        </div>
+        <div class="field">
+          <span class="field-label">Model</span>
+          <input type="text" id="g-model" placeholder="anthropic/claude-sonnet-4">
+          <button class="btn btn-sm btn-primary" onclick="saveGlobalModel()">Save</button>
+        </div>
+        <div class="field">
+          <span class="field-label">Brave Key</span>
+          <input type="text" id="g-brave-key" placeholder="BSA..." onfocus="unmask(this)">
+          <button class="btn btn-sm btn-primary" onclick="saveGlobalBrave()">Save</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="icon">&#9733;</span> Model Browser</div>
+        <div class="field">
+          <input type="text" id="g-model-filter" placeholder="Filter models..." oninput="renderGlobalModels()" style="flex:1">
+          <div class="toggle-wrap">
+            <div class="toggle" id="g-free-toggle" onclick="gFreeOnly=!gFreeOnly;this.classList.toggle('on',gFreeOnly);renderGlobalModels()"></div>
+            <span class="toggle-text">Free only</span>
+          </div>
+        </div>
+        <div class="model-browser" id="g-model-list">
+          <span class="empty">Set an API key to browse models</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL: Bot Identity -->
+    <div class="panel" id="panel-identity">
+      <div class="card">
+        <div class="card-title"><span class="icon">&#9673;</span> Bot Identity</div>
+        <div class="field">
+          <span class="field-label">Name</span>
+          <input type="text" id="b-name" placeholder="Display name">
+          <button class="btn btn-sm btn-primary" onclick="saveBotName()">Save</button>
+        </div>
+        <div class="field">
+          <span class="field-label">Avatar URL</span>
+          <input type="text" id="b-avatar" placeholder="https://... (optional)">
+          <button class="btn btn-sm btn-primary" onclick="saveBotAvatar()">Save</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">&#9881;</span> Model Override</div>
+        <div class="field">
+          <span class="field-label">Model</span>
+          <input type="text" id="b-model" placeholder="(uses global default)">
+          <button class="btn btn-sm btn-primary" onclick="saveBotModel()">Save</button>
+          <button class="btn btn-sm" onclick="clearBotModel()">Clear</button>
+        </div>
+        <div class="field">
+          <input type="text" id="b-model-filter" placeholder="Filter models..." oninput="renderBotModels()" style="flex:1">
+          <div class="toggle-wrap">
+            <div class="toggle" id="b-free-toggle" onclick="bFreeOnly=!bFreeOnly;this.classList.toggle('on',bFreeOnly);renderBotModels()"></div>
+            <span class="toggle-text">Free only</span>
+          </div>
+        </div>
+        <div class="model-browser" id="b-model-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">&#128273;</span> Key Overrides</div>
+        <div class="field">
+          <span class="field-label">API Key</span>
+          <input type="text" id="b-api-key" placeholder="(uses global default)" onfocus="unmask(this)">
+          <button class="btn btn-sm btn-primary" onclick="saveBotKey()">Save</button>
+          <button class="btn btn-sm" onclick="clearBotKey()">Clear</button>
+        </div>
+        <div class="field">
+          <span class="field-label">Brave Key</span>
+          <input type="text" id="b-brave-key" placeholder="(uses global default)" onfocus="unmask(this)">
+          <button class="btn btn-sm btn-primary" onclick="saveBotBrave()">Save</button>
+          <button class="btn btn-sm" onclick="clearBotBrave()">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL: Context Files -->
+    <div class="panel" id="panel-context">
+      <div class="card">
+        <div class="card-title"><span class="icon">&#128196;</span> Context Files</div>
+        <div class="ctx-tabs" id="ctx-tabs"></div>
+        <textarea id="ctx-editor" rows="12" placeholder="Select or create a context field..."></textarea>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="text" id="new-ctx-key" placeholder="new-field" style="width:140px;font-size:12px;padding:6px 10px">
+            <button class="btn btn-sm" onclick="addCtxField()">+ Add</button>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm btn-danger" onclick="delCtxField()">Delete</button>
+            <button class="btn btn-sm btn-primary" onclick="saveCtxField()">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL: Access (Whitelist + Channel Perms) -->
+    <div class="panel" id="panel-access">
+      <div class="card">
+        <div class="card-title"><span class="icon">&#128274;</span> Whitelist</div>
+        <div class="tag-list" id="wl-tags"></div>
+        <div class="sep"></div>
+        <div class="field">
+          <input type="text" id="wl-ship" placeholder="~sampel-palnet" style="flex:1">
+          <select id="wl-role">
+            <option value="owner">owner</option>
+            <option value="allowed">allowed</option>
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="addWhitelistShip()">Add</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="icon">&#128481;</span> Channel Permissions</div>
+        <div class="field">
+          <input type="text" id="chan-filter" placeholder="Filter channels..." oninput="renderChannels()" style="flex:1">
+        </div>
+        <div class="scroll-box" id="chan-list">
+          <span class="empty">Loading channels...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL: Cron -->
+    <div class="panel" id="panel-cron">
+      <div class="card">
+        <div class="card-title"><span class="icon">&#9201;</span> Scheduled Tasks</div>
+        <div id="cron-list"><span class="empty">No scheduled tasks</span></div>
+        <div class="sep"></div>
+        <div class="field field-wide">
+          <span class="field-label">Schedule</span>
+          <input type="text" id="cron-schedule" placeholder="*/30 * * * *" style="width:160px">
+          <span style="font-size:11px;color:var(--text-3)">min hr dom mon dow</span>
+        </div>
+        <div class="field field-wide">
+          <span class="field-label">Prompt</span>
+          <input type="text" id="cron-prompt" placeholder="Check for updates and summarize" style="flex:1">
+        </div>
+        <div style="margin-top:8px">
+          <button class="btn btn-primary" onclick="addCronJob()">Add Task</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-<h2>Bots</h2>
-<div class="row" style="margin-bottom:12px">
-  <input id="new-bot-id" placeholder="Bot ID (term, e.g. wanda)">
-  <input id="new-bot-name" placeholder="Display name (e.g. Wanda)">
-  <button class="btn" onclick="addBot()">Add Bot</button>
-</div>
-<div class="tabs" id="bot-tabs"></div>
-<div id="bot-panel" class="card hidden"></div>
-</div>
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
 
 <script>
-const BASE = '/apps/claw/api';
-let bots = {};
-let currentBot = null;
+// ---- State ----
+var API = '/apps/claw/api';
+var currentBot = null;
+var defaultBotId = null;
+var botMap = {};
+var ctxData = {};
+var activeCtxTab = null;
+var allChannels = [];
+var allModels = [];
+var cachedApiKey = '';
+var gFreeOnly = false;
+var bFreeOnly = false;
+var currentPanel = 'global';
+var shipName = '~';
 
-async function api(path) {
-  const r = await fetch(BASE + path);
-  if (!r.ok) return null;
-  const ct = r.headers.get('content-type') || '';
-  return ct.includes('json') ? r.json() : r.text();
-}
+// ---- Helpers ----
 
-async function post(path, data) {
-  const r = await fetch(BASE + path, {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify(data)
+function api(path) {
+  return fetch(API + path, { credentials: 'include' }).then(function(r) {
+    if (!r.ok) throw new Error(r.statusText);
+    return r.json();
   });
-  return r.ok;
 }
 
-function setStatus(msg, ok=true) {
-  const el = document.getElementById('status');
+function post(body) {
+  return fetch(API + '/action', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(r) {
+    if (!r.ok) throw new Error(r.statusText);
+    return r.text();
+  });
+}
+
+function toast(msg, ok) {
+  var el = document.getElementById('toast');
   el.textContent = msg;
-  el.className = 'status ' + (ok ? 'ok' : 'err');
+  el.className = 'toast show ' + (ok ? 'ok' : 'err');
+  clearTimeout(el._t);
+  el._t = setTimeout(function() { el.className = 'toast'; }, 2500);
 }
 
-async function loadAll() {
-  try {
-    const reg = await api('/file/bots-registry.json');
-    if (!reg) { setStatus('No registry found', false); return; }
-    bots = reg;
-    const cfg = await api('/file/config.json');
-    if (cfg) {
-      document.getElementById('cfg-api-key').value = cfg.api_key || '';
-      document.getElementById('cfg-model').value = cfg.model || '';
-      document.getElementById('cfg-brave-key').value = cfg.brave_key || '';
+function maskKey(k) {
+  if (!k || k.length < 4) return '';
+  return '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' + k.slice(-4);
+}
+
+function showMasked(el, key) {
+  if (!key) { el.value = ''; el.classList.remove('masked'); delete el.dataset.hasKey; return; }
+  el.value = maskKey(key);
+  el.classList.add('masked');
+  el.dataset.hasKey = '1';
+}
+
+function unmask(el) {
+  if (el.dataset.hasKey === '1') {
+    el.value = '';
+    el.classList.remove('masked');
+    delete el.dataset.hasKey;
+  }
+}
+
+function esc(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ---- Panel navigation ----
+
+function switchPanel(name) {
+  currentPanel = name;
+  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('.panel-tab').forEach(function(t) { t.classList.remove('active'); });
+  var panel = document.getElementById('panel-' + name);
+  if (panel) panel.classList.add('active');
+  document.querySelectorAll('.panel-tab').forEach(function(t) {
+    if (t.getAttribute('data-panel') === name) t.classList.add('active');
+  });
+}
+
+// ---- Ship name ----
+
+function loadShipName() {
+  fetch('/~/name', { credentials: 'include' }).then(function(r) {
+    if (r.ok) return r.text();
+    throw new Error();
+  }).then(function(t) {
+    shipName = '~' + t.trim().replace(/^~/, '');
+    document.getElementById('ship-name').textContent = shipName;
+  }).catch(function() {});
+}
+
+// ---- Bot list ----
+
+function loadBots() {
+  return api('/bots').then(function(data) {
+    botMap = data.bots || {};
+    defaultBotId = data.default || 'default';
+    if (!currentBot || !botMap[currentBot]) {
+      currentBot = defaultBotId;
     }
-    renderBotTabs();
-    setStatus('Connected');
-  } catch(e) { setStatus('Error: ' + e.message, false); }
+    renderBotList();
+  }).catch(function() {
+    toast('Failed to load bots', false);
+  });
 }
 
-async function saveGlobalConfig() {
-  const data = {
-    api_key: document.getElementById('cfg-api-key').value,
-    model: document.getElementById('cfg-model').value,
-    brave_key: document.getElementById('cfg-brave-key').value
-  };
-  if (await post('/write-json', {path: [], name: 'config.json', data})) {
-    setStatus('Global config saved');
-  } else { setStatus('Failed to save config', false); }
-}
-
-function renderBotTabs() {
-  const tabs = document.getElementById('bot-tabs');
-  tabs.innerHTML = '';
-  for (const [id, name] of Object.entries(bots)) {
-    const tab = document.createElement('div');
-    tab.className = 'tab' + (id === currentBot ? ' active' : '');
-    tab.textContent = name || id;
-    tab.onclick = () => selectBot(id);
-    tabs.appendChild(tab);
+function renderBotList() {
+  var el = document.getElementById('bot-list');
+  var ids = Object.keys(botMap).sort(function(a, b) {
+    if (a === defaultBotId) return -1;
+    if (b === defaultBotId) return 1;
+    return a.localeCompare(b);
+  });
+  if (!ids.length) {
+    el.innerHTML = '<div class="empty" style="padding:8px 10px">No bots configured</div>';
+    return;
   }
-  if (currentBot && bots[currentBot]) loadBotPanel(currentBot);
-  else document.getElementById('bot-panel').classList.add('hidden');
+  el.innerHTML = ids.map(function(id) {
+    var b = botMap[id];
+    var name = b.name || id;
+    var isDefault = id === defaultBotId;
+    var isActive = id === currentBot;
+    return '<div class="bot-item' + (isActive ? ' active' : '') + '" data-id="' + esc(id) + '" onclick="selectBot(\'' + esc(id) + '\')">' +
+      '<span class="dot"></span>' +
+      '<span class="bot-label">' + esc(name) + '</span>' +
+      (isDefault ? '<span class="default-mark">default</span>' : '') +
+      '</div>';
+  }).join('');
 }
 
-async function selectBot(id) {
+function selectBot(id) {
   currentBot = id;
-  renderBotTabs();
-  await loadBotPanel(id);
+  renderBotList();
+  loadBotConfig();
 }
 
-async function loadBotPanel(id) {
-  const panel = document.getElementById('bot-panel');
-  panel.classList.remove('hidden');
-  const cfg = await api('/file/bots/' + id + '/config.json') || {};
-  const wl = cfg.whitelist || {};
-  const cron = cfg.cron || [];
-
-  // Load context files
-  const identity = await api('/txt/bots/' + id + '/context/identity.txt') || '';
-  const soul = await api('/txt/bots/' + id + '/context/soul.txt') || '';
-  const agent = await api('/txt/bots/' + id + '/context/agent.txt') || '';
-  const memory = await api('/txt/bots/' + id + '/context/memory.txt') || '';
-
-  panel.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <h3 style="margin:0">Bot: ${id}</h3>
-      <button class="btn-danger btn-sm" onclick="delBot('${id}')">Delete Bot</button>
-    </div>
-
-    <h3>Config</h3>
-    <div class="row">
-      <div><label>Name</label><input id="bot-name" value="${cfg.name || ''}"></div>
-      <div><label>Avatar URL</label><input id="bot-avatar" value="${cfg.avatar || ''}"></div>
-    </div>
-    <div class="row">
-      <div><label>Model Override</label><input id="bot-model" value="${cfg.model || ''}" placeholder="(uses global)"></div>
-      <div><label>API Key Override</label><input type="password" id="bot-key" value="${cfg.api_key || ''}" placeholder="(uses global)"></div>
-    </div>
-    <div class="row">
-      <div><label>Brave Key Override</label><input type="password" id="bot-brave" value="${cfg.brave_key || ''}" placeholder="(uses global)"></div>
-      <button class="btn" onclick="saveBotConfig('${id}')">Save Config</button>
-    </div>
-
-    <h3>Context</h3>
-    <label>Identity</label>
-    <textarea id="ctx-identity" placeholder="Who is this bot?">${esc(identity)}</textarea>
-    <label>Soul</label>
-    <textarea id="ctx-soul" placeholder="Personality and voice">${esc(soul)}</textarea>
-    <label>Agent Instructions</label>
-    <textarea id="ctx-agent" placeholder="Behavioral rules and capabilities">${esc(agent)}</textarea>
-    <label>Memory</label>
-    <textarea id="ctx-memory" placeholder="Persistent memory">${esc(memory)}</textarea>
-    <button class="btn" onclick="saveContext('${id}')">Save Context</button>
-
-    <h3>Whitelist</h3>
-    <p style="font-size:12px;color:#666;margin-bottom:8px">Empty = open to all. Add ships to restrict access.</p>
-    <div id="wl-chips">
-      ${Object.entries(wl).map(([ship, role]) =>
-        `<span class="chip">${ship} <small>(${role})</small> <button onclick="removeWl('${id}','${ship}')">&times;</button></span>`
-      ).join('')}
-    </div>
-    <div class="row" style="margin-top:8px">
-      <input id="wl-ship" placeholder="~sampel-palnet">
-      <select id="wl-role"><option value="owner">owner</option><option value="allowed">allowed</option></select>
-      <button class="btn btn-sm" onclick="addWl('${id}')">Add</button>
-    </div>
-
-    <h3>Cron Jobs</h3>
-    <div id="cron-list">
-      ${cron.map((j, i) =>
-        `<div class="chip" style="display:flex;width:100%;border-radius:4px;padding:8px">
-          <code style="flex:0 0 140px">${j.schedule}</code>
-          <span style="flex:1">${esc(j.prompt)}</span>
-          <button onclick="removeCron('${id}', ${i})">&times;</button>
-        </div>`
-      ).join('')}
-    </div>
-    <div class="row" style="margin-top:8px">
-      <input id="cron-schedule" placeholder="*/30 * * * *" style="flex:0 0 160px">
-      <input id="cron-prompt" placeholder="Check the weather">
-      <button class="btn btn-sm" onclick="addCron('${id}')">Add</button>
-    </div>
-  `;
+function showAddBot() {
+  document.getElementById('add-bot-form').classList.add('show');
+  document.getElementById('new-bot-id').focus();
 }
 
-function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-async function saveBotConfig(id) {
-  // Preserve whitelist and cron from existing config
-  const existing = await api('/file/bots/' + id + '/config.json') || {};
-  const data = {
-    name: document.getElementById('bot-name').value,
-    avatar: document.getElementById('bot-avatar').value,
-    model: document.getElementById('bot-model').value,
-    api_key: document.getElementById('bot-key').value,
-    brave_key: document.getElementById('bot-brave').value,
-    whitelist: existing.whitelist || {},
-    cron: existing.cron || []
-  };
-  if (await post('/write-json', {path: ['bots', id], name: 'config.json', data})) {
-    setStatus('Bot config saved');
-  } else { setStatus('Failed to save', false); }
+function hideAddBot() {
+  document.getElementById('add-bot-form').classList.remove('show');
+  document.getElementById('new-bot-id').value = '';
 }
 
-async function saveContext(id) {
-  const fields = ['identity', 'soul', 'agent', 'memory'];
-  for (const f of fields) {
-    const val = document.getElementById('ctx-' + f).value;
-    await post('/write-txt', {path: ['bots', id, 'context'], name: f + '.txt', data: val});
-  }
-  setStatus('Context saved');
-}
-
-async function addWl(id) {
-  const ship = document.getElementById('wl-ship').value.trim();
-  const role = document.getElementById('wl-role').value;
-  if (!ship) return;
-  const cfg = await api('/file/bots/' + id + '/config.json') || {};
-  cfg.whitelist = cfg.whitelist || {};
-  cfg.whitelist[ship] = role;
-  await post('/write-json', {path: ['bots', id], name: 'config.json', data: cfg});
-  loadBotPanel(id);
-}
-
-async function removeWl(id, ship) {
-  const cfg = await api('/file/bots/' + id + '/config.json') || {};
-  if (cfg.whitelist) delete cfg.whitelist[ship];
-  await post('/write-json', {path: ['bots', id], name: 'config.json', data: cfg});
-  loadBotPanel(id);
-}
-
-async function addCron(id) {
-  const schedule = document.getElementById('cron-schedule').value.trim();
-  const prompt = document.getElementById('cron-prompt').value.trim();
-  if (!schedule || !prompt) return;
-  const cfg = await api('/file/bots/' + id + '/config.json') || {};
-  cfg.cron = cfg.cron || [];
-  cfg.cron.push({schedule, prompt});
-  await post('/write-json', {path: ['bots', id], name: 'config.json', data: cfg});
-  loadBotPanel(id);
-}
-
-async function removeCron(id, idx) {
-  const cfg = await api('/file/bots/' + id + '/config.json') || {};
-  if (cfg.cron) cfg.cron.splice(idx, 1);
-  await post('/write-json', {path: ['bots', id], name: 'config.json', data: cfg});
-  loadBotPanel(id);
-}
-
-async function addBot() {
-  const id = document.getElementById('new-bot-id').value.trim();
-  const name = document.getElementById('new-bot-name').value.trim();
-  if (!id || !name) return;
-  if (await post('/add-bot', {id, name})) {
-    bots[id] = name;
+function confirmAddBot() {
+  var raw = document.getElementById('new-bot-id').value.trim().toLowerCase();
+  var id = raw.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  if (!id) return toast('Bot ID required', false);
+  post({ action: 'add-bot', id: id }).then(function() {
+    hideAddBot();
+    return loadBots();
+  }).then(function() {
     currentBot = id;
-    document.getElementById('new-bot-id').value = '';
-    document.getElementById('new-bot-name').value = '';
-    renderBotTabs();
-    loadBotPanel(id);
-    setStatus('Bot "' + name + '" created');
-  } else { setStatus('Failed to create bot', false); }
+    renderBotList();
+    loadBotConfig();
+    toast('Bot "' + id + '" created', true);
+  }).catch(function() { toast('Failed to create bot', false); });
 }
 
-async function delBot(id) {
-  if (!confirm('Delete bot "' + id + '"?')) return;
-  if (await post('/del-bot', {id})) {
-    delete bots[id];
-    if (currentBot === id) currentBot = null;
-    renderBotTabs();
-    document.getElementById('bot-panel').classList.add('hidden');
-    setStatus('Bot deleted');
-  } else { setStatus('Failed to delete', false); }
+function showDelBot() {
+  if (!currentBot) return;
+  if (currentBot === defaultBotId) return toast('Cannot delete the default bot', false);
+  document.getElementById('del-bot-msg').textContent = 'Delete "' + currentBot + '"? This cannot be undone.';
+  document.getElementById('del-bot-form').classList.add('show');
 }
 
-loadAll();
+function hideDelBot() {
+  document.getElementById('del-bot-form').classList.remove('show');
+}
+
+function confirmDelBot() {
+  hideDelBot();
+  var doomed = currentBot;
+  post({ action: 'del-bot', id: doomed }).then(function() {
+    toast('Bot "' + doomed + '" deleted', true);
+    currentBot = defaultBotId;
+    return loadBots();
+  }).then(function() {
+    loadBotConfig();
+  }).catch(function() { toast('Failed to delete bot', false); });
+}
+
+function setDefaultBot() {
+  if (!currentBot) return;
+  if (currentBot === defaultBotId) return toast('Already the default', false);
+  post({ action: 'set-default-bot', id: currentBot }).then(function() {
+    defaultBotId = currentBot;
+    return loadBots();
+  }).then(function() {
+    toast('"' + currentBot + '" is now the default', true);
+  }).catch(function() { toast('Failed to set default', false); });
+}
+
+// ---- Global config ----
+
+function loadGlobalConfig() {
+  return api('/config').then(function(c) {
+    document.getElementById('g-model').value = c.model || '';
+    showMasked(document.getElementById('g-api-key'), c['api-key'] || '');
+    showMasked(document.getElementById('g-brave-key'), c['brave-key'] || '');
+    if (c['api-key']) fetchModels(c['api-key']);
+  }).catch(function() {
+    toast('Failed to load global config', false);
+  });
+}
+
+function saveGlobalKey() {
+  var el = document.getElementById('g-api-key');
+  var v = el.value;
+  if (!v || el.dataset.hasKey === '1') return;
+  post({ action: 'set-key', key: v }).then(function() {
+    showMasked(el, v);
+    toast('API key saved', true);
+    cachedApiKey = '';
+    fetchModels(v);
+  }).catch(function() { toast('Failed to save API key', false); });
+}
+
+function saveGlobalModel() {
+  var v = document.getElementById('g-model').value.trim();
+  if (!v) return toast('Model required', false);
+  post({ action: 'set-model', model: v }).then(function() {
+    toast('Default model updated', true);
+  }).catch(function() { toast('Failed to save model', false); });
+}
+
+function saveGlobalBrave() {
+  var el = document.getElementById('g-brave-key');
+  var v = el.value;
+  if (!v || el.dataset.hasKey === '1') return;
+  post({ action: 'set-brave-key', key: v }).then(function() {
+    showMasked(el, v);
+    toast('Brave key saved', true);
+  }).catch(function() { toast('Failed to save Brave key', false); });
+}
+
+// ---- Model browser ----
+
+function fetchModels(apiKey) {
+  if (!apiKey || apiKey.length < 10) return;
+  if (cachedApiKey === apiKey && allModels.length) { renderGlobalModels(); renderBotModels(); return; }
+  cachedApiKey = apiKey;
+  fetch('https://openrouter.ai/api/v1/models', {
+    headers: { 'Authorization': 'Bearer ' + apiKey }
+  }).then(function(r) {
+    if (!r.ok) throw new Error();
+    return r.json();
+  }).then(function(data) {
+    allModels = (data.data || []).sort(function(a, b) { return (a.name || '').localeCompare(b.name || ''); });
+    renderGlobalModels();
+    renderBotModels();
+  }).catch(function() {});
+}
+
+function fmtCost(v) {
+  var n = parseFloat(v || '0');
+  if (n === 0) return 'free';
+  return '$' + (n * 1e6).toFixed(2);
+}
+
+function renderModelList(models, targetId, filterId, freeFlag, selectFn) {
+  var el = document.getElementById(targetId);
+  var filter = (document.getElementById(filterId).value || '').toLowerCase();
+  var list = models.filter(function(m) {
+    return (m.name || '').toLowerCase().indexOf(filter) !== -1 ||
+           (m.id || '').toLowerCase().indexOf(filter) !== -1;
+  });
+  if (freeFlag) list = list.filter(function(m) { return parseFloat(m.pricing && m.pricing.prompt || '1') === 0; });
+  if (!list.length) { el.innerHTML = '<span class="empty">No models found</span>'; return; }
+  el.innerHTML = list.slice(0, 60).map(function(m) {
+    var pi = fmtCost(m.pricing && m.pricing.prompt);
+    var po = fmtCost(m.pricing && m.pricing.completion);
+    var ctx = m.context_length ? (m.context_length / 1000).toFixed(0) + 'k' : '?';
+    var isFree = parseFloat(m.pricing && m.pricing.prompt || '1') === 0;
+    var safeId = m.id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return '<div class="model-row" onclick="' + selectFn + '(\'' + safeId + '\')">' +
+      '<div class="model-name">' + esc(m.name || m.id) + '</div>' +
+      '<div class="model-id">' + esc(m.id) + '</div>' +
+      '<div class="model-info">' +
+        '<span>in: ' + pi + '/M</span>' +
+        '<span>out: ' + po + '/M</span>' +
+        '<span>ctx: ' + ctx + '</span>' +
+        (isFree ? '<span class="free">FREE</span>' : '') +
+      '</div></div>';
+  }).join('');
+}
+
+function renderGlobalModels() { renderModelList(allModels, 'g-model-list', 'g-model-filter', gFreeOnly, 'pickGlobalModel'); }
+function renderBotModels() { renderModelList(allModels, 'b-model-list', 'b-model-filter', bFreeOnly, 'pickBotModel'); }
+
+function pickGlobalModel(id) {
+  document.getElementById('g-model').value = id;
+  document.getElementById('g-model-filter').value = '';
+}
+
+function pickBotModel(id) {
+  document.getElementById('b-model').value = id;
+  document.getElementById('b-model-filter').value = '';
+}
+
+// ---- Bot config ----
+
+function loadBotConfig() {
+  if (!currentBot) return;
+  Promise.all([
+    api('/bot/' + currentBot + '/config'),
+    api('/bot/' + currentBot + '/context')
+  ]).then(function(results) {
+    var cfg = results[0];
+    var ctx = results[1];
+    // Identity
+    document.getElementById('b-name').value = cfg.name || '';
+    document.getElementById('b-avatar').value = cfg.avatar || '';
+    document.getElementById('b-model').value = cfg.model || '';
+    showMasked(document.getElementById('b-api-key'), cfg['api-key'] || '');
+    showMasked(document.getElementById('b-brave-key'), cfg['brave-key'] || '');
+
+    // Whitelist
+    renderWhitelist(cfg.whitelist || {});
+
+    // Context
+    ctxData = ctx || {};
+    activeCtxTab = null;
+    renderCtxTabs();
+
+    // Load cron and channels
+    loadCronJobs();
+    loadChannels();
+  }).catch(function() {
+    toast('Failed to load bot config', false);
+  });
+}
+
+// ---- Bot identity saves ----
+
+function saveBotName() {
+  var v = document.getElementById('b-name').value.trim();
+  post({ action: 'bot-set-name', id: currentBot, name: v }).then(function() {
+    toast('Name updated', true);
+    return loadBots();
+  }).catch(function() { toast('Failed to save name', false); });
+}
+
+function saveBotAvatar() {
+  var v = document.getElementById('b-avatar').value.trim();
+  post({ action: 'bot-set-avatar', id: currentBot, avatar: v }).then(function() {
+    toast(v ? 'Avatar set' : 'Avatar cleared', true);
+  }).catch(function() { toast('Failed to save avatar', false); });
+}
+
+function saveBotModel() {
+  var v = document.getElementById('b-model').value.trim();
+  post({ action: 'bot-set-model', id: currentBot, model: v }).then(function() {
+    toast(v ? 'Model override: ' + v : 'Using global default', true);
+  }).catch(function() { toast('Failed to save model', false); });
+}
+
+function clearBotModel() {
+  document.getElementById('b-model').value = '';
+  post({ action: 'bot-set-model', id: currentBot, model: '' }).then(function() {
+    toast('Using global default model', true);
+  }).catch(function() { toast('Failed to clear model', false); });
+}
+
+function saveBotKey() {
+  var el = document.getElementById('b-api-key');
+  var v = el.value;
+  if (!v || el.dataset.hasKey === '1') return;
+  post({ action: 'bot-set-key', id: currentBot, key: v }).then(function() {
+    showMasked(el, v);
+    toast('Bot API key saved', true);
+  }).catch(function() { toast('Failed to save key', false); });
+}
+
+function clearBotKey() {
+  post({ action: 'bot-set-key', id: currentBot, key: '' }).then(function() {
+    showMasked(document.getElementById('b-api-key'), '');
+    toast('Using global API key', true);
+  }).catch(function() { toast('Failed to clear key', false); });
+}
+
+function saveBotBrave() {
+  var el = document.getElementById('b-brave-key');
+  var v = el.value;
+  if (!v || el.dataset.hasKey === '1') return;
+  post({ action: 'bot-set-brave-key', id: currentBot, key: v }).then(function() {
+    showMasked(el, v);
+    toast('Bot Brave key saved', true);
+  }).catch(function() { toast('Failed to save key', false); });
+}
+
+function clearBotBrave() {
+  post({ action: 'bot-set-brave-key', id: currentBot, key: '' }).then(function() {
+    showMasked(document.getElementById('b-brave-key'), '');
+    toast('Using global Brave key', true);
+  }).catch(function() { toast('Failed to clear key', false); });
+}
+
+// ---- Whitelist ----
+
+function renderWhitelist(wl) {
+  var el = document.getElementById('wl-tags');
+  var entries = Object.entries(wl);
+  if (!entries.length) {
+    el.innerHTML = '<span class="empty">No ships whitelisted</span>';
+    return;
+  }
+  el.innerHTML = entries.map(function(e) {
+    var s = e[0], r = e[1];
+    return '<span class="tag">' + esc(s) +
+      ' <span class="role ' + r + '">' + r + '</span>' +
+      ' <span class="x" onclick="delWhitelistShip(\'' + esc(s).replace(/'/g, "\\'") + '\')">&times;</span></span>';
+  }).join('');
+}
+
+function addWhitelistShip() {
+  var ship = document.getElementById('wl-ship').value.trim();
+  var role = document.getElementById('wl-role').value;
+  if (!ship) return toast('Ship required', false);
+  post({ action: 'bot-add-ship', id: currentBot, ship: ship, role: role }).then(function() {
+    document.getElementById('wl-ship').value = '';
+    toast(ship + ' added as ' + role, true);
+    loadBotConfig();
+  }).catch(function() { toast('Failed to add ship', false); });
+}
+
+function delWhitelistShip(ship) {
+  post({ action: 'bot-del-ship', id: currentBot, ship: ship }).then(function() {
+    toast(ship + ' removed', true);
+    loadBotConfig();
+  }).catch(function() { toast('Failed to remove ship', false); });
+}
+
+// ---- Context files ----
+
+function renderCtxTabs() {
+  var el = document.getElementById('ctx-tabs');
+  var keys = Object.keys(ctxData);
+  // Sort with standard fields first
+  var order = ['identity', 'soul', 'agent', 'memory'];
+  keys.sort(function(a, b) {
+    var ai = order.indexOf(a);
+    var bi = order.indexOf(b);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a.localeCompare(b);
+  });
+  if (!activeCtxTab && keys.length) activeCtxTab = keys[0];
+  el.innerHTML = keys.map(function(k) {
+    return '<span class="ctx-tab' + (k === activeCtxTab ? ' active' : '') + '" onclick="selectCtxTab(\'' + esc(k) + '\')">' + esc(k) + '</span>';
+  }).join('');
+  var editor = document.getElementById('ctx-editor');
+  if (activeCtxTab && ctxData[activeCtxTab] !== undefined) {
+    editor.value = ctxData[activeCtxTab];
+    editor.placeholder = 'Edit ' + activeCtxTab + '...';
+  } else {
+    editor.value = '';
+    editor.placeholder = 'Select or create a context field...';
+  }
+}
+
+function selectCtxTab(k) {
+  // Buffer current edit before switching
+  if (activeCtxTab && ctxData[activeCtxTab] !== undefined) {
+    ctxData[activeCtxTab] = document.getElementById('ctx-editor').value;
+  }
+  activeCtxTab = k;
+  renderCtxTabs();
+}
+
+function saveCtxField() {
+  if (!activeCtxTab) return toast('No field selected', false);
+  var content = document.getElementById('ctx-editor').value;
+  post({ action: 'bot-set-context', id: currentBot, field: activeCtxTab, content: content }).then(function() {
+    ctxData[activeCtxTab] = content;
+    toast(activeCtxTab + ' saved', true);
+  }).catch(function() { toast('Failed to save', false); });
+}
+
+function delCtxField() {
+  if (!activeCtxTab) return toast('No field selected', false);
+  post({ action: 'bot-del-context', id: currentBot, field: activeCtxTab }).then(function() {
+    delete ctxData[activeCtxTab];
+    var keys = Object.keys(ctxData);
+    activeCtxTab = keys.length ? keys[0] : null;
+    renderCtxTabs();
+    toast('Field deleted', true);
+  }).catch(function() { toast('Failed to delete', false); });
+}
+
+function addCtxField() {
+  var raw = document.getElementById('new-ctx-key').value.trim().toLowerCase();
+  var key = raw.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  if (!key) return toast('Field name required', false);
+  if (ctxData[key] !== undefined) {
+    activeCtxTab = key;
+    renderCtxTabs();
+    return;
+  }
+  post({ action: 'bot-set-context', id: currentBot, field: key, content: '' }).then(function() {
+    ctxData[key] = '';
+    activeCtxTab = key;
+    document.getElementById('new-ctx-key').value = '';
+    renderCtxTabs();
+    toast('Field "' + key + '" created', true);
+  }).catch(function() { toast('Failed to create field', false); });
+}
+
+// ---- Channel permissions ----
+
+function loadChannels() {
+  var el = document.getElementById('chan-list');
+  allChannels = [];
+  fetch('/~/scry/groups/groups/light.json', { credentials: 'include' }).then(function(r) {
+    if (!r.ok) throw new Error();
+    return r.json();
+  }).then(function(groups) {
+    for (var flag in groups) {
+      if (!groups.hasOwnProperty(flag)) continue;
+      var group = groups[flag];
+      var gtitle = (group && group.meta && group.meta.title) || flag;
+      var chans = (group && group.channels) || {};
+      for (var nest in chans) {
+        if (!chans.hasOwnProperty(nest)) continue;
+        if (nest.indexOf('chat/') !== 0) continue;
+        var ch = chans[nest];
+        allChannels.push({ nest: nest, title: (ch && ch.meta && ch.meta.title) || nest, gtitle: gtitle, perm: 'whitelist' });
+      }
+    }
+    // Fetch current perms
+    return api('/channel-perms').catch(function() { return {}; });
+  }).then(function(perms) {
+    for (var ch in (perms || {})) {
+      if (!perms.hasOwnProperty(ch)) continue;
+      var c = allChannels.find(function(x) { return x.nest === ch; });
+      if (c) c.perm = perms[ch];
+    }
+    renderChannels();
+  }).catch(function() {
+    el.innerHTML = '<span class="empty">Could not load channels</span>';
+  });
+}
+
+function renderChannels() {
+  var el = document.getElementById('chan-list');
+  var filter = (document.getElementById('chan-filter').value || '').toLowerCase();
+  var filtered = allChannels.filter(function(c) {
+    return c.nest.toLowerCase().indexOf(filter) !== -1 ||
+           c.title.toLowerCase().indexOf(filter) !== -1 ||
+           c.gtitle.toLowerCase().indexOf(filter) !== -1;
+  });
+  if (!filtered.length) {
+    el.innerHTML = '<span class="empty">No channels found</span>';
+    return;
+  }
+  el.innerHTML = filtered.map(function(c) {
+    var isOpen = c.perm === 'open';
+    var safeNest = c.nest.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return '<div class="chan-row">' +
+      '<div>' +
+        '<div class="chan-name">' + esc(c.title) +
+          (c.gtitle ? ' <span class="chan-group">in ' + esc(c.gtitle) + '</span>' : '') +
+        '</div>' +
+        '<div class="chan-nest">' + esc(c.nest) + '</div>' +
+      '</div>' +
+      '<span class="perm-toggle ' + (isOpen ? 'open' : 'wl') + '" onclick="toggleChannelPerm(\'' + safeNest + '\', \'' + (isOpen ? 'whitelist' : 'open') + '\')">' +
+        (isOpen ? 'open' : 'whitelist') +
+      '</span></div>';
+  }).join('');
+}
+
+function toggleChannelPerm(nest, newPerm) {
+  post({ action: 'bot-set-channel-perm', id: currentBot, channel: nest, perm: newPerm }).then(function() {
+    var c = allChannels.find(function(x) { return x.nest === nest; });
+    if (c) c.perm = newPerm;
+    renderChannels();
+    toast(nest.split('/').pop() + ' -> ' + newPerm, true);
+  }).catch(function() { toast('Failed to update permission', false); });
+}
+
+// ---- Cron jobs ----
+
+function loadCronJobs() {
+  var el = document.getElementById('cron-list');
+  api('/cron-jobs').then(function(jobs) {
+    if (!jobs || !jobs.length) {
+      el.innerHTML = '<span class="empty">No scheduled tasks</span>';
+      return;
+    }
+    el.innerHTML = jobs.map(function(j) {
+      return '<div class="cron-row">' +
+        '<span class="cron-schedule">' + esc(j.schedule || '?') + '</span>' +
+        '<span class="cron-prompt">' + esc(j.prompt) + '</span>' +
+        '<button class="btn btn-sm btn-danger" onclick="delCronJob(' + j.id + ')">&times;</button>' +
+      '</div>';
+    }).join('');
+  }).catch(function() {
+    el.innerHTML = '<span class="empty">Could not load cron jobs</span>';
+  });
+}
+
+function addCronJob() {
+  var schedule = document.getElementById('cron-schedule').value.trim();
+  var prompt = document.getElementById('cron-prompt').value.trim();
+  if (!schedule || !prompt) return toast('Schedule and prompt required', false);
+  if (schedule.split(/\s+/).length !== 5) return toast('Need 5 fields: min hr dom mon dow', false);
+  post({ action: 'bot-cron-add', id: currentBot, schedule: schedule, prompt: prompt }).then(function() {
+    document.getElementById('cron-schedule').value = '';
+    document.getElementById('cron-prompt').value = '';
+    toast('Task scheduled', true);
+    loadCronJobs();
+  }).catch(function() { toast('Failed to add cron job', false); });
+}
+
+function delCronJob(id) {
+  post({ action: 'bot-cron-remove', id: currentBot, 'cron-id': id }).then(function() {
+    toast('Task removed', true);
+    loadCronJobs();
+  }).catch(function() { toast('Failed to remove task', false); });
+}
+
+// ---- Keyboard shortcuts ----
+
+document.addEventListener('keydown', function(e) {
+  // Ctrl/Cmd+S to save current context
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    if (currentPanel === 'context' && activeCtxTab) {
+      saveCtxField();
+    }
+  }
+});
+
+// Enter to submit in add-bot input
+document.getElementById('new-bot-id').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') confirmAddBot();
+});
+
+// ---- Init ----
+
+function init() {
+  loadShipName();
+  loadBots().then(function() {
+    return loadGlobalConfig();
+  }).then(function() {
+    if (currentBot) loadBotConfig();
+  });
+}
+
+init();
 </script>
 </body>
 </html>

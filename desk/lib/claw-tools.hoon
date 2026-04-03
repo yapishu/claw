@@ -410,7 +410,7 @@
   ?:  =('local_mcp_list' name)
     ::  check if mcp desk exists before scrying
     =/  has-mcp=?
-      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl))))
+      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl)/desk/bill)))
       ?:(?=(%| -.r) %.n p.r)
     ?.  has-mcp
       [%sync ~ 'The %mcp desk is not installed. Use install_local_mcp to install it from ~matwet.']
@@ -430,7 +430,7 @@
     =/  args-str=@t  ((ot ~[arguments+so]) u.args)
     ::  check if mcp desk exists
     =/  has-mcp=?
-      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl))))
+      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl)/desk/bill)))
       ?:(?=(%| -.r) %.n p.r)
     ?.  has-mcp
       [%sync ~ 'The %mcp desk is not installed. Use install_local_mcp to install it from ~matwet.']
