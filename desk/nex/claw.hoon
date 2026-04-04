@@ -321,9 +321,7 @@
       =/  content-noun  -.memo-noun
       =/  author-noun  -.+.memo-noun
       ::  skip bot-authored messages (cell = bot-meta, atom = human)
-      =/  is-atom=?  ?@(author-noun %.y %.n)
-      %-  (slog leaf+"claw-grub: dm author is-atom={<is-atom>}" ~)
-      ?>  is-atom
+      ?>  ?@(author-noun %.y !!)
       =/  from=ship  ;;(@p author-noun)
       =/  text=@t  (story-to-text:story-parse ;;(story:d content-noun))
       [from text msg-time]
@@ -752,7 +750,7 @@
   ?~  pending  (pure:m results)
   =/  [tid=@t tname=@t targs=@t]  i.pending
   =/  rest=(list [id=@t name=@t arguments=@t])  t.pending
-  %-  (slog leaf+"claw-grub: executing tool '{(trip tname)}' args={<(end 3^80 targs)>}" ~)
+  %-  (slog leaf+"claw-grub: executing tool '{(trip tname)}' args={(trip (end 3^80 targs))}" ~)
   =/  result=tool-result:tools
     (execute-tool:tools bowl tname targs bbrave is-owner bot-id bname-u bavatar-u)
   ::  build tool result json message
@@ -931,6 +929,9 @@
         [%fall %& [/bots/brap %'main.sig'] %.n [~ %sig !>(~)]]
         [%fall %| /bots/brap/context [~ ~] [~ ~] empty-dir:loader]
         [%fall %| /bots/brap/conversations [~ ~] [~ ~] empty-dir:loader]
+        ::  grubbery subsystems (server + explorer)
+        [%fall %| /'server.server' [~ ~] [~ ~] [`[~ `%server ~] ~]]
+        [%fall %| /'explorer.explorer' [~ ~] [~ ~] [`[~ `%explorer ~] ~]]
         ::  system internals
         [%fall %| /sys/daises [~ ~] [~ ~] empty-dir:loader]
         [%fall %| /sys/nexuses [~ ~] [~ ~] empty-dir:loader]
@@ -951,6 +952,9 @@
         [%fall %& [/bots/brap %'main.sig'] %.n [~ %sig !>(~)]]
         [%fall %| /bots/brap/context [~ ~] [~ ~] empty-dir:loader]
         [%fall %| /bots/brap/conversations [~ ~] [~ ~] empty-dir:loader]
+        ::  grubbery subsystems
+        [%fall %| /'server.server' [~ ~] [~ ~] [`[~ `%server ~] ~]]
+        [%fall %| /'explorer.explorer' [~ ~] [~ ~] [`[~ `%explorer ~] ~]]
         [%stay %| /sys/daises]
         [%stay %| /sys/nexuses]
         [%stay %| /sys/tubes]

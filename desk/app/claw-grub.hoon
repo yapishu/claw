@@ -320,9 +320,17 @@
         [(json-resp 200 '[]') this]
       ::  POST /api/action — all write operations
       ?.  ?=(%'POST' method.request.req)
-        [(json-resp 404 '"not found"') this]
+        ::  fallback: forward to server nexus (explorer, etc.)
+        =/  =give:nexus  [|+[src sap]:bowl /[eyre-id]]
+        =^  cards  state
+          abet:(poke:hc give [/'server.server' %'main.server-state'] handle-http-request+!>([eyre-id src.bowl req]))
+        [cards this]
       ?.  =(url '/apps/claw/api/action')
-        [(json-resp 404 '"unknown endpoint"') this]
+        ::  fallback: forward to server nexus
+        =/  =give:nexus  [|+[src sap]:bowl /[eyre-id]]
+        =^  cards  state
+          abet:(poke:hc give [/'server.server' %'main.server-state'] handle-http-request+!>([eyre-id src.bowl req]))
+        [cards this]
       =/  req-body=@t  ?~(body.request.req '' q.u.body.request.req)
       =/  rj=(unit json)  (de:json:html req-body)
       ?~  rj  [(json-resp 400 '"invalid json"') this]
