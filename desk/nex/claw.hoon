@@ -573,11 +573,32 @@
     ?~  ctx-json  ~
     ?.  ?=([%a *] u.ctx-json)  ~
     p.u.ctx-json
-  ::  build system prompt
+  ::  build system prompt with full bot identity
+  =/  default-identity=@t
+    (rap 3 'You are ' bname ', an AI bot running on the Urbit ship ' (scot %p our) '.' ~)
+  =/  default-soul=@t
+    'You are helpful, knowledgeable, and concise. You have opinions and share them when relevant. You are honest about what you don\'t know. Keep responses focused.'
+  =/  default-agent=@t
+    (rap 3 'You are ' bname ', a native Urbit LLM agent. Your text response is automatically routed back to wherever the message came from. You do NOT need to call any tool to reply. Just respond with text.' ~)
   =/  sys-prompt=@t
     %+  rap  3
-    :~  ctx-text
-        '\0a\0a---\0a\0a# Tools\0a\0a'
+    :~  ::  bot identity section
+        '# Bot Identity\0a\0a'
+        'You are '  bname  ', a bot running on the Urbit ship '  (scot %p our)  '.\0a'
+        'You are NOT the ship operator - you are a bot running on their ship.\0a'
+        '\0a---\0a\0a'
+        ::  context files (with defaults if empty)
+        ?:  =('' ctx-text)
+          %+  rap  3
+          :~  '# Identity\0a\0a'  default-identity
+              '\0a\0a---\0a\0a# Personality\0a\0a'  default-soul
+              '\0a\0a---\0a\0a# Agent\0a\0a'  default-agent
+          ==
+        ctx-text
+        '\0a\0a---\0a\0a# System\0a\0a'
+        'Ship: '  (scot %p our)  '\0a'
+        'Time: '  (scot %da now)  '\0a'
+        '\0a---\0a\0a# Tools\0a\0a'
         'You have tools available. ALWAYS use the appropriate tool when the user asks you to do something - '
         'do NOT pretend or hallucinate tool results. If a tool fails, report the actual error.\0a'
         'Key tools: web_search, image_search, send_dm, send_channel_message, read_channel_history, '
@@ -586,15 +607,24 @@
         'For local_mcp: call local_mcp_list first to get exact tool names, then call local_mcp with name and arguments.\0a'
         '\0a---\0a\0a# Current Conversation\0a\0a'
         ?:  is-dm
-          (rap 3 'You are in a DM with ' (scot %p from) '. Your text response is automatically sent as a DM reply.' ~)
+          %+  rap  3
+          :~  'You are in a DM with '  (scot %p from)  '.\0a'
+              'Your text response is automatically sent as a DM reply.\0a'
+              'In this conversation, messages from you appear with your bot name ('  bname  ').\0a'
+              'Messages from the human appear as their ship name.\0a'
+              'Only respond when someone mentions your name ('  bname  '). Ignore messages not addressed to you.'
+          ==
         %+  rap  3
         :~  (scot %p from)
             ?:  is-thread
               (rap 3 ' replied in a thread in channel ' nk '/' ns '/' nn ~)
             (rap 3 ' tagged you in channel ' nk '/' ns '/' nn ~)
             '.\0aTheir message ID is: '  msg-id
+            '\0aThe channel nest is: '  nk  '/'  ns  '/'  nn
             '\0aYour responses are automatically posted in '
             ?:(is-thread 'that thread.' 'that channel.')
+            '\0aTo react to their message, use add_reaction with channel='
+            nk  '/'  ns  '/'  nn  ' and msg_id='  msg-id
         ==
     ==
   ::  build base API messages

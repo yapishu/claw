@@ -347,6 +347,7 @@
       ::  bot management
       ?:  =('add-bot' act)
         =/  id=@tas  (crip (trip (jg u.rj 'id')))
+        =/  pre-ball=ball:tarball  ball
         =/  bot-cfg=json
           %-  pairs:enjs:format
           :~  ['name' s+id]  ['avatar' s+'']  ['model' s+'']
@@ -356,13 +357,22 @@
           ==
         =.  ball  (~(put ba:tarball ball) [/bots/[id] %'config.json'] [~ %json !>(bot-cfg)])
         =.  ball  (~(put ba:tarball ball) [/bots/[id] %'main.sig'] [~ %sig !>(~)])
+        ::  create default context files
+        =/  def-identity=@t  (rap 3 'You are ' id ', an AI bot running on ' (scot %p our.bowl) '.' ~)
+        =/  def-soul=@t  'You are helpful, knowledgeable, and concise. You have opinions and share them when relevant. You are honest about what you don\'t know. Keep responses focused.'
+        =/  def-agent=@t  (rap 3 'You are ' id ', a native Urbit LLM agent. Your text response is automatically routed back to wherever the message came from. You do NOT need to call any tool to reply. Just respond with text.' ~)
+        =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'identity.txt'] [~ %txt !>((to-wain:format def-identity))])
+        =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'soul.txt'] [~ %txt !>((to-wain:format def-soul))])
+        =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'agent.txt'] [~ %txt !>((to-wain:format def-agent))])
         =/  reg=json  (get-json [/ %'bots-registry.json'])
         =/  new-reg=json
           ?:  ?=([%o *] reg)  [%o (~(put by p.reg) id s+id)]
           (pairs:enjs:format ~[[id s+id]])
         =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
-        =^  reload-cards  state  abet:(reload-nexus:hc /)
-        [(weld ok reload-cards) this]
+        ::  spawn processes for new files (detects new main.sig)
+        =^  spawn-cards  state
+          abet:(load-ball-changes:hc / pre-ball ball)
+        [(weld ok spawn-cards) this]
       ?:  =('del-bot' act)
         =/  id=@tas  (crip (trip (jg u.rj 'id')))
         =^  cull-cards  state  abet:(cull:hc [%| /bots/[id]])
