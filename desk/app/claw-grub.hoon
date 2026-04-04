@@ -69,7 +69,8 @@
   =^  jael-cards  state
     abet:sync-jael:hc
   :_  this
-  :*  [%pass /eyre/connect %arvo %e %connect [~ /apps/claw] dap.bowl]
+  :*  [%pass /eyre/disconnect %arvo %e %disconnect [~ /apps/claw/api]]
+      [%pass /eyre/connect %arvo %e %connect [~ /apps/claw] dap.bowl]
       (weld jael-cards (weld clay-cards (weld dill-cards cards)))
   ==
 ::
@@ -216,182 +217,217 @@
     ::
       %handle-http-request
     =+  !<([eyre-id=@ta req=inbound-request:eyre] vas)
-    ::  handle HTTP directly instead of forwarding to server nexus
     =/  url=@t  url.request.req
-    =/  resp-cards=(list card)
+    ::  helper: send json response
+    =/  as-octs  as-octs:mimes:html
+    =/  json-resp
+      |=  [status=@ud body=@t]
+      ^-  (list card)
+      :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([status ~[['content-type' 'application/json'] ['access-control-allow-origin' '*']]])]
+          [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs body))]
+          [%give %kick ~[/http-response/[eyre-id]] ~]
+      ==
+    ::  helper: read json from tarball
+    =/  get-json
+      |=  =rail:tarball
+      ^-  json
+      =/  c=(unit content:tarball)  (~(get ba:tarball ball) rail)
+      ?~  c  [%o ~]
+      (fall (mole |.(!<(json q.cage.u.c))) [%o ~])
+    ::  helper: read text from tarball
+    =/  get-txt
+      |=  =rail:tarball
+      ^-  @t
+      =/  c=(unit content:tarball)  (~(get ba:tarball ball) rail)
+      ?~  c  ''
+      (fall (mole |.((of-wain:format !<(wain q.cage.u.c)))) '')
+    ::  helper: get action field from json
+    =/  jg
+      |=  [j=json k=@t]
+      ^-  @t
+      ?.  ?=([%o *] j)  ''
+      =/  v=(unit json)  (~(get by p.j) k)
+      ?~  v  ''
+      ?.  ?=([%s *] u.v)  ''
+      p.u.v
+    ::  route request — each branch returns [cards this] directly
+    ^-  (quip card _this)
+      ::  serve GUI
       ?:  ?|  =(url '/apps/claw/')
               =(url '/apps/claw/index.html')
               =(url '/apps/claw')
           ==
-        ::  serve the management GUI from Clay
-        =/  html-result=(each @t tang)
+        =/  html=(each @t tang)
           (mule |.(.^(@t %cx /(scot %p our.bowl)/[q.byk.bowl]/(scot %da now.bowl)/web/claw-grub/html)))
-        ?:  ?=(%| -.html-result)
-          :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([404 ~])]
-              [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '<h1>GUI not found</h1>'))]
-              [%give %kick ~[/http-response/[eyre-id]] ~]
-          ==
-        =/  html-cord=@t  p.html-result
+        ?:  ?=(%| -.html)  [(json-resp 404 '"GUI not found"') this]
+        :_  this
         :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'text/html']]])]
-            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html html-cord))]
+            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs p.html))]
             [%give %kick ~[/http-response/[eyre-id]] ~]
         ==
-      ::  API: return tarball tree as JSON
+      ::  GET /api/config — global config
+      ?:  =(url '/apps/claw/api/config')
+        [(json-resp 200 (en:json:html (get-json [/ %'config.json']))) this]
+      ::  GET /api/bots — bot registry
+      ?:  =(url '/apps/claw/api/bots')
+        [(json-resp 200 (en:json:html (get-json [/ %'bots-registry.json']))) this]
+      ::  GET /api/bot/{id}/config — per-bot config
+      ?:  =((end 3^19 url) '/apps/claw/api/bot/')
+        =/  rest=@t  (rsh 3^19 url)
+        ?:  !=(~ (find "/config" (trip rest)))
+          =/  id=@t  (crip (scag (need (find "/" (trip rest))) (trip rest)))
+          [(json-resp 200 (en:json:html (get-json [/bots/[(crip (trip id))] %'config.json']))) this]
+        ?:  !=(~ (find "/context" (trip rest)))
+          =/  id=@t  (crip (scag (need (find "/" (trip rest))) (trip rest)))
+          =/  id-t=@tas  (crip (trip id))
+          ::  return all context files as json object
+          =/  fields=(list @tas)  ~[%identity %soul %agent %memory]
+          =/  ctx=json
+            :-  %o
+            %-  ~(gas by *(map @t json))
+            %+  turn  fields
+            |=  f=@tas
+            [f s+(get-txt [/bots/[id-t]/context (crip "{(trip f)}.txt")])]
+          [(json-resp 200 (en:json:html ctx)) this]
+        [(json-resp 404 '"not found"') this]
+      ::  GET /api/tree — full tarball tree
       ?:  =(url '/apps/claw/api/tree')
-        =/  tree-json=json  (tree-to-json:tarball (ball-to-tree:tarball ball))
-        =/  body=@t  (en:json:html tree-json)
-        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'application/json']]])]
-            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html body))]
-            [%give %kick ~[/http-response/[eyre-id]] ~]
-        ==
-      ::  API: read a specific JSON file from tarball
-      ?:  =((end 3^21 url) '/apps/claw/api/file/')
-        =/  file-path=@t  (rsh 3^21 url)
-        =/  result=(unit json)
-          %-  mole  |.
-          =/  segs=(list @t)  (rash file-path (more fas sym))
-          =/  rpath=path  (turn (snip segs) |=(s=@t s))
-          =/  fname=@ta  (rear segs)
-          =/  content=(unit content:tarball)
-            (~(get ba:tarball ball) [rpath fname])
-          ?~  content  !!
-          !<(json q.cage.u.content)
-        =/  body=@t  ?~(result '{}' (en:json:html u.result))
-        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'application/json']]])]
-            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html body))]
-            [%give %kick ~[/http-response/[eyre-id]] ~]
-        ==
-      ::  API: read text file
-      ?:  =((end 3^20 url) '/apps/claw/api/txt/')
-        =/  file-path=@t  (rsh 3^20 url)
-        =/  result=(unit @t)
-          %-  mole  |.
-          =/  segs=(list @t)  (rash file-path (more fas sym))
-          =/  rpath=path  (turn (snip segs) |=(s=@t s))
-          =/  fname=@ta  (rear segs)
-          =/  content=(unit content:tarball)
-            (~(get ba:tarball ball) [rpath fname])
-          ?~  content  !!
-          =/  wain-val=wain  !<(wain q.cage.u.content)
-          (of-wain:format wain-val)
-        =/  body=@t  (fall result '')
-        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'text/plain']]])]
-            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html body))]
-            [%give %kick ~[/http-response/[eyre-id]] ~]
-        ==
-      ::  API: write operations (POST)
+        [(json-resp 200 (en:json:html (tree-to-json:tarball (ball-to-tree:tarball ball)))) this]
+      ::  GET /api/channel-perms — stub (perms are in bot config)
+      ?:  =(url '/apps/claw/api/channel-perms')
+        [(json-resp 200 '{}') this]
+      ::  GET /api/cron-jobs — stub (cron is in bot config)
+      ?:  =(url '/apps/claw/api/cron-jobs')
+        [(json-resp 200 '[]') this]
+      ::  POST /api/action — all write operations
       ?.  ?=(%'POST' method.request.req)
-        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([404 ~])]
-            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '404'))]
-            [%give %kick ~[/http-response/[eyre-id]] ~]
-        ==
+        [(json-resp 404 '"not found"') this]
+      ?.  =(url '/apps/claw/api/action')
+        [(json-resp 404 '"unknown endpoint"') this]
       =/  req-body=@t  ?~(body.request.req '' q.u.body.request.req)
-      =/  req-json=(unit json)  (de:json:html req-body)
-      ?~  req-json
-        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([400 ~])]
-            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html 'invalid json'))]
-            [%give %kick ~[/http-response/[eyre-id]] ~]
-        ==
-      =/  ok-resp=(list card)
-        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'application/json']]])]
-            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '{"ok":true}'))]
-            [%give %kick ~[/http-response/[eyre-id]] ~]
-        ==
-      ?:  =(url '/apps/claw/api/write-json')
-        ::  {"path": ["bots","brap"], "name": "config.json", "data": {...}}
-        ?.  ?=([%o *] u.req-json)  ok-resp
-        =/  jpath=(unit json)  (~(get by p.u.req-json) 'path')
-        =/  jname=(unit json)  (~(get by p.u.req-json) 'name')
-        =/  jdata=(unit json)  (~(get by p.u.req-json) 'data')
-        ?~  jpath  ok-resp
-        ?~  jname  ok-resp
-        ?~  jdata  ok-resp
-        ?.  ?=([%a *] u.jpath)  ok-resp
-        ?.  ?=([%s *] u.jname)  ok-resp
-        =/  pax=path
-          %+  turn  p.u.jpath
-          |=(j=json ?>(?=(%s -.j) (crip (trip p.j))))
-        =/  fname=@ta  (crip (trip p.u.jname))
-        =.  ball  (~(put ba:tarball ball) [pax fname] [~ %json !>(u.jdata)])
-        ok-resp
-      ?:  =(url '/apps/claw/api/write-txt')
-        ::  {"path": ["bots","brap","context"], "name": "identity.txt", "data": "You are..."}
-        ?.  ?=([%o *] u.req-json)  ok-resp
-        =/  jpath=(unit json)  (~(get by p.u.req-json) 'path')
-        =/  jname=(unit json)  (~(get by p.u.req-json) 'name')
-        =/  jdata=(unit json)  (~(get by p.u.req-json) 'data')
-        ?~  jpath  ok-resp
-        ?~  jname  ok-resp
-        ?~  jdata  ok-resp
-        ?.  ?=([%a *] u.jpath)  ok-resp
-        ?.  ?=([%s *] u.jname)  ok-resp
-        ?.  ?=([%s *] u.jdata)  ok-resp
-        =/  pax=path
-          %+  turn  p.u.jpath
-          |=(j=json ?>(?=(%s -.j) (crip (trip p.j))))
-        =/  fname=@ta  (crip (trip p.u.jname))
-        =.  ball  (~(put ba:tarball ball) [pax fname] [~ %txt !>((to-wain:format p.u.jdata))])
-        ok-resp
-      ?:  =(url '/apps/claw/api/add-bot')
-        ::  {"id": "wanda", "name": "Wanda"}
-        ?.  ?=([%o *] u.req-json)  ok-resp
-        =/  jid=(unit json)    (~(get by p.u.req-json) 'id')
-        =/  jname=(unit json)  (~(get by p.u.req-json) 'name')
-        ?~  jid    ok-resp
-        ?~  jname  ok-resp
-        ?.  ?=([%s *] u.jid)    ok-resp
-        ?.  ?=([%s *] u.jname)  ok-resp
-        =/  id=@tas  (crip (trip p.u.jid))
-        =/  bname=@t  p.u.jname
+      =/  rj=(unit json)  (de:json:html req-body)
+      ?~  rj  [(json-resp 400 '"invalid json"') this]
+      =/  act=@t  (jg u.rj 'action')
+      =/  ok  (json-resp 200 '"ok"')
+      ::
+      ?:  =('set-key' act)
+        =/  cfg=json  (get-json [/ %'config.json'])
+        ?.  ?=([%o *] cfg)  [ok this]
+        =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ %json !>([%o (~(put by p.cfg) 'api_key' s+(jg u.rj 'key'))])])
+        [ok this]
+      ?:  =('set-model' act)
+        =/  cfg=json  (get-json [/ %'config.json'])
+        ?.  ?=([%o *] cfg)  [ok this]
+        =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ %json !>([%o (~(put by p.cfg) 'model' s+(jg u.rj 'model'))])])
+        [ok this]
+      ?:  =('set-brave-key' act)
+        =/  cfg=json  (get-json [/ %'config.json'])
+        ?.  ?=([%o *] cfg)  [ok this]
+        =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ %json !>([%o (~(put by p.cfg) 'brave_key' s+(jg u.rj 'key'))])])
+        [ok this]
+      ::  bot management
+      ?:  =('add-bot' act)
+        =/  id=@tas  (crip (trip (jg u.rj 'id')))
         =/  bot-cfg=json
           %-  pairs:enjs:format
-          :~  ['name' s+bname]
-              ['avatar' s+'']
-              ['model' s+'']
-              ['api_key' s+'']
-              ['brave_key' s+'']
+          :~  ['name' s+id]  ['avatar' s+'']  ['model' s+'']
+              ['api_key' s+'']  ['brave_key' s+'']
               ['whitelist' [%o (~(put by *(map @t json)) (scot %p our.bowl) s+'owner')]]
+              ['cron' [%a ~]]
           ==
         =.  ball  (~(put ba:tarball ball) [/bots/[id] %'config.json'] [~ %json !>(bot-cfg)])
         =.  ball  (~(put ba:tarball ball) [/bots/[id] %'main.sig'] [~ %sig !>(~)])
-        =/  reg-content=(unit content:tarball)
-          (~(get ba:tarball ball) [/ %'bots-registry.json'])
-        =/  reg=json
-          ?~  reg-content  [%o ~]
-          !<(json q.cage.u.reg-content)
+        =/  reg=json  (get-json [/ %'bots-registry.json'])
         =/  new-reg=json
-          ?.  ?=([%o *] reg)  (pairs:enjs:format ~[[id s+bname]])
-          [%o (~(put by p.reg) id s+bname)]
+          ?:  ?=([%o *] reg)  [%o (~(put by p.reg) id s+id)]
+          (pairs:enjs:format ~[[id s+id]])
         =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
-        ::  reload to spawn the new bot process
-        =^  reload-cards  state
-          abet:(reload-nexus:hc /)
-        (weld ok-resp reload-cards)
-      ?:  =(url '/apps/claw/api/del-bot')
-        ::  {"id": "wanda"}
-        ?.  ?=([%o *] u.req-json)  ok-resp
-        =/  jid=(unit json)  (~(get by p.u.req-json) 'id')
-        ?~  jid  ok-resp
-        ?.  ?=([%s *] u.jid)  ok-resp
-        =/  id=@tas  (crip (trip p.u.jid))
-        =^  cull-cards  state
-          abet:(cull:hc [%| /bots/[id]])
-        =/  reg-content=(unit content:tarball)
-          (~(get ba:tarball ball) [/ %'bots-registry.json'])
-        =/  reg=json
-          ?~  reg-content  [%o ~]
-          !<(json q.cage.u.reg-content)
-        =/  new-reg=json
-          ?.  ?=([%o *] reg)  reg
-          [%o (~(del by p.reg) id)]
+        =^  reload-cards  state  abet:(reload-nexus:hc /)
+        [(weld ok reload-cards) this]
+      ?:  =('del-bot' act)
+        =/  id=@tas  (crip (trip (jg u.rj 'id')))
+        =^  cull-cards  state  abet:(cull:hc [%| /bots/[id]])
+        =/  reg=json  (get-json [/ %'bots-registry.json'])
+        =/  new-reg=json  ?:(?=([%o *] reg) [%o (~(del by p.reg) id)] reg)
         =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
-        (weld ok-resp cull-cards)
-      ::  unknown endpoint
-      :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([404 ~])]
-          [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '404'))]
-          [%give %kick ~[/http-response/[eyre-id]] ~]
-      ==
-    [resp-cards this]
+        [(weld ok cull-cards) this]
+      ::  per-bot config updates (merge into existing config)
+      =/  bot-id=@tas  (crip (trip (jg u.rj 'id')))
+      =/  bot-cfg=json  (get-json [/bots/[bot-id] %'config.json'])
+      ?.  ?=([%o *] bot-cfg)  [ok this]
+      ?:  =('bot-set-name' act)
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'name' s+(jg u.rj 'name'))])])
+        =/  reg=json  (get-json [/ %'bots-registry.json'])
+        =?  ball  ?=([%o *] reg)
+          (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>([%o (~(put by p.reg) bot-id s+(jg u.rj 'name'))])])
+        [ok this]
+      ?:  =('bot-set-avatar' act)
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'avatar' s+(jg u.rj 'avatar'))])])
+        [ok this]
+      ?:  =('bot-set-model' act)
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'model' s+(jg u.rj 'model'))])])
+        [ok this]
+      ?:  =('bot-set-key' act)
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'api_key' s+(jg u.rj 'key'))])])
+        [ok this]
+      ?:  =('bot-set-brave-key' act)
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'brave_key' s+(jg u.rj 'key'))])])
+        [ok this]
+      ?:  =('bot-set-context' act)
+        =/  field=@tas  (crip (trip (jg u.rj 'field')))
+        =/  content=@t  (jg u.rj 'content')
+        =/  fname=@ta  (crip "{(trip field)}.txt")
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id]/context fname] [~ %txt !>((to-wain:format content))])
+        [ok this]
+      ?:  =('bot-del-context' act)
+        =/  field=@tas  (crip (trip (jg u.rj 'field')))
+        =/  fname=@ta  (crip "{(trip field)}.txt")
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id]/context fname] [~ %txt !>((to-wain:format ''))])
+        [ok this]
+      ?:  =('bot-add-ship' act)
+        =/  ship=@t  (jg u.rj 'ship')
+        =/  role=@t  (jg u.rj 'role')
+        =/  wl=json  (fall (~(get by p.bot-cfg) 'whitelist') [%o ~])
+        ?.  ?=([%o *] wl)  [ok this]
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'whitelist' [%o (~(put by p.wl) ship s+role)])])])
+        [ok this]
+      ?:  =('bot-del-ship' act)
+        =/  ship=@t  (jg u.rj 'ship')
+        =/  wl=json  (fall (~(get by p.bot-cfg) 'whitelist') [%o ~])
+        ?.  ?=([%o *] wl)  [ok this]
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'whitelist' [%o (~(del by p.wl) ship)])])])
+        [ok this]
+      ?:  =('bot-cron-add' act)
+        =/  schedule=@t  (jg u.rj 'schedule')
+        =/  prompt=@t  (jg u.rj 'prompt')
+        =/  cron=json  (fall (~(get by p.bot-cfg) 'cron') [%a ~])
+        ?.  ?=([%a *] cron)  [ok this]
+        =/  new-job=json  (pairs:enjs:format ~[['schedule' s+schedule] ['prompt' s+prompt]])
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'cron' [%a (snoc p.cron new-job)])])])
+        [ok this]
+      ?:  =('bot-cron-remove' act)
+        =/  cid=@t  (jg u.rj 'cron-id')
+        =/  idx=@ud  (fall (rush cid dem) 0)
+        =/  cron=json  (fall (~(get by p.bot-cfg) 'cron') [%a ~])
+        ?.  ?=([%a *] cron)  [ok this]
+        =/  new-cron=(list json)
+          =/  i=@ud  0
+          =/  out=(list json)  ~
+          |-
+          ?~  p.cron  (flop out)
+          =?  out  !=(i idx)  [i.p.cron out]
+          $(p.cron t.p.cron, i +(i))
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'cron' [%a new-cron])])])
+        [ok this]
+      ?:  =('bot-set-channel-perm' act)
+        =/  channel=@t  (jg u.rj 'channel')
+        =/  perm=@t  (jg u.rj 'perm')
+        =/  perms=json  (fall (~(get by p.bot-cfg) 'channel_perms') [%o ~])
+        ?.  ?=([%o *] perms)  [ok this]
+        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'channel_perms' [%o (~(put by p.perms) channel s+perm)])])])
+        [ok this]
+      ::  unknown action
+      [(json-resp 400 (en:json:html s+(rap 3 'unknown action: ' act ~))) this]
       ::
       %rebuild-caches
     ::  Rebuild all mark tube, dais, and nexus caches.
@@ -558,6 +594,9 @@
     =^  cards  state
       abet:(save-file:hc [/sys/jael %'private-keys.jael-private-keys'] [~ %jael-private-keys !>([life.sign vein.sign])])
     [cards this]
+  ::  handle eyre connect response (from on-init binding)
+  ?:  ?=([%eyre *] wire)
+    `this
   =^  cards  state
     abet:(take-arvo:hc wire sign)
   [cards this]

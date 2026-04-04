@@ -1,5 +1,3 @@
-:~  %claw
-    %claw-fileserver
-    %claw-grub
+:~  %claw-grub
     %lcm
 ==

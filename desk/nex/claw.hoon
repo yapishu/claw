@@ -892,8 +892,9 @@
     ?.  ?=(%rise -.prod)
       ;<  ~  bind:m  (gall-watch:io /activity [our %activity] /v4)
       %-  (slog leaf+"claw-grub: subscribed to activity" ~)
-      ;<  ~  bind:m  (gall-watch:io /self-dm [our %chat] /dm/(scot %p our))
-      %-  (slog leaf+"claw-grub: watching self-DMs" ~)
+      ::  self-DM watch — fire and forget (may fail on fresh ship with no self-DM)
+      ;<  ~  bind:m  (send-card:io [%pass /self-dm %agent [our %chat] %watch /dm/(scot %p our)])
+      %-  (slog leaf+"claw-grub: self-DM watch requested" ~)
       ::  start cron timer (fires every minute)
       ;<  now=@da  bind:m  get-time:io
       ;<  ~  bind:m  (send-card:io [%pass /cron %arvo %b %wait (add now ~m1)])
