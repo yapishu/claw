@@ -751,6 +751,42 @@
   =/  [tid=@t tname=@t targs=@t]  i.pending
   =/  rest=(list [id=@t name=@t arguments=@t])  t.pending
   %-  (slog leaf+"claw-grub: executing tool '{(trip tname)}' args={(trip (end 3^80 targs))}" ~)
+  ::  intercept update_profile — write to tarball config
+  ?:  =('update_profile' tname)
+    =/  args-json=(unit json)  (de:json:html targs)
+    ?~  args-json
+      (exec-tool-list rest ~ bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ;<  cfg-seen=seen:nexus  bind:m
+      (peek:io /profile-peek (cord-to-road:tarball './config.json') `%json)
+    =/  cfg=json
+      ?.  ?=([%& %file *] cfg-seen)  [%o ~]
+      !<(json q.cage.p.cfg-seen)
+    ?.  ?=([%o *] cfg)
+      (exec-tool-list rest ~ bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  nick=@t  (jget u.args-json 'nickname' '')
+    =/  avatar=@t  (jget u.args-json 'avatar' '')
+    =/  new-cfg=json
+      =/  c=(map @t json)  p.cfg
+      =?  c  !=('' nick)    (~(put by c) 'name' s+nick)
+      =?  c  !=('' avatar)  (~(put by c) 'avatar' s+avatar)
+      [%o c]
+    ;<  ~  bind:m  (over:io /profile-write (cord-to-road:tarball './config.json') json+!>(new-cfg))
+    ::  also update registry if name changed
+    ?:  =('' nick)
+      =/  msg=@t  ?:(=('' avatar) 'no changes' 'avatar updated')
+      =/  make-result  |=(content=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+content]]))
+      (exec-tool-list rest [(make-result msg) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ;<  reg-seen=seen:nexus  bind:m
+      (peek:io /reg-peek (cord-to-road:tarball '../../bots-registry.json') `%json)
+    =/  reg=json
+      ?.  ?=([%& %file *] reg-seen)  [%o ~]
+      !<(json q.cage.p.reg-seen)
+    ?:  ?=([%o *] reg)
+      ;<  ~  bind:m  (over:io /reg-write (cord-to-road:tarball '../../bots-registry.json') json+!>([%o (~(put by p.reg) bot-id s+nick)]))
+      =/  make-result  |=(content=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+content]]))
+      (exec-tool-list rest [(make-result (rap 3 'profile updated: name=' nick ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  make-result  |=(content=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+content]]))
+    (exec-tool-list rest [(make-result (rap 3 'profile updated: name=' nick ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
   ::  build tool result json message helper
   =/  make-result
     |=  content=@t

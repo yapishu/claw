@@ -114,20 +114,10 @@
   =/  args=(unit json)  (de:json:html arguments)
   ?~  args  [%sync ~ 'error: invalid json arguments']
   ::
-  ::  update_profile: update this bot's name/avatar
+  ::  update_profile: handled by bot process via tarball I/O
   ::
   ?:  =('update_profile' name)
-    =,  dejs-soft:format
-    =/  nick=(unit @t)  ((ot ~[nickname+so]) u.args)
-    =/  avatar=(unit @t)  ((ot ~[avatar+so]) u.args)
-    ?:  &(=(~ nick) =(~ avatar))  [%sync ~ 'error: no nickname or avatar provided']
-    ::  prefer name update; avatar handled separately if needed
-    ?^  nick
-      =/  result=@t  (rap 3 'bot profile updated name=' u.nick ?~(avatar '' ' (set avatar too)') ~)
-      [%sync :~([%pass /tool/profile %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%bot-set-name bot-id `u.nick])]) result]
-    ?^  avatar
-      [%sync :~([%pass /tool/profile %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%bot-set-avatar bot-id `u.avatar])]) 'bot avatar updated']
-    [%sync ~ 'error: no nickname or avatar provided']
+    [%sync ~ 'update_profile: handled by bot process']
   ::
   ::  send_dm: poke %chat with optional image block
   ::
