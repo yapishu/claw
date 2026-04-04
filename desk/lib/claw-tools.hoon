@@ -925,40 +925,16 @@
     =/  url=@t  ((ot ~[url+so]) u.args)
     [%async [%pass /tool-http/(scot %tas bot-id)/'http_fetch'/(scot %da now.bowl) %arvo %i %request [%'GET' url ~ ~] *outbound-config:iris]]
   ::
-  ::  cron_add: schedule a recurring task (owner only)
+  ::  cron tools: handled by the bot process directly via tarball I/O
+  ::  these stubs exist so the tools library doesn't crash; the nexus
+  ::  intercepts cron_add/cron_list/cron_remove before reaching here
   ::
   ?:  =('cron_add' name)
-    ?.  owner  [%sync ~ 'error: only the owner can schedule tasks']
-    =,  dejs-soft:format
-    =/  jsched=(unit @t)  ((ot ~[schedule+so]) u.args)
-    =/  jprompt=(unit @t)  ((ot ~[prompt+so]) u.args)
-    ?~  jsched   [%sync ~ 'error: schedule (cron expression) required']
-    ?~  jprompt  [%sync ~ 'error: prompt required']
-    [%sync :~([%pass /tool/cron-add %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%cron-add u.jsched u.jprompt])]) (rap 3 'Scheduled cron ' u.jsched ': ' (crip (scag 40 (trip u.jprompt))) ~)]
-  ::
-  ::  cron_list: list all cron jobs
-  ::
+    [%sync ~ 'cron_add: handled by bot process']
   ?:  =('cron_list' name)
-    =/  result=(each @t tang)
-      %-  mule  |.
-      =/  cj=json
-        .^(json %gx /(scot %p our.bowl)/claw/(scot %da now.bowl)/cron-jobs/json)
-      (crip (scag 4.000 (trip (en:json:html cj))))
-    ?:  ?=(%| -.result)
-      ::  fallback: scry failed, return empty
-      [%sync ~ 'no cron jobs (or scry not available)']
-    [%sync ~ p.result]
-  ::
-  ::  cron_remove: remove a cron job by ID (owner only)
-  ::
+    [%sync ~ 'cron_list: handled by bot process']
   ?:  =('cron_remove' name)
-    ?.  owner  [%sync ~ 'error: only the owner can remove cron jobs']
-    =,  dejs-soft:format
-    =/  jid=(unit @t)  ((ot ~[id+so]) u.args)
-    ?~  jid  [%sync ~ 'error: id required']
-    =/  cid=(unit @ud)  (rush u.jid dem)
-    ?~  cid  [%sync ~ 'error: id must be a number']
-    [%sync :~([%pass /tool/cron-remove %agent [our.bowl %claw] %poke %claw-action !>(`action:claw`[%cron-remove u.cid])]) (rap 3 'Removed cron job ' u.jid ~)]
+    [%sync ~ 'cron_remove: handled by bot process']
   ::
   [%sync ~ (rap 3 'error: unknown tool ' name ~)]
 ::

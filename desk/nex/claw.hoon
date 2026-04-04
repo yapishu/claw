@@ -751,9 +751,7 @@
   =/  [tid=@t tname=@t targs=@t]  i.pending
   =/  rest=(list [id=@t name=@t arguments=@t])  t.pending
   %-  (slog leaf+"claw-grub: executing tool '{(trip tname)}' args={(trip (end 3^80 targs))}" ~)
-  =/  result=tool-result:tools
-    (execute-tool:tools bowl tname targs bbrave is-owner bot-id bname-u bavatar-u)
-  ::  build tool result json message
+  ::  build tool result json message helper
   =/  make-result
     |=  content=@t
     ::  cap tool results at 6000 chars
@@ -766,6 +764,77 @@
         ['tool_call_id' s+tid]
         ['content' s+capped]
     ==
+  ::  intercept cron tools — handle via tarball config (grubbery-idiomatic)
+  ::  these read/write the bot's own config.json via fiber I/O
+  ?:  =('cron_list' tname)
+    ;<  cfg-seen=seen:nexus  bind:m
+      (peek:io /cron-peek (cord-to-road:tarball './config.json') `%json)
+    =/  cfg=json
+      ?.  ?=([%& %file *] cfg-seen)  [%o ~]
+      !<(json q.cage.p.cfg-seen)
+    =/  cron-json=json
+      ?.  ?=([%o *] cfg)  [%a ~]
+      (fall (~(get by p.cfg) 'cron') [%a ~])
+    =/  result-text=@t  (crip (scag 4.000 (trip (en:json:html cron-json))))
+    (exec-tool-list rest [(make-result result-text) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('cron_add' tname)
+    =/  args-json=(unit json)  (de:json:html targs)
+    ?~  args-json
+      (exec-tool-list rest [(make-result 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  sched=@t  (jget u.args-json 'schedule' '')
+    =/  prompt=@t  (jget u.args-json 'prompt' '')
+    ;<  cfg-seen=seen:nexus  bind:m
+      (peek:io /cron-peek (cord-to-road:tarball './config.json') `%json)
+    =/  cfg=json
+      ?.  ?=([%& %file *] cfg-seen)  [%o ~]
+      !<(json q.cage.p.cfg-seen)
+    ?.  ?=([%o *] cfg)
+      (exec-tool-list rest [(make-result 'error: no bot config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  cron=json  (fall (~(get by p.cfg) 'cron') [%a ~])
+    ?.  ?=([%a *] cron)
+      (exec-tool-list rest [(make-result 'error: invalid cron config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  new-job=json  (pairs:enjs:format ~[['schedule' s+sched] ['prompt' s+prompt]])
+    =/  new-cfg=json  [%o (~(put by p.cfg) 'cron' [%a (snoc p.cron new-job)])]
+    ;<  ~  bind:m  (over:io /cron-write (cord-to-road:tarball './config.json') json+!>(new-cfg))
+    =/  msg=@t  (rap 3 'Scheduled cron ' sched ': ' (end 3^40 prompt) ~)
+    (exec-tool-list rest [(make-result msg) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('cron_remove' tname)
+    =/  args-json=(unit json)  (de:json:html targs)
+    ?~  args-json
+      (exec-tool-list rest [(make-result 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  idx=@ud  (fall (rush (jget u.args-json 'id' '0') dem) 0)
+    ;<  cfg-seen=seen:nexus  bind:m
+      (peek:io /cron-peek (cord-to-road:tarball './config.json') `%json)
+    =/  cfg=json
+      ?.  ?=([%& %file *] cfg-seen)  [%o ~]
+      !<(json q.cage.p.cfg-seen)
+    ?.  ?=([%o *] cfg)
+      (exec-tool-list rest [(make-result 'error: no bot config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  cron=json  (fall (~(get by p.cfg) 'cron') [%a ~])
+    ?.  ?=([%a *] cron)
+      (exec-tool-list rest [(make-result 'error: invalid cron config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  new-cron=(list json)
+      =/  i=@ud  0
+      =/  out=(list json)  ~
+      |-
+      ?~  p.cron  (flop out)
+      =?  out  !=(i idx)  [i.p.cron out]
+      $(p.cron t.p.cron, i +(i))
+    =/  new-cfg=json  [%o (~(put by p.cfg) 'cron' [%a new-cron])]
+    ;<  ~  bind:m  (over:io /cron-write (cord-to-road:tarball './config.json') json+!>(new-cfg))
+    (exec-tool-list rest [(make-result 'Removed cron job') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ::  wrap execution in mule — a crashing tool must never kill the bot
+  =/  exec-result=(each tool-result:tools tang)
+    (mule |.((execute-tool:tools bowl tname targs bbrave is-owner bot-id bname-u bavatar-u)))
+  ?:  ?=(%| -.exec-result)
+    =/  err-trace=tape
+      %-  zing
+      %+  turn  (scag 5 `tang`p.exec-result)
+      |=(t=tank ~(ram re t))
+    %-  (slog leaf+"claw-grub: tool '{(trip tname)}' crashed: {(scag 200 err-trace)}" ~)
+    =/  err-msg=@t  (crip (scag 500 (weld "error: tool crashed: " err-trace)))
+    (exec-tool-list rest [(make-result err-msg) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  =/  result=tool-result:tools  p.exec-result
   ?:  ?=([%sync *] result)
     ::  sync tool: send any gall cards, collect result text
     %-  (slog leaf+"claw-grub: tool '{(trip tname)}' sync, {<(lent cards.result)>} cards" ~)
