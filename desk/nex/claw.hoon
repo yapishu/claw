@@ -150,14 +150,15 @@
               ?=([%kick ~] sign.u.in)
           ==
         [%done %kick-activity *cage]
-      ?:  ?&  =(wire.u.in /self-dm)
-              ?=([%fact *] sign.u.in)
-          ==
-        [%done %self-dm cage.sign.u.in]
-      ?:  ?&  =(wire.u.in /self-dm)
-              ?=([%kick ~] sign.u.in)
-          ==
-        [%done %kick-dm *cage]
+      ?:  =(wire.u.in /self-dm)
+        ?:  ?=([%watch-ack *] sign.u.in)
+          ::  consume and ignore watch-ack
+          [%done %dm-ack *cage]
+        ?:  ?=([%fact *] sign.u.in)
+          [%done %self-dm cage.sign.u.in]
+        ?:  ?=([%kick ~] sign.u.in)
+          [%done %kick-dm *cage]
+        [%skip ~]
       [%skip ~]
     ?:  ?&  ?=(%arvo -.u.in)
             =(wire.u.in /cron)
@@ -170,8 +171,14 @@
     ;<  ~  bind:m  (gall-watch:io /activity [our %activity] /v4)
     $
   ::
+      %dm-ack
+    %-  (slog leaf+"claw-grub: self-DM watch ack received" ~)
+    $
+  ::
       %kick-dm
-    ;<  ~  bind:m  (gall-watch:io /self-dm [our %chat] /dm/(scot %p our))
+    ::  only re-watch if the initial watch succeeded
+    %-  (slog leaf+"claw-grub: self-DM kicked, re-subscribing" ~)
+    ;<  ~  bind:m  (send-card:io [%pass /self-dm %agent [our %chat] %watch /dm/(scot %p our)])
     $
   ::
       %activity
@@ -304,7 +311,53 @@
     ==
   ::
       %self-dm
-    $  :: TODO
+    ::  parse raw writ fact from %chat: [whom id [%add memo time]]
+    =/  dm-result=(unit [from=@p text=@t msg-time=@da])
+      %-  mole  |.
+      =/  noun  +.q.dat.ev
+      ?>  ?=([* * [%add *]] noun)
+      =/  msg-time=@da  ;;(@da +.-.+.noun)
+      =/  memo-noun  -.+.+.+.noun
+      =/  content-noun  -.memo-noun
+      =/  author-noun  -.+.memo-noun
+      ::  skip bot-authored messages (cell = bot-meta, atom = human)
+      =/  is-atom=?  ?@(author-noun %.y %.n)
+      %-  (slog leaf+"claw-grub: dm author is-atom={<is-atom>}" ~)
+      ?>  is-atom
+      =/  from=ship  ;;(@p author-noun)
+      =/  text=@t  (story-to-text:story-parse ;;(story:d content-noun))
+      [from text msg-time]
+    ?~  dm-result  $
+    =/  from=@p  from.u.dm-result
+    =/  text=@t  text.u.dm-result
+    =/  msg-time=@da  msg-time.u.dm-result
+    ?:  =('' text)  $
+    ::  dedup
+    =/  evt-id=@t  (rap 3 'dmw/' (scot %p from) '/' (scot %da msg-time) ~)
+    ?:  (~(has in seen-msgs) evt-id)  $
+    =.  seen-msgs  (~(put in seen-msgs) evt-id)
+    =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
+    %-  (slog leaf+"claw-grub: dm-watch from {(scow %p from)}: {(trip (end 3^40 text))}" ~)
+    ::  route to bot
+    ;<  bots-dm=(map @tas bot-info)  bind:m  scan-bots
+    =/  bot-names-dm=(map @tas @t)
+      %-  ~(gas by *(map @tas @t))
+      %+  turn  ~(tap by `(map @tas bot-info)`bots-dm)
+      |=([id=@tas bi=bot-info] [id name.bi])
+    =/  named=(list @tas)  (find-named-bots bot-names-dm text)
+    ::  self-DM: only route if bot is explicitly named (prevents feedback loop)
+    ?~  named  $
+    =/  bot-id=@tas  i.named
+    =/  dm-event=json
+      %-  pairs:enjs:format
+      :~  ['from' s+(scot %p from)]
+          ['text' s+text]
+          ['msg_id' s+(scot %da msg-time)]
+      ==
+    %-  (slog leaf+"claw-grub: dm-watch routing to {(trip bot-id)}" ~)
+    ;<  ~  bind:m
+      (poke:io /route (bot-road bot-id) %json !>(dm-event))
+    $
   ::
       %cron
     ::  cron tick: scan all bots for due cron jobs, fire them, re-arm timer
@@ -751,20 +804,22 @@
       ==
   =/  m  (fiber:fiber:nexus ,~)
   ^-  form:m
+  ::  get fresh timestamp for message ID
+  ;<  fresh-now=@da  bind:m  get-time:io
   =/  bname-u=(unit @t)  ?:(=('' bname) ~ `bname)
   =/  bavatar-u=(unit @t)  ?:(=('' bavatar) ~ `bavatar)
   =/  =author:d  (bot-author our bname-u bavatar-u)
   =/  =story:d  (text-to-story:story-parse text)
   ?:  is-dm
     ::  DM reply
-    =/  =memo:d  [content=story author=author sent=now]
+    =/  =memo:d  [content=story author=author sent=fresh-now]
     =/  =essay:c  [memo [%chat /] ~ ~]
     =/  =delta:writs:c  [%add essay ~]
-    =/  =diff:writs:c  [[our now] delta]
+    =/  =diff:writs:c  [[our fresh-now] delta]
     =/  =action:dm:c  [from diff]
     (gall-poke:io /dm-send [our %chat] %chat-dm-action-1 !>(action))
   ::  channel or thread reply
-  =/  =memo:d  [content=story author=author sent=now]
+  =/  =memo:d  [content=story author=author sent=fresh-now]
   =/  kind=?(%chat %diary %heap)  (nest-kind nk)
   =/  =nest:d  [kind (slav %p ns) (crip (trip nn))]
   ?:  is-thread
@@ -889,21 +944,18 @@
     ;<  ~  bind:m  (rise-wait:io prod "%claw: root process failed")
     %-  (slog leaf+"claw-grub: root process starting" ~)
     ;<  our=@p  bind:m  get-our:io
-    ?.  ?=(%rise -.prod)
-      ;<  ~  bind:m  (gall-watch:io /activity [our %activity] /v4)
-      %-  (slog leaf+"claw-grub: subscribed to activity" ~)
-      ::  self-DM watch — fire and forget (may fail on fresh ship with no self-DM)
-      ;<  ~  bind:m  (send-card:io [%pass /self-dm %agent [our %chat] %watch /dm/(scot %p our)])
-      %-  (slog leaf+"claw-grub: self-DM watch requested" ~)
-      ::  start cron timer (fires every minute)
-      ;<  now=@da  bind:m  get-time:io
-      ;<  ~  bind:m  (send-card:io [%pass /cron %arvo %b %wait (add now ~m1)])
-      %-  (slog leaf+"claw-grub: cron timer armed" ~)
-      (root-loop our)
-    %-  (slog leaf+"claw-grub: restarted (keeping existing subs)" ~)
-    ::  re-arm cron timer on restart
+    ::  always leave-then-watch to avoid wire-not-unique on revive
+    ;<  ~  bind:m  (send-card:io [%pass /activity %agent [our %activity] %leave ~])
+    ;<  ~  bind:m  (gall-watch:io /activity [our %activity] /v4)
+    %-  (slog leaf+"claw-grub: subscribed to activity" ~)
+    ::  self-DM watch: one attempt, non-fatal (may fail on fresh ship)
+    ;<  ~  bind:m  (send-card:io [%pass /self-dm %agent [our %chat] %leave ~])
+    ;<  ~  bind:m  (send-card:io [%pass /self-dm %agent [our %chat] %watch /dm/(scot %p our)])
+    %-  (slog leaf+"claw-grub: self-DM watch requested" ~)
+    ::  cron timer
     ;<  now=@da  bind:m  get-time:io
     ;<  ~  bind:m  (send-card:io [%pass /cron %arvo %b %wait (add now ~m1)])
+    %-  (slog leaf+"claw-grub: cron timer armed" ~)
     (root-loop our)
   ::
   ::  BOT PROCESS: /bots/{id}/main.sig

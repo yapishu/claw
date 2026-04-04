@@ -268,9 +268,28 @@
       ::  GET /api/config — global config
       ?:  =(url '/apps/claw/api/config')
         [(json-resp 200 (en:json:html (get-json [/ %'config.json']))) this]
-      ::  GET /api/bots — bot registry
+      ::  GET /api/bots — bot registry in GUI format: {bots: {id: {name}}, default: id}
       ?:  =(url '/apps/claw/api/bots')
-        [(json-resp 200 (en:json:html (get-json [/ %'bots-registry.json']))) this]
+        =/  reg=json  (get-json [/ %'bots-registry.json'])
+        =/  bot-objs=json
+          ?.  ?=([%o *] reg)  [%o ~]
+          :-  %o
+          %-  ~(run by p.reg)
+          |=  v=json
+          ^-  json
+          %-  pairs:enjs:format
+          :~  ['name' v]
+          ==
+        =/  first-id=@t
+          ?.  ?=([%o *] reg)  'brap'
+          =/  keys=(list @t)  ~(tap in ~(key by p.reg))
+          ?~(keys 'brap' i.keys)
+        =/  result=json
+          %-  pairs:enjs:format
+          :~  ['bots' bot-objs]
+              ['default' s+first-id]
+          ==
+        [(json-resp 200 (en:json:html result)) this]
       ::  GET /api/bot/{id}/config — per-bot config
       ?:  =((end 3^19 url) '/apps/claw/api/bot/')
         =/  rest=@t  (rsh 3^19 url)
