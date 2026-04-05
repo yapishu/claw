@@ -8,6 +8,7 @@
 /-  c=chat
 /-  claw
 /-  lcm
+/-  mcp
 /+  nexus, tarball, io=fiberio, loader, story-parse, tools=claw-tools, cron, s3-client
 !:
 ^-  nexus:nexus
@@ -856,6 +857,89 @@
       (exec-tool-list rest [(mk-res 'The %mcp desk is not installed.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
     =/  result=@t  (safe-scry /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/tools/json 6.000)
     (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('local_mcp' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  tool-name=@t  (jget u.args-json 'name' '')
+    =/  mcp-args-str=@t  (jget u.args-json 'arguments' '{}')
+    ::  check if mcp desk exists
+    =/  has-mcp=?
+      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl)/desk/bill)))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-mcp
+      (exec-tool-list rest [(mk-res 'The %mcp desk is not installed. Use install_local_mcp.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ::  parse arguments JSON into MCP argument map
+    =/  mcp-args-json=(unit json)  (de:json:html mcp-args-str)
+    ?~  mcp-args-json
+      (exec-tool-list rest [(mk-res 'error: invalid arguments JSON') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  mcp-args-map=(map name:parameter:tool:mcp argument:tool:mcp)
+      ?+  u.mcp-args-json  *(map @t argument:tool:mcp)
+          [%o *]
+        %-  ~(run by p.u.mcp-args-json)
+        |=  j=json
+        ^-  argument:tool:mcp
+        ?+  j  ~
+          [%s *]  [%string p.j]
+          [%n *]  [%number (rash p.j dem)]
+          [%b *]  [%boolean p.j]
+        ==
+      ==
+    ::  check tool file exists in Clay
+    =/  tool-path=path
+      /(scot %p our.bowl)/mcp/(scot %da now.bowl)/fil/default/mcp/tools/[tool-name]/hoon
+    =/  exists=?
+      =/  check=(each ? tang)  (mule |.(.^(? %cu tool-path)))
+      ?:(?=(%| -.check) %.n p.check)
+    ?.  exists
+      (exec-tool-list rest [(mk-res (rap 3 'error: MCP tool "' tool-name '" not found. Use local_mcp_list to see available tools.' ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ::  build the tool from Clay
+    =/  build-result=(each tool:mcp tang)
+      %-  mule  |.
+      !<(tool:mcp .^(vase %ca tool-path))
+    ?:  ?=(%| -.build-result)
+      (exec-tool-list rest [(mk-res (rap 3 'error: MCP tool "' tool-name '" failed to build.' ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  =tool:mcp  p.build-result
+    ::  execute thread-builder to get shed:khan (mule to catch arg mismatches)
+    =/  thread-result=(each shed:khan tang)
+      %-  mule  |.
+      (thread-builder.tool mcp-args-map)
+    ?:  ?=(%| -.thread-result)
+      (exec-tool-list rest [(mk-res (rap 3 'error: MCP tool "' tool-name '" rejected arguments.' ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ::  send khan %lard and wait for response
+    %-  (slog leaf+"claw-grub: local_mcp: executing '{(trip tool-name)}' via khan" ~)
+    ;<  ~  bind:m
+      (send-card:io [%pass /tool-http/(scot %tas bot-id)/'local-mcp'/(scot %da now.bowl) %arvo %k %lard %mcp p.thread-result])
+    ;<  =sign-arvo  bind:m
+      |=  input:fiber:nexus
+      :+  ~  state
+      ?~  in  [%wait ~]
+      ?.  ?=(%arvo -.u.in)  [%skip ~]
+      [%done sign.u.in]
+    =/  tool-body=@t
+      ?:  ?=([%khan %arow %| *] sign-arvo)
+        =/  =goof  p.p.sign-arvo
+        =/  trace=tape
+          %-  zing
+          %+  turn  (scag 10 tang.goof)
+          |=(t=tank ~(ram re t))
+        (crip (scag 2.000 (weld "error: thread failed:\0a" trace)))
+      ?:  ?=([%khan %arow %& *] sign-arvo)
+        =/  result-vase=vase  q.p.p.sign-arvo
+        =/  as-json=(each json tang)  (mule |.(!<(json result-vase)))
+        ?:  ?=(%& -.as-json)
+          ::  MCP tools return {"type":"text","text":"..."} — extract text
+          =/  j=json  p.as-json
+          ?.  ?=([%o *] j)
+            (crip (scag 6.000 (trip (en:json:html j))))
+          =/  txt=(unit json)  (~(get by p.j) 'text')
+          ?:  ?&(?=(^ txt) ?=([%s *] u.txt))
+            (crip (scag 6.000 (trip p.u.txt)))
+          (crip (scag 6.000 (trip (en:json:html j))))
+        =/  as-cord=(unit @t)  (mole |.(!<(@t result-vase)))
+        ?^  as-cord  (crip (scag 4.000 (trip u.as-cord)))
+        'tool returned unrecognized result type'
+      'tool completed (unknown response type)'
+    (exec-tool-list rest [(mk-res tool-body) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
   ?:  =('list_conversations' tname)
     =/  result=@t  (safe-scry /(scot %p our.bowl)/lcm/(scot %da now.bowl)/conversations/json 4.000)
     (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
@@ -1218,21 +1302,30 @@
       [%done sign.u.in]
     =/  tool-body=@t
       ?:  ?=([%khan %arow %| *] sign-arvo)
-        ::  khan thread error — include trace for the bot
-        =/  err-tang=tang  p.p.sign-arvo
+        ::  khan thread error — extract trace from goof
+        =/  =goof  p.p.sign-arvo
         =/  trace=tape
           %-  zing
-          %+  turn  (scag 10 `tang`err-tang)
+          %+  turn  (scag 10 tang.goof)
           |=(t=tank ~(ram re t))
         (crip (scag 2.000 (weld "error: thread failed:\0a" trace)))
       ?:  ?=([%khan %arow %& *] sign-arvo)
-        ::  khan success — extract result
-        =/  res-noun  q.p.p.sign-arvo
-        =/  as-json=(unit @t)  (mole |.((en:json:html ;;(json res-noun))))
-        ?^  as-json  (crip (scag 6.000 (trip u.as-json)))
-        =/  as-cord=(unit @t)  (mole |.(;;(@t res-noun)))
+        ::  khan success — result is cage [mark vase], extract json from vase
+        =/  result-vase=vase  q.p.p.sign-arvo
+        =/  as-json=(each json tang)  (mule |.(!<(json result-vase)))
+        ?:  ?=(%& -.as-json)
+          ::  MCP tools return {"type":"text","text":"..."} — extract text
+          =/  j=json  p.as-json
+          ?.  ?=([%o *] j)
+            (crip (scag 6.000 (trip (en:json:html j))))
+          =/  txt=(unit json)  (~(get by p.j) 'text')
+          ?:  ?&(?=(^ txt) ?=([%s *] u.txt))
+            (crip (scag 6.000 (trip p.u.txt)))
+          (crip (scag 6.000 (trip (en:json:html j))))
+        ::  try as cord
+        =/  as-cord=(unit @t)  (mole |.(!<(@t result-vase)))
         ?^  as-cord  (crip (scag 4.000 (trip u.as-cord)))
-        'tool returned non-text result'
+        'tool returned unrecognized result type'
       ?:  ?=([%iris %http-response %finished *] sign-arvo)
         %-  crip  %-  (cury scag 6.000)  %-  trip
         ?~(full-file.client-response.sign-arvo 'no response' q.data.u.full-file.client-response.sign-arvo)
@@ -1262,7 +1355,7 @@
   ;<  fresh-now=@da  bind:m  get-time:io
   =/  bname-u=(unit @t)  ?:(=('' bname) ~ `bname)
   =/  bavatar-u=(unit @t)  ?:(=('' bavatar) ~ `bavatar)
-  %-  (slog leaf+"claw-grub: send-reply author: name={<bname-u>} avatar={<bavatar-u>}" ~)
+  :: %-  (slog leaf+"claw-grub: send-reply author: name={<bname-u>} avatar={<bavatar-u>}" ~)
   =/  =author:d  (bot-author our bname-u bavatar-u)
   =/  =story:d  (text-to-story:story-parse text)
   ?:  is-dm

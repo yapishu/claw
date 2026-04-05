@@ -417,56 +417,6 @@
     ?:  ?=(%| -.result)  [%sync ~ 'MCP server agent not running. The %mcp desk may need to be started.']
     [%sync ~ p.result]
   ::
-  ::  mcp_tool: build and execute an MCP tool via Khan
-  ::
-  ?:  =('local_mcp' name)
-    =,  dejs:format
-    =/  tool-name=@t  ((ot ~[name+so]) u.args)
-    =/  args-str=@t  ((ot ~[arguments+so]) u.args)
-    ::  check if mcp desk exists
-    =/  has-mcp=?
-      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl)/desk/bill)))
-      ?:(?=(%| -.r) %.n p.r)
-    ?.  has-mcp
-      [%sync ~ 'The %mcp desk is not installed. Use install_local_mcp to install it from ~matwet.']
-    ::  parse arguments JSON into MCP argument map
-    =/  args-json=(unit json)  (de:json:html args-str)
-    ?~  args-json  [%sync ~ 'error: invalid arguments JSON']
-    =/  args-map=(map name:parameter:tool:mcp argument:tool:mcp)
-      ?+  u.args-json  *(map @t argument:tool:mcp)
-          [%o *]
-        %-  ~(run by p.u.args-json)
-        |=  j=json
-        ^-  argument:tool:mcp
-        ?+  j  ~
-          [%s *]  [%string p.j]
-          [%n *]  [%number (rash p.j dem)]
-          [%b *]  [%boolean p.j]
-        ==
-      ==
-    ::  check if MCP desk and tool file exist before building
-    =/  tool-path=path
-      /(scot %p our.bowl)/mcp/(scot %da now.bowl)/fil/default/mcp/tools/[tool-name]/hoon
-    =/  exists=?
-      =/  check=(each ? tang)  (mule |.(.^(? %cu tool-path)))
-      ?:(?=(%| -.check) %.n p.check)
-    ?.  exists
-      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" not found. Use local_mcp_list to see available tools. Install %mcp desk if not present.' ~)]
-    =/  build-result=(each tool:mcp tang)
-      %-  mule  |.
-      !<(tool:mcp .^(vase %ca tool-path))
-    ?:  ?=(%| -.build-result)
-      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" failed to build.' ~)]
-    =/  =tool:mcp  p.build-result
-    ::  execute via Khan thread - wrap in mule to catch arg type mismatches
-    =/  thread-result=(each shed:khan tang)
-      %-  mule  |.
-      (thread-builder.tool args-map)
-    ?:  ?=(%| -.thread-result)
-      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" rejected arguments. Check argument types and names.' ~)]
-    [%async [%pass /tool-http/(scot %tas bot-id)/'local-mcp'/(scot %da now.bowl) %arvo %k %lard %mcp p.thread-result]]
-  ::
-::
   ::  join_group: join an Urbit group (owner only)
   ::
   ?:  =('join_group' name)
@@ -939,6 +889,7 @@
   ?:  =('read_dm_history' name)       [%sync ~ 'handled by bot process']
   ?:  =('search_messages' name)       [%sync ~ 'handled by bot process']
   ?:  =('local_mcp_list' name)        [%sync ~ 'handled by bot process']
+  ?:  =('local_mcp' name)             [%sync ~ 'handled by bot process']
   ?:  =('list_conversations' name)    [%sync ~ 'handled by bot process']
   ?:  =('search_history' name)        [%sync ~ 'handled by bot process']
   ?:  =('describe_summary' name)      [%sync ~ 'handled by bot process']
