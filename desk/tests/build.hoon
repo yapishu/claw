@@ -28,7 +28,7 @@
   ?>  ?=(%& -.res)
   %+  expect-eq
     !>  ^-  (list import:build)
-    :~  [%foo [%& %& /lib %'foo.hoon']]
+    :~  [%file %foo [%& %& /lib %'foo.hoon']]
     ==
   !>  imports.p.res
 ::
@@ -39,7 +39,7 @@
   ?>  ?=(%& -.res)
   %+  expect-eq
     !>  ^-  (list import:build)
-    :~  [%bar [%| 0 %& /local %'bar.hoon']]
+    :~  [%file %bar [%| 0 %& /local %'bar.hoon']]
     ==
   !>  imports.p.res
 ::
@@ -50,7 +50,7 @@
   ?>  ?=(%& -.res)
   %+  expect-eq
     !>  ^-  (list import:build)
-    :~  [%bar [%| 0 %& /local %'bar.hoon']]
+    :~  [%file %bar [%| 0 %& /local %'bar.hoon']]
     ==
   !>  imports.p.res
 ::
@@ -61,7 +61,7 @@
   ?>  ?=(%& -.res)
   %+  expect-eq
     !>  ^-  (list import:build)
-    :~  [%baz [%| 2 %& /lib %'baz.hoon']]
+    :~  [%file %baz [%| 2 %& /lib %'baz.hoon']]
     ==
   !>  imports.p.res
 ::
@@ -129,7 +129,7 @@
   ?>  ?=(%& -.res)
   %+  expect-eq
     !>  ^-  (list import:build)
-    :~  [%x [%| 1 %& / %'foo.hoon']]
+    :~  [%file %x [%| 1 %& / %'foo.hoon']]
     ==
   !>  imports.p.res
 ::
@@ -140,7 +140,7 @@
   ?>  ?=(%& -.res)
   %+  expect-eq
     !>  ^-  (list import:build)
-    :~  [%deep [%& %& /a/b/c/d %'file.hoon']]
+    :~  [%file %deep [%& %& /a/b/c/d %'file.hoon']]
     ==
   !>  imports.p.res
 ::
@@ -151,25 +151,25 @@
 ++  test-import-rule-absolute
   =/  res  (rust "/<  foo  /lib/foo.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%foo [%& %& /lib %'foo.hoon']]
+    !>  `[%file %foo [%& %& /lib %'foo.hoon']]
   !>  res
 ::
 ++  test-import-rule-relative
   =/  res  (rust "/<  bar  ./bar.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%bar [%| 0 %& / %'bar.hoon']]
+    !>  `[%file %bar [%| 0 %& / %'bar.hoon']]
   !>  res
 ::
 ++  test-import-rule-bare-relative
   =/  res  (rust "/<  bar  bar.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%bar [%| 0 %& / %'bar.hoon']]
+    !>  `[%file %bar [%| 0 %& / %'bar.hoon']]
   !>  res
 ::
 ++  test-import-rule-updirs
   =/  res  (rust "/<  baz  ../../lib/baz.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%baz [%| 2 %& /lib %'baz.hoon']]
+    !>  `[%file %baz [%| 2 %& /lib %'baz.hoon']]
   !>  res
 ::
 ++  test-import-rule-not-import
@@ -187,42 +187,42 @@
   ::  Hyphens in path segments
   =/  res  (rust "/<  foo  /lib/my-lib.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%foo [%& %& /lib %'my-lib.hoon']]
+    !>  `[%file %foo [%& %& /lib %'my-lib.hoon']]
   !>  res
 ::
 ++  test-import-rule-dotted-path
   ::  Dots in path segments (besides the extension)
   =/  res  (rust "/<  foo  /lib/foo.bar.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%foo [%& %& /lib %'foo.bar.hoon']]
+    !>  `[%file %foo [%& %& /lib %'foo.bar.hoon']]
   !>  res
 ::
 ++  test-import-rule-hyphenated-name
   ::  Hyphenated import name
   =/  res  (rust "/<  my-lib  /lib/foo.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%my-lib [%& %& /lib %'foo.hoon']]
+    !>  `[%file %my-lib [%& %& /lib %'foo.hoon']]
   !>  res
 ::
 ++  test-import-rule-deep-relative
   ::  Deep relative path ./a/b/c/file.hoon
   =/  res  (rust "/<  foo  ./a/b/c/file.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%foo [%| 0 %& /a/b/c %'file.hoon']]
+    !>  `[%file %foo [%| 0 %& /a/b/c %'file.hoon']]
   !>  res
 ::
 ++  test-import-rule-single-segment-absolute
   ::  Single segment absolute /foo.hoon
   =/  res  (rust "/<  foo  /foo.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%foo [%& %& / %'foo.hoon']]
+    !>  `[%file %foo [%& %& / %'foo.hoon']]
   !>  res
 ::
 ++  test-import-rule-extra-whitespace
   ::  Extra whitespace between tokens
   =/  res  (rust "/<  foo    /lib/foo.hoon" import-rule:build)
   %+  expect-eq
-    !>  `[%foo [%& %& /lib %'foo.hoon']]
+    !>  `[%file %foo [%& %& /lib %'foo.hoon']]
   !>  res
 ::
 ::  ==========================================
@@ -268,7 +268,8 @@
   %+  expect-eq
     !>  ^-  (list @tas)
     ~[%alpha %beta %gamma]
-  !>  (turn imports.p.res |=(i=import:build name.i))
+  !>  %+  turn  imports.p.res
+      |=(i=import:build ?>(?=(%file -.i) name.i))
 ::
 ++  test-parse-imports-multiline-body
   ::  Body with multiple lines preserved
@@ -341,11 +342,11 @@
   ?>  ?=(%& -.res)
   %+  expect-eq
     !>  ^-  (list import:build)
-    :~  [%abs [%& %& /lib %'abs.hoon']]
-        [%rel [%| 0 %& / %'rel.hoon']]
-        [%bare [%| 0 %& / %'bare.hoon']]
-        [%up [%| 1 %& / %'up.hoon']]
-        [%up2 [%| 2 %& /dir %'up2.hoon']]
+    :~  [%file %abs [%& %& /lib %'abs.hoon']]
+        [%file %rel [%| 0 %& / %'rel.hoon']]
+        [%file %bare [%| 0 %& / %'bare.hoon']]
+        [%file %up [%| 1 %& / %'up.hoon']]
+        [%file %up2 [%| 2 %& /dir %'up2.hoon']]
     ==
   !>  imports.p.res
 ::
@@ -395,31 +396,31 @@
 ++  test-resolve-import-absolute
   ::  Absolute import resolves regardless of source location
   =/  here=rail:tarball  [/app %'my.hoon']
-  =/  imp=import:build  [%foo [%& %& /lib %'foo.hoon']]
+  =/  imp=import:build  [%file %foo [%& %& /lib %'foo.hoon']]
   %+  expect-eq
-    !>  `[%foo [/lib %'foo.hoon']]
+    !>  `[%file %foo [/lib %'foo.hoon']]
   !>  (resolve-import:build here imp)
 ::
 ++  test-resolve-import-relative
   ::  ./bar.hoon from /app/my.hoon → /app/bar.hoon
   =/  here=rail:tarball  [/app %'my.hoon']
-  =/  imp=import:build  [%bar [%| 0 %& / %'bar.hoon']]
+  =/  imp=import:build  [%file %bar [%| 0 %& / %'bar.hoon']]
   %+  expect-eq
-    !>  `[%bar [/app %'bar.hoon']]
+    !>  `[%file %bar [/app %'bar.hoon']]
   !>  (resolve-import:build here imp)
 ::
 ++  test-resolve-import-updir
   ::  ../lib/util.hoon from /app/my.hoon → /lib/util.hoon
   =/  here=rail:tarball  [/app %'my.hoon']
-  =/  imp=import:build  [%util [%| 1 %& /lib %'util.hoon']]
+  =/  imp=import:build  [%file %util [%| 1 %& /lib %'util.hoon']]
   %+  expect-eq
-    !>  `[%util [/lib %'util.hoon']]
+    !>  `[%file %util [/lib %'util.hoon']]
   !>  (resolve-import:build here imp)
 ::
 ++  test-resolve-import-updir-too-far
   ::  Walking up past root returns ~
   =/  here=rail:tarball  [/ %'my.hoon']
-  =/  imp=import:build  [%x [%| 2 %& / %'x.hoon']]
+  =/  imp=import:build  [%file %x [%| 2 %& / %'x.hoon']]
   %+  expect-eq
     !>  ~
   !>  (resolve-import:build here imp)
@@ -530,8 +531,8 @@
   ::  Finds %hoon files, ignores others
   =/  =ball:tarball
     =/  b=ball:tarball  *ball:tarball
-    =.  b  (~(put ba:tarball b) [/ %'foo.hoon'] [~ [%hoon !>('|=(a=@ a)')]])
-    =.  b  (~(put ba:tarball b) [/ %'data.json'] [~ [%json !>(*json)]])
+    =.  b  (~(put ba:tarball b) [/ %'foo.hoon'] [~ [[/ %hoon] !>('|=(a=@ a)')]])
+    =.  b  (~(put ba:tarball b) [/ %'data.json'] [~ [[/ %json] !>(*json)]])
     b
   =/  sources  (find-hoon-sources:build ball)
   ;:  weld
@@ -554,9 +555,9 @@
 ++  test-find-hoon-sources-nested
   ::  Finds hoon files in subdirectories
   =/  =ball:tarball  *ball:tarball
-  =.  ball  (~(put ba:tarball ball) [/lib %'foo.hoon'] [~ [%hoon !>('1')]])
-  =.  ball  (~(put ba:tarball ball) [/lib/deep %'bar.hoon'] [~ [%hoon !>('2')]])
-  =.  ball  (~(put ba:tarball ball) [/ %'top.hoon'] [~ [%hoon !>('3')]])
+  =.  ball  (~(put ba:tarball ball) [/lib %'foo.hoon'] [~ [[/ %hoon] !>('1')]])
+  =.  ball  (~(put ba:tarball ball) [/lib/deep %'bar.hoon'] [~ [[/ %hoon] !>('2')]])
+  =.  ball  (~(put ba:tarball ball) [/ %'top.hoon'] [~ [[/ %hoon] !>('3')]])
   =/  sources  (find-hoon-sources:build ball)
   %+  expect-eq
     !>  3
@@ -569,7 +570,7 @@
 ++  test-build-all-single-file
   ::  Single hoon file with no imports compiles
   =/  =ball:tarball
-    (~(put ba:tarball *ball:tarball) [/ %'foo.hoon'] [~ [%hoon !>('|=(a=@ +(a))')]])
+    (~(put ba:tarball *ball:tarball) [/ %'foo.hoon'] [~ [[/ %hoon] !>('|=(a=@ +(a))')]])
   =/  res  (build-all:build !>(~) ball *build-cache:build)
   =/  foo-res  (~(get by results.res) [/ %'foo.hoon'])
   (expect !>(=(%.y ?=([~ %& *] foo-res))))
@@ -577,7 +578,7 @@
 ++  test-build-all-syntax-error
   ::  Bad syntax produces a tang error
   =/  =ball:tarball
-    (~(put ba:tarball *ball:tarball) [/ %'bad.hoon'] [~ [%hoon !>('|=(')]])
+    (~(put ba:tarball *ball:tarball) [/ %'bad.hoon'] [~ [[/ %hoon] !>('|=(')]])
   =/  res  (build-all:build !>(~) ball *build-cache:build)
   =/  bad-res  (~(get by results.res) [/ %'bad.hoon'])
   (expect !>(=(%.y ?=([~ %| *] bad-res))))
@@ -586,9 +587,9 @@
   ::  File B imports file A; B can use A's gate
   =/  =ball:tarball  *ball:tarball
   =.  ball
-    (~(put ba:tarball ball) [/lib %'add1.hoon'] [~ [%hoon !>('|=(a=@ +(a))')]])
+    (~(put ba:tarball ball) [/lib %'add1.hoon'] [~ [[/ %hoon] !>('|=(a=@ +(a))')]])
   =.  ball
-    (~(put ba:tarball ball) [/ %'main.hoon'] [~ [%hoon !>('/<  add1  /lib/add1.hoon\0a(add1 5)')]])
+    (~(put ba:tarball ball) [/ %'main.hoon'] [~ [[/ %hoon] !>('/<  add1  /lib/add1.hoon\0a(add1 5)')]])
   =/  res  (build-all:build !>(~) ball *build-cache:build)
   =/  main-res  (~(get by results.res) [/ %'main.hoon'])
   (expect !>(=(%.y ?=([~ %& *] main-res))))
@@ -596,7 +597,7 @@
 ++  test-build-all-missing-dep
   ::  Import pointing to nonexistent file → error
   =/  =ball:tarball
-    (~(put ba:tarball *ball:tarball) [/ %'main.hoon'] [~ [%hoon !>('/<  missing  /lib/nope.hoon\0a~')]])
+    (~(put ba:tarball *ball:tarball) [/ %'main.hoon'] [~ [[/ %hoon] !>('/<  missing  /lib/nope.hoon\0a~')]])
   =/  res  (build-all:build !>(~) ball *build-cache:build)
   =/  main-res  (~(get by results.res) [/ %'main.hoon'])
   (expect !>(=(%.y ?=([~ %| *] main-res))))
@@ -604,7 +605,7 @@
 ++  test-build-all-cache-hit
   ::  Second build with same content uses cache
   =/  =ball:tarball
-    (~(put ba:tarball *ball:tarball) [/ %'foo.hoon'] [~ [%hoon !>('|=(a=@ +(a))')]])
+    (~(put ba:tarball *ball:tarball) [/ %'foo.hoon'] [~ [[/ %hoon] !>('|=(a=@ +(a))')]])
   =/  res1  (build-all:build !>(~) ball *build-cache:build)
   =/  res2  (build-all:build !>(~) ball cache.res1)
   =/  foo1  (~(got by results.res1) [/ %'foo.hoon'])
@@ -621,10 +622,10 @@
 ++  test-build-all-cache-miss
   ::  Changing source content causes cache miss (different result)
   =/  ball1=ball:tarball
-    (~(put ba:tarball *ball:tarball) [/ %'foo.hoon'] [~ [%hoon !>('|=(a=@ +(a))')]])
+    (~(put ba:tarball *ball:tarball) [/ %'foo.hoon'] [~ [[/ %hoon] !>('|=(a=@ +(a))')]])
   =/  res1  (build-all:build !>(~) ball1 *build-cache:build)
   =/  ball2=ball:tarball
-    (~(put ba:tarball *ball:tarball) [/ %'foo.hoon'] [~ [%hoon !>('|=(a=@ +(+(a)))')]])
+    (~(put ba:tarball *ball:tarball) [/ %'foo.hoon'] [~ [[/ %hoon] !>('|=(a=@ +(+(a)))')]])
   =/  res2  (build-all:build !>(~) ball2 cache.res1)
   =/  foo1  (~(got by results.res1) [/ %'foo.hoon'])
   =/  foo2  (~(got by results.res2) [/ %'foo.hoon'])
@@ -637,9 +638,9 @@
   ::  Two files importing each other → circular dependency errors
   =/  =ball:tarball  *ball:tarball
   =.  ball
-    (~(put ba:tarball ball) [/ %'a.hoon'] [~ [%hoon !>('/<  b  ./b.hoon\0a~')]])
+    (~(put ba:tarball ball) [/ %'a.hoon'] [~ [[/ %hoon] !>('/<  b  ./b.hoon\0a~')]])
   =.  ball
-    (~(put ba:tarball ball) [/ %'b.hoon'] [~ [%hoon !>('/<  a  ./a.hoon\0a~')]])
+    (~(put ba:tarball ball) [/ %'b.hoon'] [~ [[/ %hoon] !>('/<  a  ./a.hoon\0a~')]])
   =/  res  (build-all:build !>(~) ball *build-cache:build)
   =/  a-res  (~(get by results.res) [/ %'a.hoon'])
   =/  b-res  (~(get by results.res) [/ %'b.hoon'])
@@ -652,9 +653,9 @@
   ::  If a dep fails, dependents get dep-failed error
   =/  =ball:tarball  *ball:tarball
   =.  ball
-    (~(put ba:tarball ball) [/lib %'bad.hoon'] [~ [%hoon !>('|=(')]])
+    (~(put ba:tarball ball) [/lib %'bad.hoon'] [~ [[/ %hoon] !>('|=(')]])
   =.  ball
-    (~(put ba:tarball ball) [/ %'main.hoon'] [~ [%hoon !>('/<  bad  /lib/bad.hoon\0a(bad 1)')]])
+    (~(put ba:tarball ball) [/ %'main.hoon'] [~ [[/ %hoon] !>('/<  bad  /lib/bad.hoon\0a(bad 1)')]])
   =/  res  (build-all:build !>(~) ball *build-cache:build)
   =/  bad-res  (~(get by results.res) [/lib %'bad.hoon'])
   =/  main-res  (~(get by results.res) [/ %'main.hoon'])
@@ -667,11 +668,11 @@
   ::  a→b→c: three-level chain compiles correctly
   =/  =ball:tarball  *ball:tarball
   =.  ball
-    (~(put ba:tarball ball) [/lib %'c.hoon'] [~ [%hoon !>('|=(a=@ +(a))')]])
+    (~(put ba:tarball ball) [/lib %'c.hoon'] [~ [[/ %hoon] !>('|=(a=@ +(a))')]])
   =.  ball
-    (~(put ba:tarball ball) [/lib %'b.hoon'] [~ [%hoon !>('/<  c  /lib/c.hoon\0a|=(a=@ (c a))')]])
+    (~(put ba:tarball ball) [/lib %'b.hoon'] [~ [[/ %hoon] !>('/<  c  /lib/c.hoon\0a|=(a=@ (c a))')]])
   =.  ball
-    (~(put ba:tarball ball) [/ %'a.hoon'] [~ [%hoon !>('/<  b  /lib/b.hoon\0a(b 5)')]])
+    (~(put ba:tarball ball) [/ %'a.hoon'] [~ [[/ %hoon] !>('/<  b  /lib/b.hoon\0a(b 5)')]])
   =/  res  (build-all:build !>(~) ball *build-cache:build)
   =/  a-res  (~(get by results.res) [/ %'a.hoon'])
   =/  b-res  (~(get by results.res) [/lib %'b.hoon'])
@@ -686,13 +687,13 @@
   ::  a→b, a→c, b→d, c→d: diamond compiles, d built once
   =/  =ball:tarball  *ball:tarball
   =.  ball
-    (~(put ba:tarball ball) [/lib %'d.hoon'] [~ [%hoon !>('|=(a=@ +(a))')]])
+    (~(put ba:tarball ball) [/lib %'d.hoon'] [~ [[/ %hoon] !>('|=(a=@ +(a))')]])
   =.  ball
-    (~(put ba:tarball ball) [/lib %'b.hoon'] [~ [%hoon !>('/<  d  /lib/d.hoon\0a|=(a=@ (d a))')]])
+    (~(put ba:tarball ball) [/lib %'b.hoon'] [~ [[/ %hoon] !>('/<  d  /lib/d.hoon\0a|=(a=@ (d a))')]])
   =.  ball
-    (~(put ba:tarball ball) [/lib %'c.hoon'] [~ [%hoon !>('/<  d  /lib/d.hoon\0a|=(a=@ (d (d a)))')]])
+    (~(put ba:tarball ball) [/lib %'c.hoon'] [~ [[/ %hoon] !>('/<  d  /lib/d.hoon\0a|=(a=@ (d (d a)))')]])
   =.  ball
-    (~(put ba:tarball ball) [/ %'a.hoon'] [~ [%hoon !>('/<  b  /lib/b.hoon\0a/<  c  /lib/c.hoon\0a[(b 1) (c 1)]')]])
+    (~(put ba:tarball ball) [/ %'a.hoon'] [~ [[/ %hoon] !>('/<  b  /lib/b.hoon\0a/<  c  /lib/c.hoon\0a[(b 1) (c 1)]')]])
   =/  res  (build-all:build !>(~) ball *build-cache:build)
   =/  a-res  (~(get by results.res) [/ %'a.hoon'])
   ;:  weld

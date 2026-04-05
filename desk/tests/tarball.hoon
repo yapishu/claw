@@ -7,7 +7,7 @@
 ::
 ++  test-put-and-get
   =/  my-ball  *ball:tarball
-  =/  test-content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  test-content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  updated  (~(put ba:tarball my-ball) [/foo %test] test-content)
   =/  result  (~(get ba:tarball updated) /foo %test)
   %+  expect-eq
@@ -23,7 +23,7 @@
 ::
 ++  test-has-exists
   =/  my-ball  *ball:tarball
-  =/  test-content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  test-content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  updated  (~(put ba:tarball my-ball) [/foo %test] test-content)
   %-  expect
   !>  (~(has ba:tarball updated) /foo %test)
@@ -37,7 +37,7 @@
 ::
 ++  test-del
   =/  my-ball  *ball:tarball
-  =/  test-content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  test-content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] test-content)
   =/  g2  (~(del ba:tarball g1) /foo %test)
   =/  result  (~(get ba:tarball g2) /foo %test)
@@ -47,8 +47,8 @@
 ::
 ++  test-lis
   =/  my-ball  *ball:tarball
-  =/  test1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  test2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  test1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  test2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] test1)
   =/  g2  (~(put ba:tarball g1) [/foo %other] test2)
   =/  files  (~(lis ba:tarball g2) /foo)
@@ -62,8 +62,8 @@
 ::
 ++  test-multiple-paths
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/bar %other] content2)
   ;:  weld
@@ -77,7 +77,7 @@
 ::
 ++  test-got
   =/  my-ball  *ball:tarball
-  =/  test-content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  test-content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  updated  (~(put ba:tarball my-ball) [/foo %test] test-content)
   %+  expect-eq
     !>  test-content
@@ -90,7 +90,7 @@
 ::
 ++  test-gut
   =/  my-ball  *ball:tarball
-  =/  default=content:tarball  [~ [%mime !>([/text/plain [7 'default']])]]
+  =/  default=content:tarball  [~ [/ %mime] !>([/text/plain [7 'default']])]
   =/  result  (~(gut ba:tarball my-ball) [/foo %test] default)
   %+  expect-eq
     !>  default
@@ -98,8 +98,8 @@
 ::
 ++  test-wyt
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/bar %other] content2)
   %+  expect-eq
@@ -109,24 +109,24 @@
 ++  test-gas
   =/  my-ball  *ball:tarball
   =/  files=(list [rail:tarball content:tarball])
-    :~  [[/foo %test] [~ [%mime !>([/text/plain [5 'hello']])]]]
-        [[/foo %other] [~ [%mime !>([/text/html [3 'bye']])]]]
-        [[/bar %thing] [~ [%mime !>([/text/css [4 'hmm']])]]]
+    :~  [[/foo %test] [~ [/ %mime] !>([/text/plain [5 'hello']])]]
+        [[/foo %other] [~ [/ %mime] !>([/text/html [3 'bye']])]]
+        [[/bar %thing] [~ [/ %mime] !>([/text/css [4 'hmm']])]]
     ==
   =/  updated  (~(gas ba:tarball my-ball) files)
   ;:  weld
     %+  expect-eq
-      !>  `[~ [%mime !>([/text/plain [5 'hello']])]]
+      !>  `[~ [/ %mime] !>([/text/plain [5 'hello']])]
     !>  (~(get ba:tarball updated) /foo %test)
     %+  expect-eq
-      !>  `[~ [%mime !>([/text/css [4 'hmm']])]]
+      !>  `[~ [/ %mime] !>([/text/css [4 'hmm']])]
     !>  (~(get ba:tarball updated) /bar %thing)
   ==
 ::
 ++  test-tap
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/foo %other] content2)
   =/  result  ~(tap ba:tarball g2)
@@ -135,7 +135,7 @@
 ::
 ++  test-run
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   ::  Identity transform - run should preserve content
   =/  updated  (~(run ba:tarball g1) |=(c=content:tarball c))
@@ -146,8 +146,8 @@
 ::
 ++  test-rep
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/bar %other] content2)
   ::  Count all entries
@@ -158,18 +158,18 @@
 ::
 ++  test-all
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/plain [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/plain [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/bar %other] content2)
   ::  Check all are mime cages (all content is now just cage)
   %-  expect
-  !>  (~(all ba:tarball g2) |=(c=content:tarball =(%mime p.cage.c)))
+  !>  (~(all ba:tarball g2) |=(c=content:tarball =([/ %mime] p.sage.c)))
 ::
 ++  test-all-false
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/bar %other] content2)
   ::  Check if all match false predicate (should be false)
@@ -179,8 +179,8 @@
 ::
 ++  test-put-overwrite
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/foo %test] content2)
   =/  result  (~(get ba:tarball g2) /foo %test)
@@ -204,8 +204,8 @@
 ::
 ++  test-gut-exists
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  default=content:tarball  [~ [%mime !>([/text/html [7 'default']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  default=content:tarball  [~ [/ %mime] !>([/text/html [7 'default']])]
   =/  updated  (~(put ba:tarball my-ball) [/foo %test] content)
   =/  result  (~(gut ba:tarball updated) [/foo %test] default)
   %+  expect-eq
@@ -260,8 +260,8 @@
 ::
 ++  test-any-none-match
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/plain [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/plain [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/bar %other] content2)
   ::  Check if any match false predicate (should be false)
@@ -271,7 +271,7 @@
 ::
 ++  test-lop-nonexistent
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar %test] content)
   =/  result  (~(lop ba:tarball g1) /baz)
   ::  Should be no-op, ball unchanged
@@ -288,18 +288,18 @@
 ::
 ++  test-any
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content1)
   =/  g2  (~(put ba:tarball g1) [/bar %other] content2)
   ::  Check if any are mime cages (all content is now just cage)
   %-  expect
-  !>  (~(any ba:tarball g2) |=(c=content:tarball =(%mime p.cage.c)))
+  !>  (~(any ba:tarball g2) |=(c=content:tarball =([/ %mime] p.sage.c)))
 ::
 ++  test-lop
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar %test] content1)
   =/  g2  (~(put ba:tarball g1) [/foo/bar %other] content2)
   ::  Delete entire /foo subtree
@@ -310,8 +310,8 @@
 ::
 ++  test-dip
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/html [3 'bye']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/html [3 'bye']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar %test] content1)
   =/  g2  (~(put ba:tarball g1) [/foo/bar %other] content2)
   ::  Get directory at /foo/bar as a ball
@@ -354,7 +354,7 @@
 ++  test-dap-exists-with-files
   ::  Path exists when files are present
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar %test] content)
   =/  dap-result  (~(dap ba:tarball g1) /foo/bar)
   =/  dip-result  (~(dip ba:tarball g1) /foo/bar)
@@ -370,7 +370,7 @@
 ++  test-dap-exists-after-delete
   ::  Path still exists after deleting files (structure remains)
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar %test] content)
   =/  g2  (~(del ba:tarball g1) /foo/bar %test)
   =/  dap-result  (~(dap ba:tarball g2) /foo/bar)
@@ -388,7 +388,7 @@
 ++  test-dap-nonexistent-sibling
   ::  Path doesn't exist if we never created it
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content)
   =/  dap-result  (~(dap ba:tarball g1) /bar)
   =/  dip-result  (~(dip ba:tarball g1) /bar)
@@ -406,7 +406,7 @@
 ++  test-dap-nonexistent-child
   ::  Path doesn't exist if we go deeper than structure
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content)
   =/  dap-result  (~(dap ba:tarball g1) /foo/bar)
   =/  dip-result  (~(dip ba:tarball g1) /foo/bar)
@@ -424,7 +424,7 @@
 ++  test-dap-parent-exists
   ::  Parent path exists when child has files
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar/baz %test] content)
   =/  dap-result  (~(dap ba:tarball g1) /foo)
   =/  dip-result  (~(dip ba:tarball g1) /foo)
@@ -1046,47 +1046,47 @@
     !>  `%mp4
   !>  result
 ::
-::  mime-to-cage tests
+::  mime-to-sage tests
 ::
-++  test-mime-to-cage-no-extension
+++  test-mime-to-sage-no-extension
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-mime  [/text/plain [5 'hello']]
-  =/  result  (mime-to-cage:tarball conversions 'readme' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'readme' test-mime)
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-jammed-no-ext
+++  test-mime-to-sage-jammed-no-ext
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-data  42
   =/  jammed  (jam test-data)
   =/  test-mime  [/application/x-urb-jam (as-octs:mimes:html jammed)]
-  =/  result  (mime-to-cage:tarball conversions 'data' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'data' test-mime)
   ::  No extension - should return ~
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-jammed-with-ext
+++  test-mime-to-sage-jammed-with-ext
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-data  [%hello %world]
   =/  jammed  (jam test-data)
   =/  test-mime  [/application/x-urb-jam (as-octs:mimes:html jammed)]
-  =/  result  (mime-to-cage:tarball conversions 'data.jam' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'data.jam' test-mime)
   ::  No conversion for .jam - should return ~
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-no-conversion
+++  test-mime-to-sage-no-conversion
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-mime  [/text/plain [5 'hello']]
-  =/  result  (mime-to-cage:tarball conversions 'data.txt' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'data.txt' test-mime)
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-with-conversion
+++  test-mime-to-sage-with-conversion
   ::  Mock a conversion from mime to json mark
   =/  mock-tube=$-(vase vase)
     |=  v=vase
@@ -1094,7 +1094,7 @@
   =/  conversions=(map mars:clay tube:clay)
     (~(put by *(map mars:clay tube:clay)) [%mime %json] mock-tube)
   =/  test-mime  [/application/json [2 '{}']]
-  =/  result  (mime-to-cage:tarball conversions 'data.json' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'data.json' test-mime)
   ?~  result  !!
   ;:  weld
     %+  expect-eq
@@ -1105,51 +1105,51 @@
     !>  q.u.result
   ==
 ::
-++  test-mime-to-cage-uppercase-ext
+++  test-mime-to-sage-uppercase-ext
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-mime  [/text/plain [5 'HELLO']]
-  =/  result  (mime-to-cage:tarball conversions 'FILE.TXT' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'FILE.TXT' test-mime)
   ::  Extension should be normalized to lowercase, but no conversion so returns ~
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-hyphenated-ext
+++  test-mime-to-sage-hyphenated-ext
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-mime  [/text/html [10 '<p>test</p>']]
-  =/  result  (mime-to-cage:tarball conversions 'page.html-min' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'page.html-min' test-mime)
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-jammed-complex
+++  test-mime-to-sage-jammed-complex
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-data=(list @ud)  ~[1 2 3 4 5]
   =/  jammed  (jam test-data)
   =/  test-mime  [/application/x-urb-jam (as-octs:mimes:html jammed)]
-  =/  result  (mime-to-cage:tarball conversions 'list.dat' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'list.dat' test-mime)
   ::  No conversion for .dat - should return ~
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-empty-conversions
+++  test-mime-to-sage-empty-conversions
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-mime  [/text/css [4 'body']]
-  =/  result  (mime-to-cage:tarball conversions 'style.css' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'style.css' test-mime)
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-multiple-dots
+++  test-mime-to-sage-multiple-dots
   =/  conversions  *(map mars:clay tube:clay)
   =/  test-mime  [/text/plain [3 'hi']]
-  =/  result  (mime-to-cage:tarball conversions 'my.backup.txt' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'my.backup.txt' test-mime)
   %+  expect-eq
     !>  ~
   !>  result
 ::
-++  test-mime-to-cage-conversion-priority
+++  test-mime-to-sage-conversion-priority
   ::  With conversion available, should use it
   =/  mock-tube=$-(vase vase)
     |=  v=vase
@@ -1157,7 +1157,7 @@
   =/  conversions=(map mars:clay tube:clay)
     (~(put by *(map mars:clay tube:clay)) [%mime %md] mock-tube)
   =/  test-mime  [/text/markdown [6 '# Test']]
-  =/  result  (mime-to-cage:tarball conversions 'readme.md' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'readme.md' test-mime)
   ?~  result  !!
   ;:  weld
     %+  expect-eq
@@ -1168,7 +1168,7 @@
     !>  q.u.result
   ==
 ::
-++  test-mime-to-cage-conversion-ignores-mime-type
+++  test-mime-to-sage-conversion-ignores-mime-type
   ::  Extension determines conversion, not mime type
   =/  mock-tube=$-(vase vase)
     |=  v=vase
@@ -1178,7 +1178,7 @@
   =/  test-data  %test-atom
   =/  jammed  (jam test-data)
   =/  test-mime  [/application/x-urb-jam (as-octs:mimes:html jammed)]
-  =/  result  (mime-to-cage:tarball conversions 'data.json' test-mime)
+  =/  result  (mime-to-sage:tarball conversions 'data.json' test-mime)
   ::  Should use .json conversion even though mime type is x-urb-jam
   ?~  result  !!
   ;:  weld
@@ -1188,81 +1188,6 @@
     %+  expect-eq
       !>  !>('converted-json')
     !>  q.u.result
-  ==
-::
-::  clear-temp tests
-::
-++  test-clear-temp-empty-ball
-  ::  Empty ball should stay empty
-  =/  my-ball  *ball:tarball
-  =/  result  ~(clear-temp ba:tarball my-ball)
-  %+  expect-eq
-    !>  my-ball
-  !>  result
-::
-++  test-clear-temp-removes-temp-cages
-  ::  %temp cages should be removed
-  =/  my-ball  *ball:tarball
-  =/  temp-content=content:tarball  [~ [%temp !>('ephemeral')]]
-  =/  g1  (~(put ba:tarball my-ball) [/foo %temp-file] temp-content)
-  =/  result  ~(clear-temp ba:tarball g1)
-  ;:  weld
-    ::  temp file should be gone
-    %+  expect-eq
-      !>  ~
-    !>  (~(get ba:tarball result) /foo %temp-file)
-    ::  count should be 0
-    %+  expect-eq
-      !>  0
-    !>  ~(wyt ba:tarball result)
-  ==
-::
-++  test-clear-temp-keeps-non-temp
-  ::  Non-%temp cages should be preserved
-  =/  my-ball  *ball:tarball
-  =/  mime-content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
-  =/  temp-content=content:tarball  [~ [%temp !>('ephemeral')]]
-  =/  g1  (~(put ba:tarball my-ball) [/foo %keep-file] mime-content)
-  =/  g2  (~(put ba:tarball g1) [/foo %temp-file] temp-content)
-  =/  result  ~(clear-temp ba:tarball g2)
-  ;:  weld
-    ::  mime file should remain
-    %+  expect-eq
-      !>  `mime-content
-    !>  (~(get ba:tarball result) /foo %keep-file)
-    ::  temp file should be gone
-    %+  expect-eq
-      !>  ~
-    !>  (~(get ba:tarball result) /foo %temp-file)
-    ::  count should be 1
-    %+  expect-eq
-      !>  1
-    !>  ~(wyt ba:tarball result)
-  ==
-::
-++  test-clear-temp-multiple-dirs
-  ::  Should clear %temp from all directories
-  =/  my-ball  *ball:tarball
-  =/  temp1=content:tarball  [~ [%temp !>('t1')]]
-  =/  temp2=content:tarball  [~ [%temp !>('t2')]]
-  =/  keep=content:tarball   [~ [%mime !>([/text/plain [4 'keep']])]]
-  =/  g1  (~(put ba:tarball my-ball) [/foo %temp1] temp1)
-  =/  g2  (~(put ba:tarball g1) [/bar %temp2] temp2)
-  =/  g3  (~(put ba:tarball g2) [/baz %keep] keep)
-  =/  result  ~(clear-temp ba:tarball g3)
-  ;:  weld
-    %+  expect-eq
-      !>  ~
-    !>  (~(get ba:tarball result) /foo %temp1)
-    %+  expect-eq
-      !>  ~
-    !>  (~(get ba:tarball result) /bar %temp2)
-    %+  expect-eq
-      !>  `keep
-    !>  (~(get ba:tarball result) /baz %keep)
-    %+  expect-eq
-      !>  1
-    !>  ~(wyt ba:tarball result)
   ==
 ::
 ::  lss tests (list subdirectories)
@@ -1277,7 +1202,7 @@
 ++  test-lss-with-subdirs
   ::  Should list subdirectories
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar %test] content)
   =/  g2  (~(put ba:tarball g1) [/baz %test] content)
   =/  dirs  (~(lss ba:tarball g2) /)
@@ -1295,7 +1220,7 @@
 ++  test-lss-nested
   ::  Should list only immediate children
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar/baz %test] content)
   =/  dirs-at-root  (~(lss ba:tarball g1) /)
   =/  dirs-at-foo   (~(lss ba:tarball g1) /foo)
@@ -1313,7 +1238,7 @@
 ++  test-lss-nonexistent-path
   ::  Non-existent path returns empty
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo %test] content)
   %+  expect-eq
     !>  ~
@@ -1343,23 +1268,23 @@
 ++  test-mkd-with-neck
   ::  Create directory with neck (mark)
   =/  my-ball  *ball:tarball
-  =/  result  (~(mkd ba:tarball my-ball) /tasks ~ `%worker)
+  =/  result  (~(mkd ba:tarball my-ball) /tasks ~ `[/ %worker])
   =/  sub  (~(dip ba:tarball result) /tasks)
   ?~  fil.sub  !!
   %+  expect-eq
-    !>  `%worker
+    !>  `[/ %worker]
   !>  neck.u.fil.sub
 ::
 ++  test-mkd-with-metadata-and-neck
   ::  Create directory with both metadata and neck
   =/  my-ball  *ball:tarball
   =/  meta=(map @t @t)  (~(gas by *(map @t @t)) ~[['mtime' '12345'] ['owner' 'zod']])
-  =/  result  (~(mkd ba:tarball my-ball) /tasks meta `%executor)
+  =/  result  (~(mkd ba:tarball my-ball) /tasks meta `[/ %executor])
   =/  sub  (~(dip ba:tarball result) /tasks)
   ?~  fil.sub  !!
   ;:  weld
     %+  expect-eq
-      !>  `%executor
+      !>  `[/ %executor]
     !>  neck.u.fil.sub
     %+  expect-eq
       !>  `'12345'
@@ -1373,11 +1298,11 @@
   ::  Create nested directories
   =/  my-ball  *ball:tarball
   =/  g1  (~(mkd ba:tarball my-ball) /foo ~ ~)
-  =/  g2  (~(mkd ba:tarball g1) /foo/bar ~ `%special)
+  =/  g2  (~(mkd ba:tarball g1) /foo/bar ~ `[/ %special])
   =/  sub  (~(dip ba:tarball g2) /foo/bar)
   ?~  fil.sub  !!
   %+  expect-eq
-    !>  `%special
+    !>  `[/ %special]
   !>  neck.u.fil.sub
 ::
 ::  pub tests (put subtree at path)
@@ -1385,7 +1310,7 @@
 ++  test-pub-at-root
   ::  Pub at root replaces entire ball
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  sub-ball  (~(put ba:tarball *ball:tarball) [/ %test] content)
   =/  result  (~(pub ba:tarball my-ball) / sub-ball)
   %+  expect-eq
@@ -1395,7 +1320,7 @@
 ++  test-pub-at-path
   ::  Pub at path inserts subtree
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  sub-ball  (~(put ba:tarball *ball:tarball) [/ %test] content)
   =/  result  (~(pub ba:tarball my-ball) /foo/bar sub-ball)
   %+  expect-eq
@@ -1405,8 +1330,8 @@
 ++  test-pub-replaces-existing
   ::  Pub replaces existing subtree
   =/  my-ball  *ball:tarball
-  =/  old=content:tarball  [~ [%mime !>([/text/plain [3 'old']])]]
-  =/  new=content:tarball  [~ [%mime !>([/text/plain [3 'new']])]]
+  =/  old=content:tarball  [~ [/ %mime] !>([/text/plain [3 'old']])]
+  =/  new=content:tarball  [~ [/ %mime] !>([/text/plain [3 'new']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/bar %file] old)
   =/  sub-ball  (~(put ba:tarball *ball:tarball) [/ %file] new)
   =/  result  (~(pub ba:tarball g1) /foo/bar sub-ball)
@@ -1417,8 +1342,8 @@
 ++  test-pub-preserves-siblings
   ::  Pub at path should preserve sibling directories
   =/  my-ball  *ball:tarball
-  =/  sibling=content:tarball  [~ [%mime !>([/text/plain [7 'sibling']])]]
-  =/  new=content:tarball  [~ [%mime !>([/text/plain [3 'new']])]]
+  =/  sibling=content:tarball  [~ [/ %mime] !>([/text/plain [7 'sibling']])]
+  =/  new=content:tarball  [~ [/ %mime] !>([/text/plain [3 'new']])]
   =/  g1  (~(put ba:tarball my-ball) [/foo/sibling %file] sibling)
   =/  sub-ball  (~(put ba:tarball *ball:tarball) [/ %file] new)
   =/  result  (~(pub ba:tarball g1) /foo/target sub-ball)
@@ -1436,8 +1361,8 @@
 ++  test-pub-deep-subtree
   ::  Pub a multi-level subtree
   =/  my-ball  *ball:tarball
-  =/  content1=content:tarball  [~ [%mime !>([/text/plain [2 'c1']])]]
-  =/  content2=content:tarball  [~ [%mime !>([/text/plain [2 'c2']])]]
+  =/  content1=content:tarball  [~ [/ %mime] !>([/text/plain [2 'c1']])]
+  =/  content2=content:tarball  [~ [/ %mime] !>([/text/plain [2 'c2']])]
   =/  sub-ball  *ball:tarball
   =.  sub-ball  (~(put ba:tarball sub-ball) [/deep/nested %file1] content1)
   =.  sub-ball  (~(put ba:tarball sub-ball) [/other %file2] content2)
@@ -1456,7 +1381,7 @@
 ++  test-put-creates-intermediate-lumps
   ::  Put at deep path should create lumps for intermediate directories
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  result  (~(put ba:tarball my-ball) [/a/b/c %file] content)
   ::  Check intermediate directories have lumps
   =/  at-a  (~(dip ba:tarball result) /a)
@@ -1472,15 +1397,15 @@
   ::  Put should not overwrite existing lumps on intermediate directories
   =/  my-ball  *ball:tarball
   =/  meta=(map @t @t)  (~(gas by *(map @t @t)) ~[['key' 'value']])
-  =/  g1  (~(mkd ba:tarball my-ball) /a meta `%special)
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  g1  (~(mkd ba:tarball my-ball) /a meta `[/ %special])
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  result  (~(put ba:tarball g1) [/a/b/c %file] content)
   =/  at-a  (~(dip ba:tarball result) /a)
   ?~  fil.at-a  !!
   ;:  weld
     ::  Neck should be preserved
     %+  expect-eq
-      !>  `%special
+      !>  `[/ %special]
     !>  neck.u.fil.at-a
     ::  Metadata should be preserved
     %+  expect-eq
@@ -1491,7 +1416,7 @@
 ++  test-put-at-root
   ::  Put at root (empty path) should work correctly
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  result  (~(put ba:tarball my-ball) [/ %file] content)
   ;:  weld
     ::  File should exist
@@ -1507,8 +1432,8 @@
   ::  Multiple puts to different paths should not interfere
   =/  my-ball  *ball:tarball
   =/  meta=(map @t @t)  (~(gas by *(map @t @t)) ~[['key' 'value']])
-  =/  g1  (~(mkd ba:tarball my-ball) /x meta `%first)
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  g1  (~(mkd ba:tarball my-ball) /x meta `[/ %first])
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  g2  (~(put ba:tarball g1) [/y/z %file] content)
   ::  /x should still have its original lump
   =/  at-x  (~(dip ba:tarball g2) /x)
@@ -1516,7 +1441,7 @@
   ?~  fil.at-x  !!
   ;:  weld
     %+  expect-eq
-      !>  `%first
+      !>  `[/ %first]
     !>  neck.u.fil.at-x
     ::  /y should have a lump too
     %-  expect
@@ -1526,7 +1451,7 @@
 ++  test-put-deep-nesting
   ::  Put at very deep path should create lumps at all levels
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  result  (~(put ba:tarball my-ball) [/a/b/c/d/e %file] content)
   =/  at-a  (~(dip ba:tarball result) /a)
   =/  at-ab  (~(dip ba:tarball result) /a/b)
@@ -1546,7 +1471,7 @@
 ++  test-mkd-creates-intermediate-lumps
   ::  mkd at deep path should create lumps for intermediate directories
   =/  my-ball  *ball:tarball
-  =/  result  (~(mkd ba:tarball my-ball) /a/b/c ~ `%target)
+  =/  result  (~(mkd ba:tarball my-ball) /a/b/c ~ `[/ %target])
   ::  Check intermediate directories have lumps
   =/  at-a  (~(dip ba:tarball result) /a)
   =/  at-ab  (~(dip ba:tarball result) /a/b)
@@ -1561,8 +1486,8 @@
   ::  mkd should not overwrite existing lumps on intermediate directories
   =/  my-ball  *ball:tarball
   =/  meta=(map @t @t)  (~(gas by *(map @t @t)) ~[['key' 'value']])
-  =/  g1  (~(mkd ba:tarball my-ball) /a meta `%special)
-  =/  result  (~(mkd ba:tarball g1) /a/b/c ~ `%target)
+  =/  g1  (~(mkd ba:tarball my-ball) /a meta `[/ %special])
+  =/  result  (~(mkd ba:tarball g1) /a/b/c ~ `[/ %target])
   =/  at-a  (~(dip ba:tarball result) /a)
   =/  at-abc  (~(dip ba:tarball result) /a/b/c)
   ?~  fil.at-a  !!
@@ -1570,7 +1495,7 @@
   ;:  weld
     ::  /a neck should be preserved
     %+  expect-eq
-      !>  `%special
+      !>  `[/ %special]
     !>  neck.u.fil.at-a
     ::  /a metadata should be preserved
     %+  expect-eq
@@ -1578,14 +1503,14 @@
     !>  (~(get by metadata.u.fil.at-a) 'key')
     ::  /a/b/c should have the target neck
     %+  expect-eq
-      !>  `%target
+      !>  `[/ %target]
     !>  neck.u.fil.at-abc
   ==
 ::
 ++  test-pub-creates-intermediate-lumps
   ::  pub at deep path should create lumps for intermediate directories
   =/  my-ball  *ball:tarball
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  sub-ball  (~(put ba:tarball *ball:tarball) [/ %file] content)
   =/  result  (~(pub ba:tarball my-ball) /a/b/c sub-ball)
   ::  Check intermediate directories have lumps
@@ -1602,8 +1527,8 @@
   ::  pub should not overwrite existing lumps on intermediate directories
   =/  my-ball  *ball:tarball
   =/  meta=(map @t @t)  (~(gas by *(map @t @t)) ~[['key' 'value']])
-  =/  g1  (~(mkd ba:tarball my-ball) /a meta `%special)
-  =/  content=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  g1  (~(mkd ba:tarball my-ball) /a meta `[/ %special])
+  =/  content=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =/  sub-ball  (~(put ba:tarball *ball:tarball) [/ %file] content)
   =/  result  (~(pub ba:tarball g1) /a/b/c sub-ball)
   =/  at-a  (~(dip ba:tarball result) /a)
@@ -1611,7 +1536,7 @@
   ;:  weld
     ::  Neck should be preserved
     %+  expect-eq
-      !>  `%special
+      !>  `[/ %special]
     !>  neck.u.fil.at-a
     ::  Metadata should be preserved
     %+  expect-eq
@@ -1623,14 +1548,14 @@
   ::  pub should preserve the subtree's own lump structure
   =/  my-ball  *ball:tarball
   =/  sub-meta=(map @t @t)  (~(gas by *(map @t @t)) ~[['sub-key' 'sub-value']])
-  =/  sub-ball  (~(mkd ba:tarball *ball:tarball) / sub-meta `%sub-neck)
+  =/  sub-ball  (~(mkd ba:tarball *ball:tarball) / sub-meta `[/ %sub-neck])
   =/  result  (~(pub ba:tarball my-ball) /target sub-ball)
   =/  at-target  (~(dip ba:tarball result) /target)
   ?~  fil.at-target  !!
   ;:  weld
     ::  Subtree's neck should be preserved
     %+  expect-eq
-      !>  `%sub-neck
+      !>  `[/ %sub-neck]
     !>  neck.u.fil.at-target
     ::  Subtree's metadata should be preserved
     %+  expect-eq
@@ -1905,7 +1830,7 @@
 ++  test-validate-names-files-only
   ::  Ball with only files is valid
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =.  b  (~(put ba:tarball b) [/ %foo] c)
   =.  b  (~(put ba:tarball b) [/ %bar] c)
   %-  expect
@@ -1914,7 +1839,7 @@
 ++  test-validate-names-dirs-only
   ::  Ball with only directories is valid
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =.  b  (~(put ba:tarball b) [/foo %test] c)
   =.  b  (~(put ba:tarball b) [/bar %test] c)
   %-  expect
@@ -1923,7 +1848,7 @@
 ++  test-validate-names-no-collision
   ::  Ball with files and dirs, no name collision
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =.  b  (~(put ba:tarball b) [/ %file1] c)
   =.  b  (~(put ba:tarball b) [/dir1 %nested] c)
   %-  expect
@@ -1932,7 +1857,7 @@
 ++  test-validate-names-nested-no-collision
   ::  Deeply nested structure with no collisions
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   =.  b  (~(put ba:tarball b) [/a/b/c %file] c)
   =.  b  (~(put ba:tarball b) [/a/b %other] c)
   =.  b  (~(put ba:tarball b) [/a %root] c)
@@ -1942,7 +1867,7 @@
 ++  test-put-file-collides-with-dir
   ::  Putting a file with same name as existing dir should crash
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   ::  First create a directory named 'foo' by putting a file inside it
   =.  b  (~(put ba:tarball b) [/foo %nested] c)
   ::  Now try to put a file named 'foo' at root - should crash
@@ -1952,7 +1877,7 @@
 ++  test-put-creates-dir-collides-with-file
   ::  Creating dir path that collides with existing file should crash
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   ::  First create a file named 'foo' at root
   =.  b  (~(put ba:tarball b) [/ %foo] c)
   ::  Now try to create /foo/bar - 'foo' would need to be a dir, should crash
@@ -1962,7 +1887,7 @@
 ++  test-mkd-collides-with-file
   ::  Creating directory with same name as existing file should crash
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   ::  First create a file named 'foo' at root
   =.  b  (~(put ba:tarball b) [/ %foo] c)
   ::  Now try to mkdir /foo - should crash
@@ -1972,7 +1897,7 @@
 ++  test-nested-put-collision
   ::  Collision deeper in the tree
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   ::  Create /a/b/foo as a directory
   =.  b  (~(put ba:tarball b) [/a/b/foo %nested] c)
   ::  Try to create /a/b/foo as a file - should crash
@@ -1982,7 +1907,7 @@
 ++  test-valid-sibling-names
   ::  File and dir can have same name at different levels
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   ::  'foo' as file at root
   =.  b  (~(put ba:tarball b) [/ %foo] c)
   ::  'foo' as directory under /bar (different parent)
@@ -1993,7 +1918,7 @@
 ++  test-pub-rejects-invalid-subtree
   ::  pub should reject a subtree with internal name collisions
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   ::  Manually construct a bad ball with 'foo' as both file and dir
   ::  (bypassing put which would crash)
   =/  bad-ball=ball:tarball
@@ -2006,7 +1931,7 @@
 ++  test-pub-rejects-nested-invalid-subtree
   ::  pub should reject subtree with collision deep in tree
   =/  b=ball:tarball  *ball:tarball
-  =/  c=content:tarball  [~ [%mime !>([/text/plain [5 'hello']])]]
+  =/  c=content:tarball  [~ [/ %mime] !>([/text/plain [5 'hello']])]
   ::  Create a valid outer ball with an invalid nested ball
   =/  bad-nested=ball:tarball
     :_  (my [%bar *ball:tarball] ~)  :: dir has 'bar'

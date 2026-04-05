@@ -1,6 +1,20 @@
 /+  tarball
 |%
 +$  card  card:agent:gall
++$  built
+  $%  [%vase =vase]
+      [%tang =tang]
+      [%mime =mime]
+  ==
++$  keys  (map rail:tarball @uv)
++$  deps  (map rail:tarball (set rail:tarball))
++$  bins  (axal (map @ta built))
++$  lode  [=keys =deps =bins]
+::  TODO: each code nexus compiles independently, so identical libraries
+::  in different nexuses are recompiled and stored separately. A global
+::  refcounted cache keyed by build hash (like Clay's +flow across desks)
+::  would let nexuses share compiled artifacts and skip redundant builds.
++$  code  (map fold:tarball lode)
 ::  The ball (tarball) is WYSIWYG: fully materialized, no dedup.
 ::  Every file is stored inline. To deduplicate, make references
 ::  via path+cass rather than copying content.
@@ -57,12 +71,12 @@
   ==
 ::
 +$  gain  (axal (map @ta ?))
-+$  make  (each [=sand =gain =ball:tarball] [gain=? =cage mark=(unit mark)])
++$  make  (each [=sand =gain =ball:tarball] [gain=? =sage:tarball mark=(unit mark)])
 +$  kept  (set bend:tarball)
 ::
 +$  view
   $%  [%ball =sand =gain =born ball=ball:tarball]
-      [%file =sack gain=? =cage]
+      [%file =sack gain=? =sage:tarball]
       [%none ~]
   ==
 +$  seen  (each view tang)
@@ -76,29 +90,32 @@
   ==
 +$  find  lose
 +$  load
-  $%  [%poke =cage]             :: poke a grub
+  $%  [%poke =sage:tarball]      :: poke a grub
       [%make =make]                    :: create grub or directory
-      [%over =cage]             :: overwrite grub content (runtime mark conversion)
-      [%diff =cage]             :: replace same-mark grub content, notify process
+      [%over =sage:tarball]     :: overwrite grub content (runtime mark conversion)
       [%cull ~]                 :: delete grub or directory
       [%sand weir=(unit weir)]  :: set weir
       [%load ~]                 :: trigger on-load for a nexus (folds only)
       [%gain flag=?]            :: set gain flag (recursive on directories)
       [%peek mark=(unit mark) case=(unit case) clam=?]
                                        :: read a grub
-                                       :: mark: convert file cage to this mark
-                                       :: ver: if set, read historical version
+                                       :: mark: convert file sage to this mark
+                                       :: case: if set, read historical version
       [%keep mark=(unit mark)]  :: subscribe to changes at dest (grub or ball per road)
-                                       :: mark: if set, convert file cage in news
+                                       :: mark: if set, convert file sage in news
       [%drop ~]                 :: unsubscribe from dest
       [%lose =lose]             :: drop hist entries, decrement silo refs
       [%seek =lobe:clay]        :: find all [rail cass] pairs with this hash
       [%peep =find]
+      [%manu ~]                 :: docs for this path (road resolves nexus + query)
+      [%bang ~]                 :: query error state at dest
+      [%code ~]                 :: look up compiled artifacts at dest
+      [%font ~]                 :: find code responsible for dest node
   ==
 ::  manu types — documentation query
 ::
-+$  mana  (each fold:tarball mury)       :: directory or file query
 +$  mury  [=rail:tarball =mark]          :: file query: rail + mark
++$  mana  (each fold:tarball mury)       :: directory or file query
 ::
 +$  dart
   $%  [%sysc =card:agent:gall]  :: regular card
@@ -106,15 +123,15 @@
       [%scry =wire scry=(unit scry)]
       [%bowl =wire]
       [%kept =wire]              :: see your own outgoing subscriptions
-      [%manu =wire target=(each [=neck:tarball =mana] road:tarball)]
+      [%manu =wire =neck:tarball =mana]  :: direct docs query to a known nexus
   ==
 ::
 ++  fiber
   |%
   +$  proc
-    $:  =process                 :: running fiber
-        next=(qeu take)          :: queue of held inputs
-        skip=(qeu take)          :: queue of skipped inputs
+    $:  process=(each process tang)  :: running fiber or crash error
+        next=(qeu take)              :: queue of held inputs
+        skip=(qeu take)              :: queue of skipped inputs
     ==
   ::  Relative source path for pokes
   ::
@@ -130,7 +147,7 @@
   +$  road  (each rail:tarball bend)
   ::
   +$  intake
-    $%  [%poke =from =cage] :: command for a running process (from is relative)
+    $%  [%poke =from =sage:tarball] :: command for a running process (from is relative)
         [%peek =wire =seen] :: local read result
         [%kept =wire =kept]              :: your outgoing subscriptions
         [%made =wire err=(unit tang)] :: response to make
@@ -141,15 +158,17 @@
         [%gain =wire err=(unit tang)] :: response to gain
         [%lost =wire err=(unit tang)] :: response to lose
         [%seek =wire res=(each (list [=rail:tarball =cass:clay]) tang)] :: response to seek
-        [%peep =wire res=(each (list [=cass:clay =cage]) tang)] :: response to peep
+        [%peep =wire res=(each (list [=cass:clay =sage:tarball]) tang)] :: response to peep
         [%manu =wire res=(each @t tang)] :: response to manu
+        [%bang =wire res=(each bangs (unit tang))]  :: directory bangs or file error
         [%over =wire err=(unit tang)] :: response to over (content overwrite)
-        [%diff =wire err=(unit tang)] :: response to diff (same-mark replace)
-        [%writ p=?(%over %diff)]      :: notify grub its file was externally modified
+        [%writ ~] :: notify grub its file was externally modified by %over
         [%bond =wire now=(each view tang)] :: subscription ack with initial view
         [%fell =wire]                 :: subscription canceled (weir change, deletion, etc)
         [%news =wire =view] :: state notification
         [%veto =dart] :: notify that a dart was sandboxed
+        [%code =wire res=(each bins built)]  :: bins subtree or single artifact
+        [%font =wire res=(unit bend:tarball)]  :: bend to governing /code namespace
         :: messages from gall and arvo
         ::
         [%scry =wire =vase]
@@ -171,7 +190,6 @@
   +$  prod
     $%  [%make ~]     :: making new file
         [%load ~]     :: nexus was reloaded
-        [%bump ~]     :: zuse got a kelvin bump
         [%rise =tang] :: failed while running
     ==
   ::
@@ -215,7 +233,8 @@
       ^-  form
       |=  input
       ^-  output
-      [~ state %wait ~]
+      ?~  in  [~ state %wait ~]
+      [~ state %skip ~]
     ::
     ++  bind
       |*  b=mold
@@ -260,7 +279,8 @@
         ::       should use hoss
         ::       but double compute and double slogs sucks
         ::
-        (mule |.((process.proc state in.take)))
+        ?>  ?=(%& -.process.proc)
+        (mule |.((p.process.proc state in.take)))
       ?:  ?=(%| -.res)
         =/  =tang  [leaf+"crash" p.res]
         :-  darts :: no output darts on failure
@@ -291,7 +311,7 @@
           state         state.output
           next.proc     (~(gas to next.proc) ~(tap to skip.proc))
           skip.proc     ~
-          process.proc  self.next.output
+          process.proc  &+self.next.output
           take          [give.take ~]
         ==
         ::
@@ -341,8 +361,9 @@
     --
   --
 ::
-+$  pipe  (map @ta proc:fiber)
-+$  pool  (axal pipe)
++$  pipe   [bang=(unit tang) proc=(map @ta proc:fiber)]
++$  pool   (axal pipe)
++$  bangs  [bang=(unit tang) err=(map @ta (unit tang))]
 ::  Internal subscriptions: process watches tree locations
 ::
 +$  subscribers    (map rail:tarball [=wire mark=(unit mark)])
@@ -364,7 +385,7 @@
 +$  tote  [weir=cass:clay fold=cass:clay]
 +$  sack  [proc=cass:clay life=cass:clay file=cass:clay hist=((mop cass:clay lobe:clay) cor)]
 +$  born  (axal [=tote bags=(map @ta sack)])
-+$  silo  (map lobe:clay [refs=@ud =cage])
++$  silo  (map lobe:clay [refs=@ud =bask:tarball])
 ++  cor   |=([a=cass:clay b=cass:clay] (lth ud.a ud.b))
 ++  on-hist  ((on cass:clay lobe:clay) cor)
 ::  Resolve a hist case to a lobe from the hist mop
@@ -556,7 +577,7 @@
         ::  File in both: check if changed
         =/  old-content=content:tarball  (~(got by old-files) name)
         =/  new-content=content:tarball  (~(got by new-files) name)
-        ?.  =(cage.old-content cage.new-content)
+        ?.  =(sage.old-content sage.new-content)
           ::  Changed: bump
           (bump-file [here name])
         ::  No change
@@ -586,25 +607,26 @@
   --
 ::  +si: Pure operations on silo (content-addressed object store)
 ::
-::  Hash is computed from the page (mark + noun) for content identity,
-::  but the full cage (mark + vase) is stored to avoid re-clamming.
+::  Stores pages (mark + noun) rather than cages (mark + vase).
+::  Callers must clam on read to reconstruct the vase.
+::  This avoids stale types when marks evolve.
 ::
 ++  si
   |_  =silo
   ++  hash
-    |=  =cage
+    |=  =bask:tarball
     ^-  lobe:clay
-    `@uvI`(sham [p q.q]:cage)
-  ::  Insert cage, increment refcount if exists. Returns lobe and new silo.
+    `@uvI`(sham bask)
+  ::  Insert bask, increment refcount if exists. Returns lobe and new silo.
   ::
   ++  put
-    |=  =cage
+    |=  =bask:tarball
     ^-  [lobe:clay ^silo]
-    =/  =lobe:clay  (hash cage)
+    =/  =lobe:clay  (hash bask)
     =/  got  (~(get by silo) lobe)
     ?~  got
-      [lobe (~(put by silo) lobe [1 cage])]
-    [lobe (~(put by silo) lobe [+(refs.u.got) cage])]
+      [lobe (~(put by silo) lobe [1 bask])]
+    [lobe (~(put by silo) lobe [+(refs.u.got) bask])]
   ::  Decrement refcount, delete if zero.
   ::
   ++  drop
@@ -614,15 +636,15 @@
     ?~  got  silo
     ?:  (lte refs.u.got 1)
       (~(del by silo) lobe)
-    (~(put by silo) lobe [refs=(dec refs.u.got) cage.u.got])
-  ::  Look up cage by lobe.
+    (~(put by silo) lobe [refs=(dec refs.u.got) bask.u.got])
+  ::  Look up bask by lobe.
   ::
   ++  get
     |=  =lobe:clay
-    ^-  (unit cage)
+    ^-  (unit bask:tarball)
     =/  got  (~(get by silo) lobe)
     ?~  got  ~
-    `cage.u.got
+    `bask.u.got
   ::  Drop refs for all lobes in a hist.
   ::
   ++  drop-hist
@@ -633,7 +655,7 @@
     |-
     ?~  entries  silo
     $(entries t.entries, silo (drop val.i.entries))
-  ::  Record a cage: insert into silo, update hist per gain flag.
+  ::  Record a bask: insert into silo, update hist per gain flag.
   ::  Returns [lobe new-silo new-hist].
   ::
   ::  gain=%.y: append to hist, keeping full history.
@@ -643,9 +665,9 @@
   ::    gain only controls what happens live, not retroactively.
   ::
   ++  record
-    |=  [=cage =cass:clay gain=? file=cass:clay hist=((mop cass:clay lobe:clay) cor)]
+    |=  [=bask:tarball =cass:clay gain=? file=cass:clay hist=((mop cass:clay lobe:clay) cor)]
     ^-  [lobe:clay ^silo ((mop cass:clay lobe:clay) cor)]
-    =/  [=lobe:clay new-silo=^silo]  (put cage)
+    =/  [=lobe:clay new-silo=^silo]  (put bask)
     ?:  gain
       [lobe new-silo (put:on-hist hist cass lobe)]
     ::  !gain: replace current live version only, preserve older history
@@ -760,7 +782,7 @@
           [%cull ~]
           [%sand weir=(unit weir)]
           [%load ~]
-          [%poke =page]
+          [%poke =bask:tarball]
       ==
   ==
 +$  ack  (unit tang)

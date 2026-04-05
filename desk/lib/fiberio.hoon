@@ -160,13 +160,13 @@
   ^-  form:m
   ?.  ?=(%rise -.prod)  (pure:m ~)
   %-  (slog leaf+msg tang.prod)
-  ;<  =cage  bind:m  take-poke
-  ?:  ?=(%sig p.cage)
+  ;<  =sage:tarball  bind:m  take-poke
+  ?:  =([/ %sig] p.sage)
     (pure:m ~)
-  (trace leaf+"strange restart mark: {<p.cage>}" ~)
+  (trace leaf+"strange restart mark: {<p.sage>}" ~)
 ::
 ++  take-poke
-  =/  m  (fiber ,cage)
+  =/  m  (fiber ,sage:tarball)
   ^-  form:m
   |=  input
   :+  ~  state
@@ -175,19 +175,19 @@
       [~ %veto *]
     [%fail (veto-error dart.u.in)]
       [~ %poke * *]
-    [%done cage.u.in]
+    [%done sage.u.in]
   ==
 ::  Take a poke and return both its source and payload
 ::
-::  Returns [from cage] where:
+::  Returns [from sage] where:
 ::    from: %.y bend for internal (relative), %.n prov for external
-::    cage: the poke payload
+::    sage: the poke payload
 ::
 ::  The from is relative to the current file's location.
 ::  Use this when you need to verify the poke source for security.
 ::
 ++  take-poke-from
-  =/  m  (fiber ,[from:fiber:nexus cage])
+  =/  m  (fiber ,[from:fiber:nexus sage:tarball])
   ^-  form:m
   |=  input
   :+  ~  state
@@ -196,7 +196,7 @@
       [~ %veto *]
     [%fail (veto-error dart.u.in)]
       [~ %poke * *]
-    [%done [from cage]:u.in]
+    [%done [from sage]:u.in]
   ==
 ::
 ++  take-watch
@@ -318,10 +318,10 @@
   (take-made wire)
 ::
 ++  poke
-  |=  [=wire =road:tarball =cage]
+  |=  [=wire =road:tarball =sage:tarball]
   =/  m  (fiber ,~)
   ^-  form:m
-  ;<  ~  bind:m  (send-dart %node wire road %poke cage)
+  ;<  ~  bind:m  (send-dart %node wire road %poke sage)
   (take-pack wire)
 ::
 ++  peek
@@ -350,11 +350,27 @@
   ;<  =seen:nexus  bind:m  (peek wire road ~)
   (pure:m ?&(?=(%& -.seen) !?=(%none -.p.seen)))
 ::
+::  Direct manu: query a known nexus by neck
+::
 ++  manu
-  |=  [=wire target=(each [=neck:tarball =mana:nexus] road:tarball)]
+  |=  [=wire =neck:tarball =mana:nexus]
   =/  m  (fiber ,@t)
   ^-  form:m
-  ;<  ~  bind:m  (send-dart %manu wire target)
+  ;<  ~  bind:m  (send-dart %manu wire neck mana)
+  (take-manu wire)
+::  Road manu: query docs for a path (system resolves nexus)
+::
+++  manu-road
+  |=  [=wire =road:tarball]
+  =/  m  (fiber ,@t)
+  ^-  form:m
+  ;<  ~  bind:m  (send-dart %node wire road %manu ~)
+  (take-manu wire)
+::
+++  take-manu
+  |=  =wire
+  =/  m  (fiber ,@t)
+  ^-  form:m
   |=  input
   :+  ~  state
   ?+  in  [%skip ~]
@@ -407,7 +423,7 @@
     [%fail %sand-failed u.err.u.in]
   ==
 ::
-++  set-gain
+++  gain
   |=  [=wire =road:tarball flag=?]
   =/  m  (fiber ,~)
   ^-  form:m
@@ -464,7 +480,7 @@
 ::
 ++  peep
   |=  [=wire =road:tarball =find:nexus]
-  =/  m  (fiber ,(each (list [=cass:clay =cage]) tang))
+  =/  m  (fiber ,(each (list [=cass:clay =sage:tarball]) tang))
   ^-  form:m
   ;<  ~  bind:m  (send-dart %node wire road %peep find)
   |=  input
@@ -480,10 +496,10 @@
   ==
 ::
 ++  over
-  |=  [=wire =road:tarball =cage]
+  |=  [=wire =road:tarball =sage:tarball]
   =/  m  (fiber ,~)
   ^-  form:m
-  ;<  ~  bind:m  (send-dart %node wire road %over cage)
+  ;<  ~  bind:m  (send-dart %node wire road %over sage)
   (take-over wire)
 ::
 ++  take-over
@@ -502,31 +518,6 @@
     ?~  err.u.in
       [%done ~]
     [%fail %over-failed u.err.u.in]
-  ==
-::
-++  diff
-  |=  [=wire =road:tarball =cage]
-  =/  m  (fiber ,~)
-  ^-  form:m
-  ;<  ~  bind:m  (send-dart %node wire road %diff cage)
-  (take-diff wire)
-::
-++  take-diff
-  |=  =wire
-  =/  m  (fiber ,~)
-  ^-  form:m
-  |=  input
-  :+  ~  state
-  ?+  in  [%skip ~]
-      ~  [%wait ~]
-      [~ %veto *]
-    [%fail (veto-error dart.u.in)]
-      [~ %diff * *]
-    ?.  =(wire wire.u.in)
-      [%skip ~]
-    ?~  err.u.in
-      [%done ~]
-    [%fail %diff-failed u.err.u.in]
   ==
 ::
 ++  reload
@@ -636,40 +627,159 @@
   ;<  =sign-arvo  bind:m  (take-arvo /warp)
   ?>  ?=([%clay %writ *] sign-arvo)
   (pure:m +>.sign-arvo)
+::  +get-code: peek the code (bins) slice at a road
 ::
-::  +get-tube: look up a cached tube from /sys/tubes/
+++  get-code
+  |=  [=wire =road:tarball]
+  =/  m  (fiber ,(unit vase))
+  ^-  form:m
+  ;<  ~  bind:m  (send-dart %node wire road %code ~)
+  (take-code wire)
+::
+++  take-code
+  |=  =wire
+  =/  m  (fiber ,(unit vase))
+  ^-  form:m
+  |=  input
+  :+  ~  state
+  ?+  in  [%skip ~]
+      ~  [%wait ~]
+      [~ %veto *]
+    [%fail (veto-error dart.u.in)]
+      [~ %code * *]
+    ?.  =(wire wire.u.in)
+      [%skip ~]
+    ?.  ?=(%| -.res.u.in)
+      [%skip ~]
+    ?:  ?=(%vase -.p.res.u.in)
+      [%done `vase.p.res.u.in]
+    [%done ~]
+  ==
+::  +get-code-full: peek code slice, returning full built
+::
+++  get-code-full
+  |=  [=wire =road:tarball]
+  =/  m  (fiber ,built:nexus)
+  ^-  form:m
+  ;<  ~  bind:m  (send-dart %node wire road %code ~)
+  |=  input
+  :+  ~  state
+  ?+  in  [%skip ~]
+      ~  [%wait ~]
+      [~ %veto *]
+    [%fail (veto-error dart.u.in)]
+      [~ %code * *]
+    ?.  =(wire wire.u.in)
+      [%skip ~]
+    ?.  ?=(%| -.res.u.in)
+      [%skip ~]
+    [%done p.res.u.in]
+  ==
+::  +get-code-tree: peek code slice subtree at a directory road
+::
+++  get-code-tree
+  |=  [=wire =road:tarball]
+  =/  m  (fiber ,bins:nexus)
+  ^-  form:m
+  ;<  ~  bind:m  (send-dart %node wire road %code ~)
+  |=  input
+  :+  ~  state
+  ?+  in  [%skip ~]
+      ~  [%wait ~]
+      [~ %veto *]
+    [%fail (veto-error dart.u.in)]
+      [~ %code * *]
+    ?.  =(wire wire.u.in)
+      [%skip ~]
+    ?.  ?=(%& -.res.u.in)
+      [%skip ~]
+    [%done p.res.u.in]
+  ==
+::  +get-bang: query error state at a road
+::
+++  get-bang
+  |=  [=wire =road:tarball]
+  =/  m  (fiber ,(each bangs:nexus (unit tang)))
+  ^-  form:m
+  ;<  ~  bind:m  (send-dart %node wire road %bang ~)
+  |=  input
+  :+  ~  state
+  ?+  in  [%skip ~]
+      ~  [%wait ~]
+      [~ %veto *]
+    [%fail (veto-error dart.u.in)]
+      [~ %bang * *]
+    ?.  =(wire wire.u.in)
+      [%skip ~]
+    [%done res.u.in]
+  ==
+::  +get-font: find code responsible for a node
+::  Returns bend to code namespace (relative to asker) + source rail within
+::
+++  get-font
+  |=  [=wire =road:tarball]
+  =/  m  (fiber ,(unit bend:tarball))
+  ^-  form:m
+  ;<  ~  bind:m  (send-dart %node wire road %font ~)
+  |=  input
+  :+  ~  state
+  ?+  in  [%skip ~]
+      ~  [%wait ~]
+      [~ %veto *]
+    [%fail (veto-error dart.u.in)]
+      [~ %font * *]
+    ?.  =(wire wire.u.in)
+      [%skip ~]
+    [%done res.u.in]
+  ==
+::  +get-marc: look up a compiled marc from bins
+::
+++  get-marc
+  |=  [cod=road:tarball =blot:tarball]
+  =/  m  (fiber ,(unit marc:tarball))
+  ^-  form:m
+  =/  =road:tarball  (extend-road:tarball cod (weld /mar path.blot) name.blot)
+  ;<  res=(unit vase)  bind:m  (get-code /marc road)
+  ?~  res  (pure:m ~)
+  (pure:m `!<(marc:tarball u.res))
+::  +get-tube: look up a tube via marc grow/grab
+::
+::  Tries source.grow(target) first, then target.grab(source).
 ::
 ++  get-tube
-  |=  =mars:clay
+  |=  [cod=road:tarball =bars:tarball]
   =/  m  (fiber ,(unit tube:clay))
   ^-  form:m
-  =/  =road:tarball  [%& %& /sys/tubes/[a.mars] b.mars]
-  ;<  =seen:nexus  bind:m  (peek /tube road ~)
-  ?.  ?=([%& %file *] seen)
-    (pure:m ~)
-  (pure:m `!<(tube:clay q.cage.p.seen))
-::  +get-dais: look up a cached dais from /sys/daises/
+  ;<  src-marc=(unit marc:tarball)  bind:m  (get-marc cod a.bars)
+  =/  grow-tube=(unit tube:clay)
+    ?~  src-marc  ~
+    (mole |.((grow.u.src-marc b.bars)))
+  ?^  grow-tube  (pure:m grow-tube)
+  ::  Fallback: try target.grab(source)
+  ;<  dst-marc=(unit marc:tarball)  bind:m  (get-marc cod b.bars)
+  ?~  dst-marc  (pure:m ~)
+  =/  grab-tube=(unit tube:clay)
+    (mole |.((grab.u.dst-marc a.bars)))
+  (pure:m grab-tube)
+::  +get-vale: look up a vale via marc
 ::
-++  get-dais
-  |=  mak=mark
-  =/  m  (fiber ,(unit dais:clay))
+++  get-vale
+  |=  [cod=road:tarball =blot:tarball]
+  =/  m  (fiber ,(unit $-(* vase)))
   ^-  form:m
-  =/  =road:tarball  [%& %& /sys/daises mak]
-  ;<  =seen:nexus  bind:m  (peek /dais road ~)
-  ?.  ?=([%& %file *] seen)
-    (pure:m ~)
-  (pure:m `!<(dais:clay q.cage.p.seen))
-::  +get-nexus: look up a cached nexus from /sys/nexuses/
+  ;<  marc-res=(unit marc:tarball)  bind:m  (get-marc cod blot)
+  ?~  marc-res  (pure:m ~)
+  (pure:m `vale.u.marc-res)
+::  +get-nexus: look up a compiled nexus from bins
 ::
 ++  get-nexus
-  |=  neck=@tas
+  |=  [cod=road:tarball =neck:tarball]
   =/  m  (fiber ,(unit nexus:nexus))
   ^-  form:m
-  =/  =road:tarball  [%& %& /sys/nexuses neck]
-  ;<  =seen:nexus  bind:m  (peek /nexus road ~)
-  ?.  ?=([%& %file *] seen)
-    (pure:m ~)
-  (pure:m `!<(nexus:nexus q.cage.p.seen))
+  =/  =road:tarball  (extend-road:tarball cod (weld /nex path.neck) name.neck)
+  ;<  res=(unit vase)  bind:m  (get-code /nexus road)
+  ?~  res  (pure:m ~)
+  (pure:m `!<(nexus:nexus u.res))
 ::  +collect-marks: collect all marks used in cages within a ball (deep)
 ::
 ++  collect-marks
@@ -683,9 +793,7 @@
     |-  ^-  (set mark)
     ?~  entries  marks
     =*  content  q.i.entries
-    ?:  =(%temp p.cage.content)
-      $(entries t.entries)
-    $(entries t.entries, marks (~(put in marks) p.cage.content))
+    $(entries t.entries, marks (~(put in marks) name.p.sage.content))
   ::  Recurse into subdirectories
   =/  subdirs=(list (pair @ta ball:tarball))  ~(tap by dir.ball)
   |-  ^-  (set mark)
@@ -704,9 +812,7 @@
   |-  ^-  (set mark)
   ?~  entries  marks
   =*  ct  q.i.entries
-  ?:  =(%temp p.cage.ct)
-    $(entries t.entries)
-  $(entries t.entries, marks (~(put in marks) p.cage.ct))
+  $(entries t.entries, marks (~(put in marks) name.p.sage.ct))
 ::  +build-mark-conversions: build conversions map for a set of marks
 ::
 ++  build-mark-conversions
@@ -720,7 +826,7 @@
     (pure:m conversions)
   =/  =mars:clay  [i.mark-list %mime]
   ;<  tube-result=(unit tube:clay)  bind:m
-    (get-tube mars)
+    (get-tube [%& %| /code] [[/ a.mars] [/ b.mars]])
   =?  conversions  ?=(^ tube-result)
     (~(put by conversions) mars u.tube-result)
   $(mark-list t.mark-list)
@@ -738,27 +844,25 @@
   =/  m  (fiber ,(map mars:clay tube:clay))
   ^-  form:m
   (build-mark-conversions (collect-marks-shallow ball))
-::  +cage-to-mime: convert cage to mime, falling back to jam
+::  +sage-to-mime: convert sage to mime, falling back to jam
 ::
-++  cage-to-mime
-  |=  =cage
+++  sage-to-mime
+  |=  =sage:tarball
   =/  m  (fiber ,mime)
   ^-  form:m
-  ?:  =(%mime p.cage)
-    (pure:m !<(mime q.cage))
-  ?:  =(%temp p.cage)
-    (pure:m [/application/x-urb-jam (as-octs:mimes:html (jam q.cage))])
-  =/  =mars:clay  [p.cage %mime]
+  ?:  =([/ %mime] p.sage)
+    (pure:m !<(mime q.sage))
+  =/  =mars:clay  [name.p.sage %mime]
   ;<  tube=(unit tube:clay)  bind:m
-    (get-tube mars)
+    (get-tube [%& %| /code] [[/ a.mars] [/ b.mars]])
   ?~  tube
-    (pure:m [/application/x-urb-jam (as-octs:mimes:html (jam q.cage))])
-  =/  result=(each vase tang)  (mule |.((u.tube q.cage)))
+    (pure:m [/application/x-urb-jam (as-octs:mimes:html (jam q.sage))])
+  =/  result=(each vase tang)  (mule |.((u.tube q.sage)))
   ?:  ?=(%| -.result)
-    (pure:m [/application/x-urb-jam (as-octs:mimes:html (jam q.cage))])
+    (pure:m [/application/x-urb-jam (as-octs:mimes:html (jam q.sage))])
   =/  extracted  (mule |.(!<(mime p.result)))
   ?:  ?=(%| -.extracted)
-    (pure:m [/application/x-urb-jam (as-octs:mimes:html (jam q.cage))])
+    (pure:m [/application/x-urb-jam (as-octs:mimes:html (jam q.sage))])
   (pure:m p.extracted)
 ::  Gall agent operations (via syscalls)
 ::

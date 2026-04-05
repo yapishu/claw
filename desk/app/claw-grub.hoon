@@ -1,6 +1,8 @@
 /-  spider
-/+  default-agent, dbug, tarball, nexus, server,
-    nex-tools, marks, build
+/+  default-agent, dbug, tarball, nexus,
+    server, multipart, http-utils, html-utils, json-utils,
+    marks, build, fiberio, loader, cram, pretty-file, root
+/=  claw-nexus  /nex/claw
 /=  t-  /tests/nexus
 /=  t-  /tests/tarball
 /=  t-  /tests/build
@@ -11,22 +13,6 @@
 /=  m-  /mar/born
 /=  m-  /mar/subs
 /=  m-  /mar/gain
-/=  m-  /mar/keys
-/=  m-  /mar/ships
-/=  m-  /mar/dill-told
-/=  m-  /mar/dill-blit
-/=  m-  /mar/jael-private-keys
-/=  m-  /mar/jael-public-keys-result
-/=  m-  /mar/claude-action
-/=  m-  /mar/claude-messages
-/=  m-  /mar/claude-registry
-/=  n-  /nex/build
-/=  n-  /nex/mcp
-/=  n-  /nex/claude
-/=  n-  /nex/counter
-/=  n-  /nex/server
-/=  n-  /nex/root
-/=  n-  /nex/claw
 ::
 |%
 +$  versioned-state
@@ -42,7 +28,28 @@
       =subs:nexus
       =silo:nexus
       =gain:nexus
+      =code:nexus
   ==
+++  kel  21.000.000 :: start big; burn many at once
+++  sut
+  :: Need to determine how much actually needs to be in here...
+  ::
+  %+  slop
+    !>  :*  tarball=tarball
+            nexus=nexus
+            marks=marks
+            build=build
+            loader=loader
+            server=server
+            multipart=multipart
+            http-utils=http-utils
+            html-utils=html-utils
+            json-utils=json-utils
+            pretty-file=pretty-file
+            io=fiberio
+            cram=cram
+        ==
+  !>(..zuse)
 --
 ::
 =|  state-0
@@ -58,20 +65,29 @@
 ::
 ++  on-init
   ^-  (quip card _this)
-::  Create empty ball with %claw nexus at root
-  =/  init-ball=ball:tarball  [`[~ `%claw ~] ~]  :: lump with neck=%claw
-  =^  cards  state
-    abet:(reload:hc *pool:nexus init-ball *sand:nexus *born:nexus *subs:nexus *silo:nexus *gain:nexus)
-  =^  dill-cards  state
-    abet:sync-dill:hc
-  =^  clay-cards  state
-    abet:sync-clay:hc
-  =^  jael-cards  state
-    abet:sync-jael:hc
+  ::  Ensure root lump with hardcoded neck (root nexus from lib, not code)
+  =/  lmp=lump:tarball  (fall fil.ball *lump:tarball)
+  =.  ball  ball(fil `lmp(neck `[/ %claw]))
+  ::  Compile code from Clay
+  =^  gub-cards  state  abet:sync-gub:hc
+  ::  Reload claw nexus (hardcoded — after code compile so child nexuses build)
+  =^  root-cards  state  abet:(reload-nexus-at:hc / root)
+  =^  load-cards  state  abet:(load-ball-changes:hc / *ball:tarball ball)
+  =/  dill-cards=(list card)  ~  ::  disabled for claw (no terminal logging)
+  =^  clay-cards  state  abet:sync-clay:hc
+  =^  jael-cards  state  abet:sync-jael:hc
   :_  this
   :*  [%pass /eyre/disconnect %arvo %e %disconnect [~ /apps/claw/api]]
       [%pass /eyre/connect %arvo %e %connect [~ /apps/claw] dap.bowl]
-      (weld jael-cards (weld clay-cards (weld dill-cards cards)))
+      ;:  weld
+        root-cards
+        gub-cards
+        load-cards
+        dill-cards
+        clay-cards
+        jael-cards
+        cards
+      ==
   ==
 ::
 ++  on-save
@@ -84,25 +100,40 @@
   =/  old  !<(versioned-state old-state)
   ?-    -.old
       %0
-    ::  Ensure neck at root is %root (nexus on-load will create main.sig)
-    =/  new-ball=ball:tarball
-      =/  lmp=lump:tarball  (fall fil.ball.old [~ ~ ~])
-      ball.old(fil `lmp(neck `%claw))
-    =^  cards  state
-      abet:(reload:hc pool.old new-ball sand.old born.old subs.old silo.old gain.old)
-    =^  dill-cards  state
-      abet:sync-dill:hc
-    =^  clay-cards  state
-      abet:sync-clay:hc
-    =^  jael-cards  state
-      abet:sync-jael:hc
+    ::  Restore all state
+    =.  state  old
+    ::  Capture ball before rebuild (for change detection)
+    =/  pre-ball=ball:tarball  ball
+    ::  Compile code from Clay (cascades nexus on-loads)
+    =^  gub-cards  state  abet:sync-gub:hc
+    ::  Reload root nexus (hardcoded — runs on every app reload, after code compile)
+    =^  root-cards  state  abet:(reload-nexus-at:hc / root)
+    ::  Sync all changes
+    =^  load-cards  state  abet:(load-ball-changes:hc / pre-ball ball)
+    =/  dill-cards=(list card)  ~  ::  disabled for claw (no terminal logging)
+    =^  clay-cards  state  abet:sync-clay:hc
+    =^  jael-cards  state  abet:sync-jael:hc
     :_  this
-    :(weld jael-cards clay-cards dill-cards cards)
+    ;:  weld
+      root-cards
+      gub-cards
+      load-cards
+      dill-cards
+      clay-cards
+      jael-cards
+      cards
+    ==
   ==
 ::
 ++  on-poke
   |=  [mak=mark vas=vase]
   ^-  (quip card _this)
+  =/  get-json
+    |=  =rail:tarball
+    ^-  json
+    =/  c=(unit content:tarball)  (~(get ba:tarball ball) rail)
+    ?~  c  [%o ~]
+    (fall (mole |.(!<(json q.sage.u.c))) [%o ~])
   ?+    mak  (on-poke:def mak vas)
   ::  claw management API: [%cmd args...]
       %noun
@@ -110,65 +141,51 @@
     ?.  ?=([@tas *] q.vas)  (on-poke:def mak vas)
     =/  cmd=@tas  -.q.vas
     ?+    cmd  (on-poke:def mak vas)
-    ::
     ::  write json: [%write-json path name json]
         %write-json
       =/  [* pax=path name=@ta dat=json]  !<([@tas path @ta json] vas)
-      =.  ball  (~(put ba:tarball ball) [pax name] [~ %json !>(dat)])
+      =.  ball  (~(put ba:tarball ball) [pax name] [~ [/ %json] !>(dat)])
       `this
-    ::
     ::  write text: [%write-txt path name @t]
         %write-txt
       =/  [* pax=path name=@ta txt=@t]  !<([@tas path @ta @t] vas)
-      =.  ball  (~(put ba:tarball ball) [pax name] [~ %txt !>((to-wain:format txt))])
+      =.  ball  (~(put ba:tarball ball) [pax name] [~ [/ %txt] !>((to-wain:format txt))])
       `this
-    ::
-    ::  add bot: [%add-bot id name] — creates dir + config + process + updates registry
+    ::  add bot: [%add-bot id name]
         %add-bot
       =/  [* id=@tas name=@t]  !<([@tas @tas @t] vas)
+      =/  pre-ball=ball:tarball  ball
       =/  bot-cfg=json
         %-  pairs:enjs:format
-        :~  ['name' s+name]
-            ['avatar' s+'']
-            ['model' s+'']
-            ['api_key' s+'']
-            ['brave_key' s+'']
+        :~  ['name' s+id]  ['avatar' s+'']  ['model' s+'']
+            ['api_key' s+'']  ['brave_key' s+'']
             ['whitelist' [%o (~(put by *(map @t json)) (scot %p our.bowl) s+'owner')]]
+            ['cron' [%a ~]]
         ==
-      ::  write bot files directly to tarball
-      =.  ball  (~(put ba:tarball ball) [/bots/[id] %'config.json'] [~ %json !>(bot-cfg)])
-      =.  ball  (~(put ba:tarball ball) [/bots/[id] %'main.sig'] [~ %sig !>(~)])
-      ::  update registry
-      =/  reg-content=(unit content:tarball)
-        (~(get ba:tarball ball) [/ %'bots-registry.json'])
-      =/  reg=json
-        ?~  reg-content  [%o ~]
-        !<(json q.cage.u.reg-content)
+      =.  ball  (~(put ba:tarball ball) [/bots/[id] %'config.json'] [~ [/ %json] !>(bot-cfg)])
+      =.  ball  (~(put ba:tarball ball) [/bots/[id] %'main.sig'] [~ [/ %sig] !>(~)])
+      =/  def-identity=@t  (rap 3 'You are ' id ', an AI bot running on ' (scot %p our.bowl) '.' ~)
+      =/  def-soul=@t  'You are helpful, knowledgeable, and concise. You have opinions and share them when relevant.'
+      =/  def-agent=@t  (rap 3 'You are ' id ', a native Urbit LLM agent. Your text response is automatically routed back. You do NOT need to call any tool to reply.' ~)
+      =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'identity.txt'] [~ [/ %txt] !>((to-wain:format def-identity))])
+      =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'soul.txt'] [~ [/ %txt] !>((to-wain:format def-soul))])
+      =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'agent.txt'] [~ [/ %txt] !>((to-wain:format def-agent))])
+      =/  reg=json  (get-json [/ %'bots-registry.json'])
       =/  new-reg=json
-        ?.  ?=([%o *] reg)  (pairs:enjs:format ~[[id s+name]])
-        [%o (~(put by p.reg) id s+name)]
-      =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
-      ::  reload nexus to spawn the new bot process
-      =^  cards  state
-        abet:(reload-nexus:hc /)
-      [cards this]
-    ::
+        ?:  ?=([%o *] reg)  [%o (~(put by p.reg) id s+id)]
+        (pairs:enjs:format ~[[id s+id]])
+      =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ [/ %json] !>(new-reg)])
+      =^  spawn-cards  state
+        abet:(load-ball-changes:hc / pre-ball ball)
+      [spawn-cards this]
     ::  delete bot: [%del-bot id]
         %del-bot
       =/  [* id=@tas]  !<([@tas @tas] vas)
-      =^  cards  state
-        abet:(cull:hc [%| /bots/[id]])
-      ::  update registry
-      =/  reg-content=(unit content:tarball)
-        (~(get ba:tarball ball) [/ %'bots-registry.json'])
-      =/  reg=json
-        ?~  reg-content  [%o ~]
-        !<(json q.cage.u.reg-content)
-      =/  new-reg=json
-        ?.  ?=([%o *] reg)  reg
-        [%o (~(del by p.reg) id)]
-      =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
-      [cards this]
+      =^  cull-cards  state  abet:(cull:hc [%| /bots/[id]])
+      =/  reg=json  (get-json [/ %'bots-registry.json'])
+      =/  new-reg=json  ?:(?=([%o *] reg) [%o (~(del by p.reg) id)] reg)
+      =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ [/ %json] !>(new-reg)])
+      [cull-cards this]
     ==
       %grubbery-action
     =+  !<(=action:nexus vas)
@@ -178,7 +195,7 @@
       ?>  ?=(%& -.dest.action)
       =/  =give:nexus  [|+[src sap]:bowl wire.action]
       =^  cards  state
-        abet:(poke:hc give [/'peers.peers' %'main.sig'] poke-in+!>([p.dest.action page.action]))
+        abet:(poke:hc give [/'peers.peers' %'main.sig'] [[/ %poke-in] !>([p.dest.action bask.action])])
       [cards this]
       ::
         %make
@@ -217,31 +234,34 @@
     ::
       %handle-http-request
     =+  !<([eyre-id=@ta req=inbound-request:eyre] vas)
+    ::  require authentication for all claw endpoints
+    ?.  authenticated.req
+      :_  this
+      :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([403 ~])]
+          [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs:mimes:html '{"error":"not authenticated"}'))]
+          [%give %kick ~[/http-response/[eyre-id]] ~]
+      ==
     =/  url=@t  url.request.req
-    ::  helper: send json response
     =/  as-octs  as-octs:mimes:html
     =/  json-resp
       |=  [status=@ud body=@t]
       ^-  (list card)
-      :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([status ~[['content-type' 'application/json'] ['access-control-allow-origin' '*']]])]
+      :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([status ~[['content-type' 'application/json']]])]
           [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs body))]
           [%give %kick ~[/http-response/[eyre-id]] ~]
       ==
-    ::  helper: read json from tarball
     =/  get-json
       |=  =rail:tarball
       ^-  json
       =/  c=(unit content:tarball)  (~(get ba:tarball ball) rail)
       ?~  c  [%o ~]
-      (fall (mole |.(!<(json q.cage.u.c))) [%o ~])
-    ::  helper: read text from tarball
+      (fall (mole |.(!<(json q.sage.u.c))) [%o ~])
     =/  get-txt
       |=  =rail:tarball
       ^-  @t
       =/  c=(unit content:tarball)  (~(get ba:tarball ball) rail)
       ?~  c  ''
-      (fall (mole |.((of-wain:format !<(wain q.cage.u.c)))) '')
-    ::  helper: get action field from json
+      (fall (mole |.((of-wain:format !<(wain q.sage.u.c)))) '')
     =/  jg
       |=  [j=json k=@t]
       ^-  @t
@@ -250,229 +270,201 @@
       ?~  v  ''
       ?.  ?=([%s *] u.v)  ''
       p.u.v
-    ::  route request — each branch returns [cards this] directly
     ^-  (quip card _this)
-      ::  serve GUI
-      ?:  ?|  =(url '/apps/claw/')
-              =(url '/apps/claw/index.html')
-              =(url '/apps/claw')
-          ==
-        =/  html=(each @t tang)
-          (mule |.(.^(@t %cx /(scot %p our.bowl)/[q.byk.bowl]/(scot %da now.bowl)/web/claw-grub/html)))
-        ?:  ?=(%| -.html)  [(json-resp 404 '"GUI not found"') this]
-        :_  this
-        :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'text/html']]])]
-            [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs p.html))]
-            [%give %kick ~[/http-response/[eyre-id]] ~]
+    ::  serve GUI
+    ?:  ?|  =(url '/apps/claw/')
+            =(url '/apps/claw/index.html')
+            =(url '/apps/claw')
         ==
-      ::  GET /api/config — global config
-      ?:  =(url '/apps/claw/api/config')
-        [(json-resp 200 (en:json:html (get-json [/ %'config.json']))) this]
-      ::  GET /api/bots — bot registry in GUI format: {bots: {id: {name}}, default: id}
-      ?:  =(url '/apps/claw/api/bots')
-        =/  reg=json  (get-json [/ %'bots-registry.json'])
-        =/  bot-objs=json
-          ?.  ?=([%o *] reg)  [%o ~]
+      =/  html=(each @t tang)
+        (mule |.(.^(@t %cx /(scot %p our.bowl)/[q.byk.bowl]/(scot %da now.bowl)/web/claw-grub/html)))
+      ?:  ?=(%| -.html)  [(json-resp 404 '"GUI not found"') this]
+      :_  this
+      :~  [%give %fact ~[/http-response/[eyre-id]] %http-response-header !>([200 ~[['content-type' 'text/html']]])]
+          [%give %fact ~[/http-response/[eyre-id]] %http-response-data !>(`(as-octs p.html))]
+          [%give %kick ~[/http-response/[eyre-id]] ~]
+      ==
+    ::  GET /api/config
+    ?:  =(url '/apps/claw/api/config')
+      [(json-resp 200 (en:json:html (get-json [/ %'config.json']))) this]
+    ::  GET /api/bots
+    ?:  =(url '/apps/claw/api/bots')
+      =/  reg=json  (get-json [/ %'bots-registry.json'])
+      =/  bot-objs=json
+        ?.  ?=([%o *] reg)  [%o ~]
+        :-  %o
+        %-  ~(run by p.reg)
+        |=(v=json ^-(json (pairs:enjs:format ~[['name' v]])))
+      =/  first-id=@t
+        ?.  ?=([%o *] reg)  'brap'
+        =/  keys=(list @t)  ~(tap in ~(key by p.reg))
+        ?~(keys 'brap' i.keys)
+      [(json-resp 200 (en:json:html (pairs:enjs:format ~[['bots' bot-objs] ['default' s+first-id]]))) this]
+    ::  GET /api/bot/{id}/config or /api/bot/{id}/context
+    ?:  =((end 3^19 url) '/apps/claw/api/bot/')
+      =/  rest=@t  (rsh 3^19 url)
+      ?:  !=(~ (find "/config" (trip rest)))
+        =/  id=@t  (crip (scag (need (find "/" (trip rest))) (trip rest)))
+        [(json-resp 200 (en:json:html (get-json [/bots/[(crip (trip id))] %'config.json']))) this]
+      ?:  !=(~ (find "/context" (trip rest)))
+        =/  id=@t  (crip (scag (need (find "/" (trip rest))) (trip rest)))
+        =/  id-t=@tas  (crip (trip id))
+        =/  fields=(list @tas)  ~[%identity %soul %agent %memory]
+        =/  ctx=json
           :-  %o
-          %-  ~(run by p.reg)
-          |=  v=json
-          ^-  json
-          %-  pairs:enjs:format
-          :~  ['name' v]
-          ==
-        =/  first-id=@t
-          ?.  ?=([%o *] reg)  'brap'
-          =/  keys=(list @t)  ~(tap in ~(key by p.reg))
-          ?~(keys 'brap' i.keys)
-        =/  result=json
-          %-  pairs:enjs:format
-          :~  ['bots' bot-objs]
-              ['default' s+first-id]
-          ==
-        [(json-resp 200 (en:json:html result)) this]
-      ::  GET /api/bot/{id}/config — per-bot config
-      ?:  =((end 3^19 url) '/apps/claw/api/bot/')
-        =/  rest=@t  (rsh 3^19 url)
-        ?:  !=(~ (find "/config" (trip rest)))
-          =/  id=@t  (crip (scag (need (find "/" (trip rest))) (trip rest)))
-          [(json-resp 200 (en:json:html (get-json [/bots/[(crip (trip id))] %'config.json']))) this]
-        ?:  !=(~ (find "/context" (trip rest)))
-          =/  id=@t  (crip (scag (need (find "/" (trip rest))) (trip rest)))
-          =/  id-t=@tas  (crip (trip id))
-          ::  return all context files as json object
-          =/  fields=(list @tas)  ~[%identity %soul %agent %memory]
-          =/  ctx=json
-            :-  %o
-            %-  ~(gas by *(map @t json))
-            %+  turn  fields
-            |=  f=@tas
-            [f s+(get-txt [/bots/[id-t]/context (crip "{(trip f)}.txt")])]
-          [(json-resp 200 (en:json:html ctx)) this]
-        [(json-resp 404 '"not found"') this]
-      ::  GET /api/tree — full tarball tree
-      ?:  =(url '/apps/claw/api/tree')
-        [(json-resp 200 (en:json:html (tree-to-json:tarball (ball-to-tree:tarball ball)))) this]
-      ::  GET /api/channel-perms — stub (perms are in bot config)
-      ?:  =(url '/apps/claw/api/channel-perms')
-        [(json-resp 200 '{}') this]
-      ::  GET /api/cron-jobs — stub (cron is in bot config)
-      ?:  =(url '/apps/claw/api/cron-jobs')
-        [(json-resp 200 '[]') this]
-      ::  POST /api/action — all write operations
-      ?.  ?=(%'POST' method.request.req)
-        ::  fallback: forward to server nexus (explorer, etc.)
-        =/  =give:nexus  [|+[src sap]:bowl /[eyre-id]]
-        =^  cards  state
-          abet:(poke:hc give [/'server.server' %'main.server-state'] handle-http-request+!>([eyre-id src.bowl req]))
-        [cards this]
-      ?.  =(url '/apps/claw/api/action')
-        ::  fallback: forward to server nexus
-        =/  =give:nexus  [|+[src sap]:bowl /[eyre-id]]
-        =^  cards  state
-          abet:(poke:hc give [/'server.server' %'main.server-state'] handle-http-request+!>([eyre-id src.bowl req]))
-        [cards this]
-      =/  req-body=@t  ?~(body.request.req '' q.u.body.request.req)
-      =/  rj=(unit json)  (de:json:html req-body)
-      ?~  rj  [(json-resp 400 '"invalid json"') this]
-      =/  act=@t  (jg u.rj 'action')
-      =/  ok  (json-resp 200 '"ok"')
-      ::
-      ?:  =('set-key' act)
-        =/  cfg=json  (get-json [/ %'config.json'])
-        ?.  ?=([%o *] cfg)  [ok this]
-        =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ %json !>([%o (~(put by p.cfg) 'api_key' s+(jg u.rj 'key'))])])
-        [ok this]
-      ?:  =('set-model' act)
-        =/  cfg=json  (get-json [/ %'config.json'])
-        ?.  ?=([%o *] cfg)  [ok this]
-        =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ %json !>([%o (~(put by p.cfg) 'model' s+(jg u.rj 'model'))])])
-        [ok this]
-      ?:  =('set-brave-key' act)
-        =/  cfg=json  (get-json [/ %'config.json'])
-        ?.  ?=([%o *] cfg)  [ok this]
-        =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ %json !>([%o (~(put by p.cfg) 'brave_key' s+(jg u.rj 'key'))])])
-        [ok this]
-      ::  bot management
-      ?:  =('add-bot' act)
-        =/  id=@tas  (crip (trip (jg u.rj 'id')))
-        =/  pre-ball=ball:tarball  ball
-        =/  bot-cfg=json
-          %-  pairs:enjs:format
-          :~  ['name' s+id]  ['avatar' s+'']  ['model' s+'']
-              ['api_key' s+'']  ['brave_key' s+'']
-              ['whitelist' [%o (~(put by *(map @t json)) (scot %p our.bowl) s+'owner')]]
-              ['cron' [%a ~]]
-          ==
-        =.  ball  (~(put ba:tarball ball) [/bots/[id] %'config.json'] [~ %json !>(bot-cfg)])
-        =.  ball  (~(put ba:tarball ball) [/bots/[id] %'main.sig'] [~ %sig !>(~)])
-        ::  create default context files
-        =/  def-identity=@t  (rap 3 'You are ' id ', an AI bot running on ' (scot %p our.bowl) '.' ~)
-        =/  def-soul=@t  'You are helpful, knowledgeable, and concise. You have opinions and share them when relevant. You are honest about what you don\'t know. Keep responses focused.'
-        =/  def-agent=@t  (rap 3 'You are ' id ', a native Urbit LLM agent. Your text response is automatically routed back to wherever the message came from. You do NOT need to call any tool to reply. Just respond with text.' ~)
-        =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'identity.txt'] [~ %txt !>((to-wain:format def-identity))])
-        =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'soul.txt'] [~ %txt !>((to-wain:format def-soul))])
-        =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'agent.txt'] [~ %txt !>((to-wain:format def-agent))])
-        =/  reg=json  (get-json [/ %'bots-registry.json'])
-        =/  new-reg=json
-          ?:  ?=([%o *] reg)  [%o (~(put by p.reg) id s+id)]
-          (pairs:enjs:format ~[[id s+id]])
-        =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
-        ::  spawn processes for new files (detects new main.sig)
-        =^  spawn-cards  state
-          abet:(load-ball-changes:hc / pre-ball ball)
-        [(weld ok spawn-cards) this]
-      ?:  =('del-bot' act)
-        =/  id=@tas  (crip (trip (jg u.rj 'id')))
-        =^  cull-cards  state  abet:(cull:hc [%| /bots/[id]])
-        =/  reg=json  (get-json [/ %'bots-registry.json'])
-        =/  new-reg=json  ?:(?=([%o *] reg) [%o (~(del by p.reg) id)] reg)
-        =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>(new-reg)])
-        [(weld ok cull-cards) this]
-      ::  per-bot config updates (merge into existing config)
-      =/  bot-id=@tas  (crip (trip (jg u.rj 'id')))
-      =/  bot-cfg=json  (get-json [/bots/[bot-id] %'config.json'])
-      ?.  ?=([%o *] bot-cfg)  [ok this]
-      ?:  =('bot-set-name' act)
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'name' s+(jg u.rj 'name'))])])
-        =/  reg=json  (get-json [/ %'bots-registry.json'])
-        =?  ball  ?=([%o *] reg)
-          (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ %json !>([%o (~(put by p.reg) bot-id s+(jg u.rj 'name'))])])
-        [ok this]
-      ?:  =('bot-set-avatar' act)
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'avatar' s+(jg u.rj 'avatar'))])])
-        [ok this]
-      ?:  =('bot-set-model' act)
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'model' s+(jg u.rj 'model'))])])
-        [ok this]
-      ?:  =('bot-set-key' act)
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'api_key' s+(jg u.rj 'key'))])])
-        [ok this]
-      ?:  =('bot-set-brave-key' act)
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'brave_key' s+(jg u.rj 'key'))])])
-        [ok this]
-      ?:  =('bot-set-context' act)
-        =/  field=@tas  (crip (trip (jg u.rj 'field')))
-        =/  content=@t  (jg u.rj 'content')
-        =/  fname=@ta  (crip "{(trip field)}.txt")
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id]/context fname] [~ %txt !>((to-wain:format content))])
-        [ok this]
-      ?:  =('bot-del-context' act)
-        =/  field=@tas  (crip (trip (jg u.rj 'field')))
-        =/  fname=@ta  (crip "{(trip field)}.txt")
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id]/context fname] [~ %txt !>((to-wain:format ''))])
-        [ok this]
-      ?:  =('bot-add-ship' act)
-        =/  ship=@t  (jg u.rj 'ship')
-        =/  role=@t  (jg u.rj 'role')
-        =/  wl=json  (fall (~(get by p.bot-cfg) 'whitelist') [%o ~])
-        ?.  ?=([%o *] wl)  [ok this]
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'whitelist' [%o (~(put by p.wl) ship s+role)])])])
-        [ok this]
-      ?:  =('bot-del-ship' act)
-        =/  ship=@t  (jg u.rj 'ship')
-        =/  wl=json  (fall (~(get by p.bot-cfg) 'whitelist') [%o ~])
-        ?.  ?=([%o *] wl)  [ok this]
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'whitelist' [%o (~(del by p.wl) ship)])])])
-        [ok this]
-      ?:  =('bot-cron-add' act)
-        =/  schedule=@t  (jg u.rj 'schedule')
-        =/  prompt=@t  (jg u.rj 'prompt')
-        =/  cron=json  (fall (~(get by p.bot-cfg) 'cron') [%a ~])
-        ?.  ?=([%a *] cron)  [ok this]
-        =/  new-job=json  (pairs:enjs:format ~[['schedule' s+schedule] ['prompt' s+prompt]])
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'cron' [%a (snoc p.cron new-job)])])])
-        [ok this]
-      ?:  =('bot-cron-remove' act)
-        =/  cid=@t  (jg u.rj 'cron-id')
-        =/  idx=@ud  (fall (rush cid dem) 0)
-        =/  cron=json  (fall (~(get by p.bot-cfg) 'cron') [%a ~])
-        ?.  ?=([%a *] cron)  [ok this]
-        =/  new-cron=(list json)
-          =/  i=@ud  0
-          =/  out=(list json)  ~
-          |-
-          ?~  p.cron  (flop out)
-          =?  out  !=(i idx)  [i.p.cron out]
-          $(p.cron t.p.cron, i +(i))
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'cron' [%a new-cron])])])
-        [ok this]
-      ?:  =('bot-set-channel-perm' act)
-        =/  channel=@t  (jg u.rj 'channel')
-        =/  perm=@t  (jg u.rj 'perm')
-        =/  perms=json  (fall (~(get by p.bot-cfg) 'channel_perms') [%o ~])
-        ?.  ?=([%o *] perms)  [ok this]
-        =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ %json !>([%o (~(put by p.bot-cfg) 'channel_perms' [%o (~(put by p.perms) channel s+perm)])])])
-        [ok this]
-      ::  unknown action
-      [(json-resp 400 (en:json:html s+(rap 3 'unknown action: ' act ~))) this]
-      ::
-      %rebuild-caches
-    ::  Rebuild all mark tube, dais, and nexus caches.
-    ?>  =(src our):bowl
-    =.  ball  (~(pub ba:tarball ball) /sys/tubes (rebuild-tubes:marks our.bowl q.byk.bowl now.bowl))
-    =.  ball  (~(pub ba:tarball ball) /sys/daises (rebuild-daises:marks our.bowl q.byk.bowl now.bowl))
-    =.  ball  (~(pub ba:tarball ball) /sys/nexuses (rebuild-nexuses:marks our.bowl q.byk.bowl now.bowl))
-    [~ this]
+          %-  ~(gas by *(map @t json))
+          %+  turn  fields
+          |=  f=@tas
+          [f s+(get-txt [/bots/[id-t]/context (crip "{(trip f)}.txt")])]
+        [(json-resp 200 (en:json:html ctx)) this]
+      [(json-resp 404 '"not found"') this]
+    ::  GET /api/tree
+    ?:  =(url '/apps/claw/api/tree')
+      [(json-resp 200 (en:json:html (tree-to-json:tarball (ball-to-tree:tarball ball)))) this]
+    ?:  =(url '/apps/claw/api/channel-perms')
+      [(json-resp 200 '{}') this]
+    ?:  =(url '/apps/claw/api/cron-jobs')
+      [(json-resp 200 '[]') this]
+    ::  POST /api/action
+    ?.  ?=(%'POST' method.request.req)
+      ::  fallback: forward to server nexus
+      =/  =give:nexus  [|+[src sap]:bowl /[eyre-id]]
+      =^  cards  state
+        abet:(poke:hc give [/'server.server' %'main.server-state'] [[/ %handle-http-request] !>([eyre-id src.bowl req])])
+      [cards this]
+    ?.  =(url '/apps/claw/api/action')
+      =/  =give:nexus  [|+[src sap]:bowl /[eyre-id]]
+      =^  cards  state
+        abet:(poke:hc give [/'server.server' %'main.server-state'] [[/ %handle-http-request] !>([eyre-id src.bowl req])])
+      [cards this]
+    =/  req-body=@t  ?~(body.request.req '' q.u.body.request.req)
+    =/  rj=(unit json)  (de:json:html req-body)
+    ?~  rj  [(json-resp 400 '"invalid json"') this]
+    =/  act=@t  (jg u.rj 'action')
+    =/  ok  (json-resp 200 '"ok"')
+    ?:  =('set-key' act)
+      =/  cfg=json  (get-json [/ %'config.json'])
+      ?.  ?=([%o *] cfg)  [ok this]
+      =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ [/ %json] !>([%o (~(put by p.cfg) 'api_key' s+(jg u.rj 'key'))])])
+      [ok this]
+    ?:  =('set-model' act)
+      =/  cfg=json  (get-json [/ %'config.json'])
+      ?.  ?=([%o *] cfg)  [ok this]
+      =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ [/ %json] !>([%o (~(put by p.cfg) 'model' s+(jg u.rj 'model'))])])
+      [ok this]
+    ?:  =('set-brave-key' act)
+      =/  cfg=json  (get-json [/ %'config.json'])
+      ?.  ?=([%o *] cfg)  [ok this]
+      =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ [/ %json] !>([%o (~(put by p.cfg) 'brave_key' s+(jg u.rj 'key'))])])
+      [ok this]
+    ?:  =('add-bot' act)
+      =/  id=@tas  (crip (trip (jg u.rj 'id')))
+      =/  pre-ball=ball:tarball  ball
+      =/  bot-cfg=json
+        %-  pairs:enjs:format
+        :~  ['name' s+id]  ['avatar' s+'']  ['model' s+'']
+            ['api_key' s+'']  ['brave_key' s+'']
+            ['whitelist' [%o (~(put by *(map @t json)) (scot %p our.bowl) s+'owner')]]
+            ['cron' [%a ~]]
+        ==
+      =.  ball  (~(put ba:tarball ball) [/bots/[id] %'config.json'] [~ [/ %json] !>(bot-cfg)])
+      =.  ball  (~(put ba:tarball ball) [/bots/[id] %'main.sig'] [~ [/ %sig] !>(~)])
+      =/  def-identity=@t  (rap 3 'You are ' id ', an AI bot running on ' (scot %p our.bowl) '.' ~)
+      =/  def-soul=@t  'You are helpful, knowledgeable, and concise.'
+      =/  def-agent=@t  (rap 3 'You are ' id ', a native Urbit LLM agent. Respond with text.' ~)
+      =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'identity.txt'] [~ [/ %txt] !>((to-wain:format def-identity))])
+      =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'soul.txt'] [~ [/ %txt] !>((to-wain:format def-soul))])
+      =.  ball  (~(put ba:tarball ball) [/bots/[id]/context %'agent.txt'] [~ [/ %txt] !>((to-wain:format def-agent))])
+      =/  reg=json  (get-json [/ %'bots-registry.json'])
+      =/  new-reg=json
+        ?:  ?=([%o *] reg)  [%o (~(put by p.reg) id s+id)]
+        (pairs:enjs:format ~[[id s+id]])
+      =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ [/ %json] !>(new-reg)])
+      =^  spawn-cards  state  abet:(load-ball-changes:hc / pre-ball ball)
+      [(weld ok spawn-cards) this]
+    ?:  =('del-bot' act)
+      =/  id=@tas  (crip (trip (jg u.rj 'id')))
+      =^  cull-cards  state  abet:(cull:hc [%| /bots/[id]])
+      =/  reg=json  (get-json [/ %'bots-registry.json'])
+      =/  new-reg=json  ?:(?=([%o *] reg) [%o (~(del by p.reg) id)] reg)
+      =.  ball  (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ [/ %json] !>(new-reg)])
+      [(weld ok cull-cards) this]
+    ::  per-bot config updates
+    =/  bot-id=@tas  (crip (trip (jg u.rj 'id')))
+    =/  bot-cfg=json  (get-json [/bots/[bot-id] %'config.json'])
+    ?.  ?=([%o *] bot-cfg)  [ok this]
+    ?:  =('bot-set-name' act)
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'name' s+(jg u.rj 'name'))])])
+      =/  reg=json  (get-json [/ %'bots-registry.json'])
+      =?  ball  ?=([%o *] reg)
+        (~(put ba:tarball ball) [/ %'bots-registry.json'] [~ [/ %json] !>([%o (~(put by p.reg) bot-id s+(jg u.rj 'name'))])])
+      [ok this]
+    ?:  =('bot-set-avatar' act)
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'avatar' s+(jg u.rj 'avatar'))])])
+      [ok this]
+    ?:  =('bot-set-model' act)
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'model' s+(jg u.rj 'model'))])])
+      [ok this]
+    ?:  =('bot-set-key' act)
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'api_key' s+(jg u.rj 'key'))])])
+      [ok this]
+    ?:  =('bot-set-brave-key' act)
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'brave_key' s+(jg u.rj 'key'))])])
+      [ok this]
+    ?:  =('bot-set-context' act)
+      =/  field=@tas  (crip (trip (jg u.rj 'field')))
+      =/  content=@t  (jg u.rj 'content')
+      =/  fname=@ta  (crip "{(trip field)}.txt")
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id]/context fname] [~ [/ %txt] !>((to-wain:format content))])
+      [ok this]
+    ?:  =('bot-del-context' act)
+      =/  field=@tas  (crip (trip (jg u.rj 'field')))
+      =/  fname=@ta  (crip "{(trip field)}.txt")
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id]/context fname] [~ [/ %txt] !>((to-wain:format ''))])
+      [ok this]
+    ?:  =('bot-add-ship' act)
+      =/  ship=@t  (jg u.rj 'ship')
+      =/  role=@t  (jg u.rj 'role')
+      =/  wl=json  (fall (~(get by p.bot-cfg) 'whitelist') [%o ~])
+      ?.  ?=([%o *] wl)  [ok this]
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'whitelist' [%o (~(put by p.wl) ship s+role)])])])
+      [ok this]
+    ?:  =('bot-del-ship' act)
+      =/  ship=@t  (jg u.rj 'ship')
+      =/  wl=json  (fall (~(get by p.bot-cfg) 'whitelist') [%o ~])
+      ?.  ?=([%o *] wl)  [ok this]
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'whitelist' [%o (~(del by p.wl) ship)])])])
+      [ok this]
+    ?:  =('bot-cron-add' act)
+      =/  schedule=@t  (jg u.rj 'schedule')
+      =/  prompt=@t  (jg u.rj 'prompt')
+      =/  cron=json  (fall (~(get by p.bot-cfg) 'cron') [%a ~])
+      ?.  ?=([%a *] cron)  [ok this]
+      =/  new-job=json  (pairs:enjs:format ~[['schedule' s+schedule] ['prompt' s+prompt]])
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'cron' [%a (snoc p.cron new-job)])])])
+      [ok this]
+    ?:  =('bot-cron-remove' act)
+      =/  cid=@t  (jg u.rj 'cron-id')
+      =/  idx=@ud  (fall (rush cid dem) 0)
+      =/  cron=json  (fall (~(get by p.bot-cfg) 'cron') [%a ~])
+      ?.  ?=([%a *] cron)  [ok this]
+      =/  new-cron=(list json)
+        =/  i=@ud  0
+        =/  out=(list json)  ~
+        |-
+        ?~  p.cron  (flop out)
+        =?  out  !=(i idx)  [i.p.cron out]
+        $(p.cron t.p.cron, i +(i))
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'cron' [%a new-cron])])])
+      [ok this]
+    ?:  =('bot-set-channel-perm' act)
+      =/  channel=@t  (jg u.rj 'channel')
+      =/  perm=@t  (jg u.rj 'perm')
+      =/  perms=json  (fall (~(get by p.bot-cfg) 'channel_perms') [%o ~])
+      ?.  ?=([%o *] perms)  [ok this]
+      =.  ball  (~(put ba:tarball ball) [/bots/[bot-id] %'config.json'] [~ [/ %json] !>([%o (~(put by p.bot-cfg) 'channel_perms' [%o (~(put by p.perms) channel s+perm)])])])
+      [ok this]
+    [(json-resp 400 (en:json:html s+(rap 3 'unknown action: ' act ~))) this]
       ::
       %refresh-sessions
     ::  Scry for dill sessions, sync subscriptions and grubs
@@ -527,7 +519,7 @@
     =/  eyre-id=@ta  i.t.path
     =/  =give:nexus  [|+[src sap]:bowl /cancel/[eyre-id]]
     =^  cards  state
-      abet:(poke:hc give [/'server.server' %'main.server-state'] handle-http-cancel+!>(eyre-id))
+      abet:(poke:hc give [/'server.server' %'main.server-state'] [[/ %handle-http-cancel] !>(eyre-id)])
     [cards this]
       [%proc ^]
     =^  cards  state
@@ -540,7 +532,7 @@
   ^-  (unit (unit cage))
   ?+  path  (on-peek:def path)
       [%x %peek %file *]
-    ::  Single file's cage with its actual mark
+    ::  Single file's sage, converted to cage for scry
     =/  here=^path  t.t.t.path
     ?~  here  ~
     =/  dir=^path  (snip `^path`here)
@@ -549,7 +541,7 @@
       (~(get ba:tarball ball) dir name)
     ?~  content
       [~ ~]
-    ``cage.u.content
+    ``[name.p.sage.u.content q.sage.u.content]
     ::
       [%x %peek %kids *]
     ::  File names at path
@@ -583,11 +575,11 @@
     ``gain+!>((~(dip of gain) here))
     ::
       [%x %peek %silo %lobe @ ~]
-    ::  Look up cage in silo by lobe hash
+    ::  Look up page in silo by lobe hash
     =/  =lobe:clay  (slav %uv i.t.t.t.t.path)
-    =/  got=(unit cage)  (~(get si:nexus silo) lobe)
+    =/  got=(unit bask:tarball)  (~(get si:nexus silo) lobe)
     ?~  got  [~ ~]
-    ``u.got
+    ``name.p.u.got^!>(q.u.got)
     ::
       [%x %peek %subs ~]
     ::  Internal subscriptions
@@ -607,15 +599,16 @@
   ?:  ?=([%dill %logs ~] wire)
     ?>  ?=([%dill %logs *] sign)
     =^  cards  state
-      abet:(save-file:hc [/sys/dill %'logs.dill-told'] [~ %dill-told !>(told.sign)])
+      abet:(save-file:hc [/sys/dill %'logs.dill-told'] [~ [/ %dill-told] !>(told.sign)])
     [cards this]
   ?:  ?=([%dill %session @ ~] wire)
     ?>  ?=([%dill %blit *] sign)
     =/  ses=@tas  i.t.t.wire
     =^  cards  state
-      abet:(save-file:hc [/sys/dill/sessions ses] [~ %dill-blit !>(p.sign)])
+      abet:(save-file:hc [/sys/dill/sessions ses] [~ [/ %dill-blit] !>(p.sign)])
     [cards this]
   ?:  ?=([%clay-desk @ ~] wire)
+    ~&  >>  "on-arvo: clay writ on wire {<wire>}"
     ?>  ?=([%clay %writ *] sign)
     =/  dek=desk  (slav %tas i.t.wire)
     =^  cards  state
@@ -629,9 +622,9 @@
   ?:  ?=([%jael %private ~] wire)
     ?>  ?=([%jael %private-keys *] sign)
     =^  cards  state
-      abet:(save-file:hc [/sys/jael %'private-keys.jael-private-keys'] [~ %jael-private-keys !>([life.sign vein.sign])])
+      abet:(save-file:hc [/sys/jael %'private-keys.jael-private-keys'] [~ [/ %jael-private-keys] !>([life.sign vein.sign])])
     [cards this]
-  ::  handle eyre connect response (from on-init binding)
+  ::  handle eyre connect/disconnect response
   ?:  ?=([%eyre *] wire)
     `this
   =^  cards  state
@@ -807,18 +800,17 @@
   |=  =wire
   ^-  give:nexus
   [|+[our.bowl /gall/grubbery] wire]
-::  Validate a vase according to a mark, checking nest or scrying for dais
-::  Pure vase validation given a dais
+::  Validate a vase using a vale gate $-(* vase)
 ::
 ::  Assumes old vase was part of a chain of +validate-vase uses where the
 ::  original was clammed
 ::  Nest optimization: if old vase exists and types nest, reuse old type.
-::  Otherwise run vale to get canonical type from dais.
+::  Otherwise run vale to get canonical type.
 ::
 ::  force=%.y skips nest optimization (for reload when types may have changed)
 ::
 ++  validate-vase
-  |=  [=dais:clay old=(unit vase) new=vase force=?]
+  |=  [vale=$-(* vase) old=(unit vase) new=vase force=?]
   ^-  (each vase tang)
   ?:  ?&  !force
           ?=(^ old)
@@ -826,7 +818,7 @@
       ==
     &+[p.u.old q.new]
   =/  vale-result=(each vase tang)
-    (mule |.((vale:dais q.new)))
+    (mule |.((vale q.new)))
   ?:  ?=(%| -.vale-result)
     =/  err=tang
       :~  leaf+"vale failed"
@@ -835,54 +827,154 @@
       ==
     |+(weld err p.vale-result)
   &+p.vale-result
-::  Get a cached tube from /sys/tubes/[from]/[to]
+::  Find the code nexus governing a given path.
+::  Walks up ancestors, checking if any immediate child is in the code map.
+::  Walk up the tree looking for a compiled artifact in code nexuses.
+::  At each ancestor, checks for a child named %code in the code map.
+::  A %tang counts as found; only true absence walks to the next.
+::
+::  +seek-built: find a compiled artifact by walking up the tree
+::  +find-built: namespace + source rail (no artifact)
+::  +get-built: just the artifact
+::  Code namespace governance
+::
+::  Every path in the tarball is governed by exactly one /code namespace:
+::  the nearest /code sibling found by walking up from the path.
+::  Governance is hermetic — if the governing namespace doesn't have an
+::  artifact, we return ~ rather than falling back to a parent. Lower
+::  namespaces must include marks/libs they need. A ford-style refcounted
+::  cache (TODO) will make this redundancy free via content-addressed dedup.
+::
+::  +find-code-ns: find the /code namespace governing a path
+::
+++  find-code-ns
+  |=  pax=path
+  ^-  (unit fold:tarball)
+  |-
+  =/  cod=path
+    ?~  pax  /code
+    (snoc (snip `(list @ta)`pax) %code)
+  ?^  (~(get by code) cod)  `cod
+  ?~  pax  ~
+  $(pax (snip `(list @ta)`pax))
+::  +seek-built: find a compiled artifact in the governing namespace
+::
+++  seek-built
+  |=  [pax=path =path name=@ta]
+  ^-  (unit [namespace=fold:tarball source=rail:tarball =built:nexus])
+  =/  ns=(unit fold:tarball)  (find-code-ns pax)
+  ?~  ns  ~
+  =/  lod=lode:nexus  (~(got by code) u.ns)
+  =/  node=(unit (map @ta built:nexus))
+    (~(get of bins.lod) path)
+  =/  hit=(unit built:nexus)
+    ?~  node  ~
+    (~(get by u.node) name)
+  ?~  hit  ~
+  `[u.ns [path name] u.hit]
+::
+++  find-built
+  |=  [pax=path =path name=@ta]
+  ^-  (unit [namespace=fold:tarball source=rail:tarball])
+  =/  res  (seek-built pax path name)
+  ?~  res  ~
+  `[namespace.u.res source.u.res]
+::
+++  get-built
+  |=  [pax=path =path name=@ta]
+  ^-  (unit built:nexus)
+  =/  res  (seek-built pax path name)
+  ?~  res  ~
+  `built.u.res
+::
+::  Get a compiled marc from bins
+::
+++  get-marc
+  |=  [pax=path =blot:tarball]
+  ^-  marc:tarball
+  =/  res=(unit built:nexus)  (get-built pax (weld /mar path.blot) name.blot)
+  ?~  res
+    =/  nam=@tas  (rail-to-arm:tarball blot)
+    ~&  >>>  "get-marc: %{(trip nam)} not found, searched from {(spud pax)}"
+    ~|([%marc-not-found nam pax] !!)
+  ?.  ?=(%vase -.u.res)
+    =/  nam=@tas  (rail-to-arm:tarball blot)
+    ~&  >>>  "get-marc: %{(trip nam)} failed (tang), searched from {(spud pax)}"
+    ~|([%marc-failed nam pax] !!)
+  !<(marc:tarball vase.u.res)
+::
+++  get-vale
+  |=  [pax=path =blot:tarball]
+  ^-  $-(* vase)
+  vale:(get-marc pax blot)
 ::
 ++  get-tube
-  |=  [from=mark to=mark]
+  |=  [pax=path =bars:tarball]
   ^-  tube:clay
-  =/  c=(unit content:tarball)
-    (~(get ba:tarball ball) /sys/tubes/[from] to)
-  ?~  c  ~|([%tube-not-cached from to] !!)
-  !<(tube:clay q.cage.u.c)
-::  Get a cached dais from /sys/daises/[mark]
+  =/  via-grow=(each tube:clay tang)
+    (mule |.((grow:(get-marc pax a.bars) b.bars)))
+  ?:  ?=(%& -.via-grow)  p.via-grow
+  (grab:(get-marc pax b.bars) a.bars)
+::  Validate file content, looks up cached dais
 ::
-++  get-dais
-  |=  =mark
-  ^-  dais:clay
-  =/  c=(unit content:tarball)
-    (~(get ba:tarball ball) /sys/daises mark)
-  ?~  c  ~|([%dais-not-cached mark] !!)
-  !<(dais:clay q.cage.u.c)
-::  Validate file content: handles %temp, empty-mime, looks up cached dais
-::
-++  validate-new-cage
-  |=  [=mark old=(unit vase) new=vase force=?]
+++  validate-new-sage
+  |=  [pax=path =blot:tarball old=(unit vase) new=vase force=?]
   ^-  (each vase tang)
-  ::  Skip validation for %temp mark - ephemeral
-  ?:  =(%temp mark)
-    &+new
-  ::  Reject empty mime files
-  ?:  ?&  =(%mime mark)
-          =(0 p.q:!<(mime new))
-      ==
-    |+~[leaf+"empty mime file"]
-  =/  =dais:clay  (get-dais mark)
-  (validate-vase dais old new force)
-::  Clam a cage at sandbox boundary
+  ::  Bootstrap marks — hardcoded like Clay's page-to-cage
+  ?:  =([/ %boom] blot)
+    (mule |.(!>(;;([tang bask:tarball] q.new))))
+  ?:  =([/ %hoon] blot)
+    (mule |.(!>(;;(@t q.new))))
+  ?:  =([/ %tang] blot)
+    (mule |.(!>(;;(tang q.new))))
+  ?:  =([/ %mime] blot)
+    (mule |.(!>(;;(mime q.new))))
+  ?:  =([/ %kelvin] blot)
+    (mule |.(!>(;;(waft:clay q.new))))
+  =/  res=(unit built:nexus)  (get-built pax (weld /mar path.blot) name.blot)
+  ?~  res
+    =/  nam=@tas  (rail-to-arm:tarball blot)
+    |+~[leaf+"validate-new-sage: no marc for %{(trip nam)} at {(spud pax)}"]
+  ?.  ?=(%vase -.u.res)
+    =/  nam=@tas  (rail-to-arm:tarball blot)
+    |+~[leaf+"validate-new-sage: marc for %{(trip nam)} failed at {(spud pax)}"]
+  =/  vale=$-(* vase)  vale:!<(marc:tarball vase.u.res)
+  (validate-vase vale old new force)
+::  Clam a sage at sandbox boundary
 ::  Used when data crosses a weir filter from untrusted source.
 ::  Always forces full validation (no nest optimization).
 ::
-++  clam-cage
-  |=  =cage
-  ^-  (each ^cage tang)
-  ::  Reject %temp mark - can't validate from untrusted source
-  ?:  =(%temp p.cage)
-    |+~[leaf+"clam: cannot validate %temp mark from untrusted source"]
+++  clam-sage
+  |=  [pax=path =sage:tarball]
+  ^-  (each sage:tarball tang)
   =/  result=(each vase tang)
-    (validate-new-cage p.cage ~ q.cage %.y)
+    (validate-new-sage pax p.sage ~ q.sage %.y)
   ?:  ?=(%| -.result)
     result
-  &+[p.cage p.result]
+  &+[p.sage p.result]
+::  Clam a bask (blot + noun) into a sage.
+::  Used when reading historical data from the silo.
+::
+++  clam-bask
+  |=  [pax=path =bask:tarball]
+  ^-  (each sage:tarball tang)
+  ::  boom: unwrap inner bask and retry its mark
+  ::  if it heals, return the real sage; otherwise re-boom
+  ?:  =([/ %boom] p.bask)
+    =/  [err=tang inner=bask:tarball]  ;;([tang bask:tarball] q.bask)
+    =/  res  $(bask inner)
+    ?:  ?=(%& -.res)  res
+    &+[[/ %boom] !>([p.res inner])]
+  ?:  =([/ %hoon] p.bask)
+    (mule |.([[/ %hoon] !>(;;(@t q.bask))]))
+  ?:  =([/ %tang] p.bask)
+    (mule |.([[/ %tang] !>(;;(tang q.bask))]))
+  ?:  =([/ %mime] p.bask)
+    (mule |.([[/ %mime] !>(;;(mime q.bask))]))
+  =/  vale=$-(* vase)  (get-vale pax p.bask)
+  =/  res=(each vase tang)  (mule |.((vale q.bask)))
+  ?:  ?=(%| -.res)  res
+  &+[p.bask p.res]
 ::  Validate all cages in a ball subtree, crash on failure
 ::
 ::  Always forces full dais validation (no nest optimization) because
@@ -890,12 +982,14 @@
 ::  the nest optimization wouldn't help anyway.
 ::
 ++  validate-ball
-  |=  =ball:tarball
+  |=  [cod=path =ball:tarball]
   ^-  ball:tarball
   ::  validate files at this level
-  ::  for each file, run validate-new-cage and crash if it fails
+  ::  for each file, run validate-new-sage and crash if it fails
   ::  rebuild contents map with validated vases
   ::
+  =|  here=path
+  |-
   =/  validated-contents=(map @ta content:tarball)
     ?~  fil.ball  ~
     =/  files=(list [@ta content:tarball])  ~(tap by contents.u.fil.ball)
@@ -904,9 +998,11 @@
     ?~  files  out
     =/  [name=@ta =content:tarball]  i.files
     =/  res=(each vase tang)
-      (validate-new-cage p.cage.content ~ q.cage.content %.y)
-    ?.  ?=(%& -.res)  ~|(p.res !!)
-    $(files t.files, out (~(put by out) name content(cage [p.cage.content p.res])))
+      (validate-new-sage cod p.sage.content ~ q.sage.content %.y)
+    ?.  ?=(%& -.res)
+      ~&  >>  "validate-ball: boom {(trip name)} (mark %{(trip name.p.sage.content)}) at {(spud (weld cod here))}"
+      $(files t.files, out (~(put by out) name content(sage [[/ %boom] !>([p.res [p.sage.content q.q.sage.content]])])))
+    $(files t.files, out (~(put by out) name content(sage [p.sage.content p.res])))
   ::  recurse into subdirectories
   ::  validate each child ball and rebuild dir map
   ::
@@ -916,7 +1012,7 @@
     |-
     ?~  kids  out
     =/  [name=@ta kid=ball:tarball]  i.kids
-    $(kids t.kids, out (~(put by out) name ^$(ball kid)))
+    $(kids t.kids, out (~(put by out) name ^$(here (snoc here name), ball kid)))
   ::  build validated ball
   ::  preserve fil metadata, swap in validated contents
   ::
@@ -927,8 +1023,103 @@
 ++  store-proc
   |=  [here=rail:tarball =proc:fiber:nexus]
   ^+  this
-  =/  =pipe:nexus  (~(put by (fall (~(get of pool) path.here) ~)) name.here proc)
+  =/  old=pipe:nexus  (fall (~(get of pool) path.here) *pipe:nexus)
+  =/  =pipe:nexus  old(proc (~(put by proc.old) name.here proc))
   this(pool (~(put of pool) path.here pipe))
+::  Bang a nexus directory — store tang, +stay all processes under it
+::  TODO: bang subscriptions via born. Add proc=cass:clay to $tote that bumps
+::  on any proc change (spawn, crash, bang, heal) under that directory.
+::  Nexus bangs bump it too since they stay all procs. File-level healing is
+::  implicit (successful spawn overwrites |+tang with &+process). Nexus-level
+::  healing is explicit via clear-bangs-under before reload.
+::
+++  bang-nexus
+  |=  [dest=fold:tarball err=tang]
+  ^+  this
+  ~&  >>>  "BANG nexus {(spud dest)}"
+  %-  (slog err)
+  ::  Set bang on the pipe at dest
+  =/  old=pipe:nexus  (fall (~(get of pool) dest) *pipe:nexus)
+  =.  pool  (~(put of pool) dest old(bang `err))
+  ::  Bang every file under dest (set process to |+err)
+  =/  sub=ball:tarball  (~(dip ba:tarball ball) dest)
+  =.  this
+    %+  roll  ~(tap ba:tarball sub)
+    |=  [[=rail:tarball *] acc=_this]
+    (bang-file:acc [(weld dest path.rail) name.rail] err)
+  ::  Replace all processes under dest with +stay
+  (stay-all-procs dest)
+::  Bang a file — store tang on its process
+::
+++  bang-file
+  |=  [here=rail:tarball err=tang]
+  ^+  this
+  ~&  >>>  "BANG file {(spud (snoc path.here name.here))}"
+  %-  (slog err)
+  =/  =pipe:nexus  (fall (~(get of pool) path.here) *pipe:nexus)
+  =/  old=(unit proc:fiber:nexus)  (~(get by proc.pipe) name.here)
+  =/  =proc:fiber:nexus
+    ?~  old  [|+err ~ ~]
+    [|+err next.u.old skip.u.old]
+  (store-proc here proc)
+::  Replace all processes under a directory with +stay
+::
+++  stay-all-procs
+  |=  dest=fold:tarball
+  ^+  this
+  =/  sub-pool=pool:nexus  (~(dip of pool) dest)
+  (stay-pipe dest sub-pool)
+::
+++  stay-pipe
+  |=  [here=fold:tarball sub=pool:nexus]
+  ^+  this
+  ::  Stay all files in this directory's pipe
+  =.  this
+    ?~  fil.sub  this
+    =/  files=(list [@ta proc:fiber:nexus])  ~(tap by proc.u.fil.sub)
+    |-
+    ?~  files  this
+    =/  old=proc:fiber:nexus  +.i.files
+    =/  stay-proc=proc:fiber:nexus
+      [&+stay:(fiber:fiber:nexus ,~) next.old skip.old]
+    =.  this  (store-proc [here -.i.files] stay-proc)
+    $(files t.files)
+  ::  Recurse into subdirectories
+  =/  kids=(list [@ta pool:nexus])  ~(tap by dir.sub)
+  |-
+  ?~  kids  this
+  =.  this  (stay-pipe (snoc here -.i.kids) +.i.kids)
+  $(kids t.kids)
+::  Clear all bangs (nexus and file) under a directory
+::
+++  clear-bangs-under
+  |=  dest=fold:tarball
+  ^-  pool:nexus
+  ?~  dest  (clear-pool-bangs pool)
+  =/  kid=pool:nexus  (~(gut by dir.pool) i.dest ^+(pool [~ ~]))
+  pool(dir (~(put by dir.pool) i.dest $(pool kid, dest t.dest)))
+::
+++  clear-pool-bangs
+  |=  pol=pool:nexus
+  ^-  pool:nexus
+  =.  fil.pol
+    ?~  fil.pol  ~
+    `[~ proc.u.fil.pol]
+  %=  pol
+    dir  %-  ~(run by dir.pol)
+         |=(sub=pool:nexus ^-(pool:nexus (clear-pool-bangs sub)))
+  ==
+::  Check if a file's nexus is banged (any ancestor directory has bang)
+::
+++  is-nexus-banged
+  |=  here=rail:tarball
+  ^-  ?
+  =/  pax=path  path.here
+  |-
+  =/  pip=pipe:nexus  (fall (~(get of pool) pax) *pipe:nexus)
+  ?:  ?=(^ bang.pip)  &
+  ?~  pax  |
+  $(pax (snip `path`pax))
 ::  Delete a file from pool and ball (NOT born - it's a high-water mark)
 ::
 ++  delete
@@ -945,8 +1136,18 @@
   ::  Remove from ball BEFORE notify so subscribers see deletion
   =.  ball  (~(del ba:tarball ball) dir name)
   =.  this  (bump-file [dir name])
-  =/  =pipe:nexus  (~(del by (fall (~(get of pool) dir) ~)) name)
-  this(pool (~(put of pool) dir pipe))
+  =/  old=pipe:nexus  (fall (~(get of pool) dir) *pipe:nexus)
+  =/  =pipe:nexus  old(proc (~(del by proc.old) name))
+  =.  pool  (~(put of pool) dir pipe)
+  ::  Rebuild if deletion is inside a code nexus
+  =/  cod=(unit path)
+    =+  pax=dir
+    |-  ?:  (~(has by code) pax)  `pax
+    ?~  pax  ~
+    $(pax (snip `path`pax))
+  ?~  cod  this
+  ~&  >>>  "delete: triggering build-code from {(spud dir)}"
+  (build-code u.cod)
 ::  Send ack/nack back to poke source
 ::  - Internal (%&): enqueue %pack intake to source path
 ::  - External (%|): emit gall card
@@ -1004,7 +1205,7 @@
   ::  Nack pokes in procs at this level
   =.  this
     ?~  fil.pool  this
-    =/  procs=(list [name=@ta =proc:fiber:nexus])  ~(tap by u.fil.pool)
+    =/  procs=(list [name=@ta =proc:fiber:nexus])  ~(tap by proc.u.fil.pool)
     |-
     ?~  procs  this
     =/  proc-rail=rail:tarball  [here name.i.procs]
@@ -1022,11 +1223,14 @@
 ++  run-on-loads
   |=  [here=fold:tarball sub-sand=sand:nexus sub-gain=gain:nexus sub-ball=ball:tarball]
   ^-  [sand:nexus gain:nexus ball:tarball]
-  ::  Check if this node has a nexus
+  ::  Check if this node has a nexus (skip on compile failure during boot)
   =/  nex=(unit nexus:nexus)
     ?~  fil.sub-ball  ~
     ?~  neck.u.fil.sub-ball  ~
-    (build-nexus u.neck.u.fil.sub-ball)
+    =/  res  (build-nexus here u.neck.u.fil.sub-ball)
+    ?:  ?=(%& -.res)  `p.res
+    ~&  >>  "run-on-loads: nexus build error at {(spud here)}"
+    ~
   ::  Run on-load if nexus exists
   ::
   ::  IMPORTANT: The weir at the root of sub-sand is preserved from the parent.
@@ -1068,39 +1272,78 @@
 ++  reload-nexus
   |=  dest=fold:tarball
   ^+  this
-  ::  Get the nexus for this directory
   =/  sub-ball=ball:tarball  (~(dip ba:tarball ball) dest)
-  =/  nex=(unit nexus:nexus)
-    ?~  fil.sub-ball  ~
-    ?~  neck.u.fil.sub-ball  ~
-    (build-nexus u.neck.u.fil.sub-ball)
-  ?~  nex
-    ~|("no nexus at destination" !!)
-  ::  Get current sand subtree (preserve parent weir)
+  ?~  fil.sub-ball  ~|("no nexus at destination" !!)
+  ?~  neck.u.fil.sub-ball  ~|("no nexus at destination" !!)
+  =/  nex=(each nexus:nexus tang)
+    (build-nexus dest u.neck.u.fil.sub-ball)
+  ?:  ?=(%| -.nex)
+    ~&  >>  "reload-nexus: build error at {(spud dest)}"
+    (bang-nexus dest p.nex)
+  (reload-nexus-at dest p.nex)
+::  Run on-load for a nexus at dest and apply results
+::
+++  reload-nexus-at
+  |=  [dest=fold:tarball nex=nexus:nexus]
+  ^+  this
+  =/  old-sub=ball:tarball  (~(dip ba:tarball ball) dest)
+  =/  sub-ball=ball:tarball  old-sub
   =/  sub-sand=sand:nexus  (~(dip of sand) dest)
   =/  sub-gain=gain:nexus  (~(dip of gain) dest)
   =/  parent-weir=(unit weir:nexus)  fil.sub-sand
-  =/  parent-neck=(unit neck:tarball)
-    ?~(fil.sub-ball ~ neck.u.fil.sub-ball)
-  ::  Run on-load
+  =/  parent-neck=(unit neck:tarball)  ?~(fil.sub-ball ~ neck.u.fil.sub-ball)
+  ::  Clear all bangs under this nexus before reloading
+  ::  (reload will re-bang anything that still fails)
+  =.  pool  (clear-bangs-under dest)
+  ::  Run on-load (may crash)
+  =/  load-res=(each [sand:nexus gain:nexus ball:tarball] tang)
+    (mule |.((on-load:nex sub-sand sub-gain sub-ball)))
+  ?:  ?=(%| -.load-res)
+    ::  on-load crashed — bang this nexus, stay all processes
+    ~&  >>  "reload-nexus-at: bang at {(spud dest)}"
+    (bang-nexus dest p.load-res)
   =/  [upd-sand=sand:nexus upd-gain=gain:nexus upd-ball=ball:tarball]
-    (on-load:u.nex sub-sand sub-gain sub-ball)
+    p.load-res
   ::  Enforce parent weir on sand and parent neck on ball
-  =/  restored-lump=lump:tarball
-    (fall fil.upd-ball *lump:tarball)
+  =/  restored-lump=lump:tarball  (fall fil.upd-ball *lump:tarball)
   =/  new-sand=sand:nexus    upd-sand(fil parent-weir)
   =/  new-gain=gain:nexus    upd-gain
   =/  new-ball=ball:tarball  upd-ball(fil `restored-lump(neck parent-neck))
-  ::  Put results back
-  =/  old-born=born:nexus  born
+  ::  Put results back — load-ball-changes writes ball and does bookkeeping
   =.  sand  (put-sub-sand sand dest new-sand)
-  =.  ball  (~(pub ba:tarball ball) dest new-ball)
   =.  gain  (put-sub-gain gain dest new-gain)
-  ::  Bump weir cass in born for any directories where weir changed
+  =.  this  (load-ball-changes dest old-sub new-ball)
   =.  this  (bump-weir-changes dest sub-sand new-sand)
-  =.  this  (notify old-born)
-  ::  Re-check subscriptions against potentially changed weirs in subtree
-  (audit-weir dest)
+  =.  this  (audit-weir dest)
+  (reload-child-nexuses dest)
+::  Recursively reload all child nexuses top-to-bottom.
+::  Every directory with a neck is reloaded via reload-nexus-at,
+::  which runs on-load, spawns processes, and recurses into its children.
+::
+++  reload-child-nexuses
+  |=  dest=fold:tarball
+  ^+  this
+  =/  sub=ball:tarball  (~(dip ba:tarball ball) dest)
+  =/  kids=(list [@ta ball:tarball])  ~(tap by dir.sub)
+  |-
+  ?~  kids  this
+  =/  [kid-name=@ta kid-ball=ball:tarball]  i.kids
+  =/  kid-path=fold:tarball  (snoc dest kid-name)
+  =.  this
+    ::  Directory with a neck — reload it (recurses into its children)
+    ::  Skip /code — it has a neck but is the code compiler, not a nexus
+    ?:  ?&  ?=(^ fil.kid-ball)
+            ?=(^ neck.u.fil.kid-ball)
+            !=([/ %code] u.neck.u.fil.kid-ball)
+        ==
+      =/  kid-nex=(each nexus:nexus tang)
+        (build-nexus kid-path u.neck.u.fil.kid-ball)
+      ?:  ?=(%| -.kid-nex)
+        (bang-nexus kid-path p.kid-nex)
+      (reload-nexus-at kid-path p.kid-nex)
+    ::  Non-nexus directory — recurse deeper
+    $(kids ~(tap by dir.kid-ball), dest kid-path)
+  $(kids t.kids)
 ::  Spawn processes for files in new ball, bump if content changed from old
 ::
 ++  spawn-new-files
@@ -1114,7 +1357,6 @@
   =/  file-rail=rail:tarball    [here file-name]
   =.  this  ?^((get-born file-rail) this (init-born file-rail))
   =.  this  (spawn-proc file-rail [%load ~])
-  =.  this  (enqu-take file-rail (sys-give /load) ~)
   $(files t.files)
 ::  Spawn processes for all files in new ball recursively.
 ::
@@ -1129,52 +1371,6 @@
   =.  this  ^$(here (snoc here kid-name), new +.i.kids)
   $(kids t.kids)
 ::
-++  reload
-  |=  $:  old-pool=pool:nexus
-          old-ball=ball:tarball
-          old-sand=sand:nexus
-          old-born=born:nexus
-          old-subs=subs:nexus
-          old-silo=silo:nexus
-          old-gain=gain:nexus
-      ==
-  ^+  this
-  ::  Nack pokes in old proc queues
-  =.  this  (nack-pool / old-pool ~[leaf+"agent [re]loaded"])
-  ::  Restore state (pool will be rebuilt)
-  =.  ball  old-ball
-  =.  sand  old-sand
-  =.  born  old-born
-  =.  subs  old-subs
-  =.  silo  old-silo
-  =.  gain  old-gain
-  ::  Capture ball before modifications (for change detection)
-  =/  pre-ball=ball:tarball  ball
-  ::  Clear ephemeral %temp cages - they shouldn't survive reload
-  =.  ball  ~(clear-temp ba:tarball ball)
-  ::  Build tube, dais, and nexus caches synchronously as %temp grubs.
-  =.  ball  (~(pub ba:tarball ball) /sys/tubes (rebuild-tubes:marks our.bowl q.byk.bowl now.bowl))
-  =.  ball  (~(pub ba:tarball ball) /sys/daises (rebuild-daises:marks our.bowl q.byk.bowl now.bowl))
-  =.  ball  (~(pub ba:tarball ball) /sys/nexuses (rebuild-nexuses:marks our.bowl q.byk.bowl now.bowl))
-  ::  Run nexus on-loads top-down (may modify ball, sand, and gain)
-  =/  pre-sand=sand:nexus  sand
-  =/  [new-sand=sand:nexus new-gain=gain:nexus new-ball=ball:tarball]
-    (run-on-loads / sand gain ball)
-  =:  sand  new-sand
-      gain  new-gain
-      ball  new-ball
-  ==
-  ::  Bump weir cass in born for any directories where weir changed
-  =.  this  (bump-weir-changes / pre-sand sand)
-  ::  Force-validate entire ball (type of $type may have changed since state was saved)
-  =.  ball  ~|(%validate-ball-reload (validate-ball ball))
-  ::  Validate name uniqueness (no file/dir collisions)
-  ?>  ~(validate-names ba:tarball ball)
-  ::  Re-check all subscriptions against potentially changed weirs
-  =.  this  (audit-weir /)
-  ::  Spawn processes and sync all changes
-  =.  this  (load-ball-changes / pre-ball ball)
-  this
 :: TODO: handle outgoing keens
 ::
 ::  Clean up subscriptions for a file (%file) or subtree (%tree)
@@ -1375,7 +1571,7 @@
       =/  sk=sack:nexus
         ?~  node  *sack:nexus
         (fall (~(get by bags.u.node) name.p.target) *sack:nexus)
-      [%file sk (lookup-gain p.target) cage.u.content]
+      [%file sk (lookup-gain p.target) sage.u.content]
         %|
       =/  sub-ball=(unit ball:tarball)  (~(dap ba:tarball ball) p.target)
       ?~  sub-ball  [%none ~]
@@ -1388,9 +1584,9 @@
     =/  watcher-view=view:nexus
       ?~  mark  view
       ?.  ?=(%file -.view)  view
-      ?:  =(p.cage.view u.mark)  view  :: already correct mark
-      =/  =tube:clay  (get-tube p.cage.view u.mark)
-      view(cage [u.mark (tube q.cage.view)])
+      ?:  =(name.p.sage.view u.mark)  view  :: already correct mark
+      =/  =tube:clay  (get-tube path.watcher [p.sage.view [/ u.mark]])
+      view(sage [[/ u.mark] (tube q.sage.view)])
     (enqu-take:acc watcher (sys-give:acc /news) ~ %news wire watcher-view)
   $(watched t.watched)
 ::  Fell a single subscription: remove from indices, send %fell to watcher
@@ -1431,12 +1627,20 @@
   $(darts t.darts)
 ::
 ++  build-nexus
-  |=  neck=@tas
-  ^-  (unit nexus:nexus)
-  =/  c=(unit content:tarball)
-    (~(get ba:tarball ball) /sys/nexuses neck)
-  ?~  c  ~
-  (mole |.(!<(nexus:nexus q.cage.u.c)))
+  |=  [pax=path =neck:tarball]
+  ^-  (each nexus:nexus tang)
+  ?:  =([/ %root] neck)  &+root
+  ?:  =([/ %claw] neck)  &+claw-nexus
+  =/  res=(unit built:nexus)  (get-built pax (weld /nex path.neck) name.neck)
+  ?~  res  |+~[leaf+"build-nexus: {(trip (rail-to-arm:tarball [path.neck name.neck]))} not found in code"]
+  ?+  -.u.res
+    |+~[leaf+"build-nexus: unexpected artifact type {<-.u.res>}"]
+    %tang  |+tang.u.res
+    %vase
+  =/  nex=(unit nexus:nexus)  (mole |.(!<(nexus:nexus vase.u.res)))
+  ?~  nex  |+~[leaf+"build-nexus: failed to extract nexus from vase"]
+  &+u.nex
+  ==
 ::
 ++  find-nearest-nexus
   |=  here=rail:tarball
@@ -1457,16 +1661,16 @@
   ::  Get the file from the ball - must exist
   =/  file-data=(unit content:tarball)  (~(get ba:tarball ball) path.here name.here)
   ?~  file-data  ~
-  ::  Extract mark from the cage
-  =/  =mark  p.cage.u.file-data
+  ::  Extract mark from the sage
+  =/  =mark  name.p.sage.u.file-data
   ::  Find the nearest parent nexus
   =/  nex-info=(unit (pair path neck:tarball))  (find-nearest-nexus here)
   ?~  nex-info  ~
   ::  Build the nexus from the neck
-  =/  nex=(unit nexus:nexus)  (build-nexus q.u.nex-info)
-  ?~  nex  ~
+  =/  nex-res=(each nexus:nexus tang)  (build-nexus path.here q.u.nex-info)
+  ?:  ?=(%| -.nex-res)  ~
   ::  Call on-file with rail relative to nexus location
-  `(on-file:u.nex (relativize-rail:tarball p.u.nex-info here) mark)
+  `(on-file:p.nex-res (relativize-rail:tarball p.u.nex-info here) mark)
 ::
 ++  process-dart
   |=  [here=rail:tarball =dart:nexus]
@@ -1480,14 +1684,14 @@
     ::
       [~ %&]
     ::  Allowed but should clam vases crossing sandbox boundary
-    ::  (make darts don't need clamming - they go through validate-cage anyway)
+    ::  (make darts don't need clamming - they go through validate-sage anyway)
     ::  Peek results are clammed inside handle-dart (data flows back)
-    ?.  ?=([%node * * ?(%poke %over %diff) *] dart)
+    ?.  ?=([%node * * ?(%poke %over) *] dart)
       (handle-dart here dart filt)
-    =/  clammed=(each cage tang)  (clam-cage cage.load.dart)
+    =/  clammed=(each sage:tarball tang)  (clam-sage path.here sage.load.dart)
     ?:  ?=(%| -.clammed)
       (enqu-take here (sys-give /veto) ~ %veto dart)
-    (handle-dart here dart(cage.load p.clammed) filt)
+    (handle-dart here dart(sage.load p.clammed) filt)
   ==
 ::  Extract jump category and destination from a dart for weir filtering.
 ::  Returns [jump dest] where:
@@ -1502,25 +1706,22 @@
     =/  dest-lane=(unit lane:tarball)  (lane-from-road:tarball [%& here] road.dart)
     :_  dest-lane
     ?-  -.load.dart
-      ?(%peek %keep %drop %seek %peep)  %peek  :: read operations
+      ?(%peek %keep %drop %seek %peep %manu %bang %code %font)  %peek  :: read operations
       %poke                       %poke
         $?  %make  %cull  %sand  %load
-            %over  %diff  %gain  %lose
+            %over  %gain  %lose
         ==
       %make  :: all modify tree structure
     ==
     ::
       %manu
-    ?-  -.target.dart
-      %&  [%sysc ~]                    :: explicit: caller knows the nexus, no filtering
-        %|  :: by road: requires peek permission
-      [%peek (lane-from-road:tarball [%& here] p.target.dart)]
-    ==
+    [%sysc ~]  :: direct: no path to check, bypasses weir
   ==
 ::
 ++  handle-dart
   |=  [here=rail:tarball =dart:nexus =filt:nexus]
   ^+  this
+  =/  cod=path  path.here
   ?-    -.dart
       %sysc
     ::  Emit gall card directly (with wrapped wire/paths)
@@ -1552,7 +1753,7 @@
       =/  dest=rail:tarball  p.u.dest-lane
       ::  Poke with return address (relativize source for fiber intake)
       =/  rel=from:fiber:nexus  (relativize-from:nexus dest &+here)
-      (enqu-take dest [&+here wire.dart] ~ %poke rel cage.load.dart)
+      (enqu-take dest [&+here wire.dart] ~ %poke rel sage.load.dart)
       ::
         %make
       ::  Create file or directory.
@@ -1563,10 +1764,10 @@
           make.load.dart
         ?~  mark.p.make.load.dart
           make.load.dart
-        ?:  =(p.cage.p.make.load.dart u.mark.p.make.load.dart)
+        ?:  =(name.p.sage.p.make.load.dart u.mark.p.make.load.dart)
           make.load.dart
-        =/  =tube:clay  (get-tube p.cage.p.make.load.dart u.mark.p.make.load.dart)
-        make.load.dart(cage.p [u.mark.p.make.load.dart (tube q.cage.p.make.load.dart)])
+        =/  =tube:clay  (get-tube cod [p.sage.p.make.load.dart [/ u.mark.p.make.load.dart]])
+        make.load.dart(sage.p [[/ u.mark.p.make.load.dart] (tube q.sage.p.make.load.dart)])
       =/  res=(each _this tang)  (mule |.((^make u.dest-lane make)))
       ?-  -.res
         %&  (enqu-take:p.res here (sys-give /made) ~ %made wire.dart ~)
@@ -1609,41 +1810,21 @@
         (~(get ba:tarball ball) path.dest name.dest)
       ?~  old
         (enqu-take here (sys-give /over) ~ %over wire.dart `~[leaf+"file not found: {(spud (snoc path.dest name.dest))}"])
-      =/  old-mark=@tas  p.cage.u.old
-      =/  new-mark=@tas  p.cage.load.dart
-      =/  converted=cage
-        ?:  =(old-mark new-mark)
-          cage.load.dart
-        =/  =tube:clay  (get-tube new-mark old-mark)
-        [old-mark (tube q.cage.load.dart)]
+      =/  old-blot=blot:tarball  p.sage.u.old
+      =/  new-blot=blot:tarball  p.sage.load.dart
+      =/  converted=sage:tarball
+        ?:  =(old-blot new-blot)
+          sage.load.dart
+        =/  =tube:clay  (get-tube cod [[/ name.new-blot] [/ name.old-blot]])
+        [old-blot (tube q.sage.load.dart)]
       =/  val=(each vase tang)
-        (validate-new-cage p.converted `q.cage.u.old q.converted %.n)
+        (validate-new-sage cod p.converted `q.sage.u.old q.converted %.n)
       ?:  ?=(%| -.val)
         (enqu-take here (sys-give /over) ~ %over wire.dart `p.val)
-      =/  new-content=content:tarball  u.old(cage [p.converted p.val])
+      =/  new-content=content:tarball  u.old(sage [p.converted p.val])
       =.  this  (save-file dest new-content)
-      =.  this  (enqu-take dest (sys-give /writ) ~ %writ %over)
+      =.  this  (enqu-take dest (sys-give /writ) ~ %writ ~)
       (enqu-take here (sys-give /over) ~ %over wire.dart ~)
-      ::
-        %diff
-      ::  Replace grub content with same-mark cage, notify process
-      ?>  ?=(%& -.u.dest-lane)
-      =/  dest=rail:tarball  p.u.dest-lane
-      =/  old=(unit content:tarball)
-        (~(get ba:tarball ball) path.dest name.dest)
-      ?~  old
-        (enqu-take here (sys-give /diff) ~ %diff wire.dart `~[leaf+"file not found: {(spud (snoc path.dest name.dest))}"])
-      =/  old-mark=@tas  p.cage.u.old
-      ?.  =(old-mark p.cage.load.dart)
-        (enqu-take here (sys-give /diff) ~ %diff wire.dart `~[leaf+"mark mismatch: expected %{(trip old-mark)}, got %{(trip p.cage.load.dart)}"])
-      =/  val=(each vase tang)
-        (validate-new-cage old-mark `q.cage.u.old q.cage.load.dart %.n)
-      ?:  ?=(%| -.val)
-        (enqu-take here (sys-give /diff) ~ %diff wire.dart `p.val)
-      =/  new-content=content:tarball  u.old(cage [old-mark p.val])
-      =.  this  (save-file dest new-content)
-      =.  this  (enqu-take dest (sys-give /writ) ~ %writ %diff)
-      (enqu-take here (sys-give /diff) ~ %diff wire.dart ~)
       ::
         %peek
       ::  Peek at dest - directory returns ball+sand, file returns cage
@@ -1658,7 +1839,7 @@
         =/  sub-sand=sand:nexus  (~(dip of sand) dest)
         =/  sub-born=born:nexus  (~(dip of born) dest)
         =?  u.sub-ball  |(?=([~ %&] filt) clam.load.dart)
-          (validate-ball u.sub-ball)
+          (validate-ball cod u.sub-ball)
         =/  sub-gain=gain:nexus  (~(dip of gain) dest)
         (enqu-take here (sys-give /peek) ~ %peek wire.dart %& %ball sub-sand sub-gain sub-born u.sub-ball)
         ::
@@ -1673,34 +1854,112 @@
         =/  sk=sack:nexus
           ?~  node  *sack:nexus
           (fall (~(get by bags.u.node) name.dest) *sack:nexus)
-        ::  Resolve source cage: historical from silo or current from ball
-        =/  source=(unit cage)
+        ::  Resolve source: historical bask from silo or current sage from ball
+        =/  source=(unit sage:tarball)
           ?^  case.load.dart
             =/  =lobe:clay
               (resolve-case:nexus u.case.load.dart hist.sk)
-            (~(get si:nexus silo) lobe)
-          `cage.u.content
+            =/  got=(unit bask:tarball)  (~(get si:nexus silo) lobe)
+            ?~  got  ~
+            ::  Clam bask back to sage
+            =/  res=(each sage:tarball tang)  (clam-bask cod u.got)
+            ?:  ?=(%| -.res)  ~
+            `p.res
+          `sage.u.content
         ?~  source
           (enqu-take here (sys-give /peek) ~ %peek wire.dart &+[%none ~])
         ::  Clam at weir boundary or by request
-        =/  clammed=cage
+        =/  clammed=sage:tarball
           ?.  |(?=([~ %&] filt) clam.load.dart)  u.source
-          =/  res=(each cage tang)  (clam-cage u.source)
+          =/  res=(each sage:tarball tang)  (clam-sage cod u.source)
           ?:  ?=(%| -.res)
             ~|(%peek-clam-failed !!)
           p.res
-        ::  Update silo entry with refreshed type if from hist
-        =?  silo  ?=(^ case.load.dart)
-          =/  =lobe:clay  (resolve-case:nexus u.case.load.dart hist.sk)
-          (~(put by silo) lobe [refs:(~(got by silo) lobe) clammed])
         ::  Apply mark conversion if requested
-        =/  result=cage
+        =/  result=sage:tarball
           ?~  mark.load.dart  clammed
-          ?:  =(p.clammed u.mark.load.dart)  clammed
-          =/  =tube:clay  (get-tube p.clammed u.mark.load.dart)
-          [u.mark.load.dart (tube q.clammed)]
+          ?:  =(name.p.clammed u.mark.load.dart)  clammed
+          =/  =tube:clay  (get-tube cod [[/ name.p.clammed] [/ u.mark.load.dart]])
+          [p.clammed (tube q.clammed)]
         (enqu-take here (sys-give /peek) ~ %peek wire.dart %& %file sk (lookup-gain dest) result)
       ==
+      ::
+        %bang
+      ::  Query error state at dest: directory bangs or file error
+      ?-    -.u.dest-lane
+          %|
+        =/  dest=fold:tarball  p.u.dest-lane
+        =/  pip=pipe:nexus  (fall (~(get of pool) dest) *pipe:nexus)
+        =/  err=(map @ta (unit tang))
+          %-  ~(run by proc.pip)
+          |=(=proc:fiber:nexus ?:(?=(%| -.process.proc) `p.process.proc ~))
+        (enqu-take here (sys-give /bang) ~ %bang wire.dart &+[bang.pip err])
+        ::
+          %&
+        =/  dest=rail:tarball  p.u.dest-lane
+        =/  pip=pipe:nexus  (fall (~(get of pool) path.dest) *pipe:nexus)
+        =/  prc=(unit proc:fiber:nexus)  (~(get by proc.pip) name.dest)
+        =/  err=(unit tang)  ?~(prc ~ ?:(?=(%| -.process.u.prc) `p.process.u.prc ~))
+        (enqu-take here (sys-give /bang) ~ %bang wire.dart |+err)
+      ==
+      ::
+        %code
+      ::  Peek the bins slice at dest
+      ::
+      ?-    -.u.dest-lane
+          %|
+        =/  dest=fold:tarball  p.u.dest-lane
+        =/  nex=(unit fold:tarball)
+          =+  pax=dest
+          |-  ?:  (~(has by code) pax)  `pax
+          ?~  pax  ~
+          $(pax (snip `path`pax))
+        ?~  nex
+          (enqu-take here (sys-give /code) ~ %code wire.dart |+[%tang ~[leaf+"code: no code nexus at {(spud dest)}"]])
+        =/  =lode:nexus  (~(got by code) u.nex)
+        =/  inner=fold:tarball  (slag (lent u.nex) dest)
+        =/  sub-bins=bins:nexus  (~(dip of bins.lode) inner)
+        (enqu-take here (sys-give /code) ~ %code wire.dart &+sub-bins)
+        ::
+          %&
+        =/  dest=rail:tarball  p.u.dest-lane
+        =/  nex=(unit fold:tarball)
+          =+  pax=path.dest
+          |-  ?:  (~(has by code) pax)  `pax
+          ?~  pax  ~
+          $(pax (snip `path`pax))
+        ?~  nex
+          (enqu-take here (sys-give /code) ~ %code wire.dart |+[%tang ~[leaf+"code: no code nexus at {(spud path.dest)}"]])
+        =/  =lode:nexus  (~(got by code) u.nex)
+        =/  inner=path  (slag (lent u.nex) path.dest)
+        =/  node=(unit (map @ta built:nexus))  (~(get of bins.lode) inner)
+        =/  hit=(unit built:nexus)
+          ?~  node  ~
+          (~(get by u.node) name.dest)
+        ?^  hit
+          (enqu-take here (sys-give /code) ~ %code wire.dart |+u.hit)
+        ::  Tube requests: /tub/from/to — resolve via marc grow gate
+        ?.  ?=([%tub @ ~] inner)
+          (enqu-take here (sys-give /code) ~ %code wire.dart |+[%tang ~[leaf+"code: {(trip name.dest)} not found at {(spud path.dest)}"]])
+        =/  from=blot:tarball  [/ i.t.inner]
+        =/  to=blot:tarball  [/ name.dest]
+        =/  tube-res=(each tube:clay tang)
+          (mule |.((grow:(get-marc (snip `path`u.nex) from) to)))
+        ?:  ?=(%| -.tube-res)
+          (enqu-take here (sys-give /code) ~ %code wire.dart |+[%tang p.tube-res])
+        (enqu-take here (sys-give /code) ~ %code wire.dart |+[%vase !>(p.tube-res)])
+      ==
+      ::
+        %font
+      ::  Find the /code namespace governing this node.
+      ::  Walks up from dest to the nearest /code lode.
+      =/  pax=path
+        ?-(-.u.dest-lane %| p.u.dest-lane, %& path.p.u.dest-lane)
+      =/  ns=(unit fold:tarball)  (find-code-ns pax)
+      ?~  ns
+        (enqu-take here (sys-give /font) ~ %font wire.dart ~)
+      =/  =bend:tarball  (make-bend:tarball here [%| u.ns])
+      (enqu-take here (sys-give /font) ~ %font wire.dart `bend)
       ::
         %keep
       ::  Subscribe to changes at dest (uses peek permission)
@@ -1718,7 +1977,7 @@
           =/  sk=sack:nexus
             ?~  node  *sack:nexus
             (fall (~(get by bags.u.node) name.dest) *sack:nexus)
-          [%file sk (lookup-gain dest) cage.u.content]
+          [%file sk (lookup-gain dest) sage.u.content]
             %|
           =/  dest=fold:tarball  p.u.dest-lane
           =/  sub-ball=(unit ball:tarball)  (~(dap ba:tarball ball) dest)
@@ -1727,9 +1986,9 @@
         ==
       ::  Apply mark conversion if requested
       =?  view  &(?=(^ mark.load.dart) ?=(%file -.view))
-        ?:  =(p.cage.view u.mark.load.dart)  view
-        =/  =tube:clay  (get-tube p.cage.view u.mark.load.dart)
-        view(cage [u.mark.load.dart (tube q.cage.view)])
+        ?:  =(name.p.sage.view u.mark.load.dart)  view
+        =/  =tube:clay  (get-tube cod [p.sage.view [/ u.mark.load.dart]])
+        view(sage [[/ u.mark.load.dart] (tube q.sage.view)])
       (enqu-take here (sys-give /bond) ~ %bond wire.dart &+view)
       ::
         %drop
@@ -1744,7 +2003,7 @@
       (enqu-take here (sys-give /found) ~ %seek wire.dart res)
       ::
         %peep
-      ::  Query hist entries matching find spec, return cages
+      ::  Query hist entries matching find spec, clam pages to cages
       ?>  ?=(%& -.u.dest-lane)
       =/  dest=rail:tarball  p.u.dest-lane
       =/  sk=(unit sack:nexus)  (get-born dest)
@@ -1752,10 +2011,10 @@
         (enqu-take here (sys-give /peep) ~ %peep wire.dart |+~[leaf+"no history for {(spud (snoc path.dest name.dest))}"])
       =/  entries=(list [key=cass:clay val=lobe:clay])
         (tap:on-hist:nexus hist.u.sk)
-      =/  hits=(list [cass:clay cage])
+      =/  hits=(list [cass:clay sage:tarball])
         %+  murn  entries
         |=  [key=cass:clay val=lobe:clay]
-        ^-  (unit [cass:clay cage])
+        ^-  (unit [cass:clay sage:tarball])
         =/  match=?
           ?-    -.find.load.dart
               %pick
@@ -1770,9 +2029,11 @@
             ==
           ==
         ?.  match  ~
-        =/  got=(unit cage)  (~(get si:nexus silo) val)
+        =/  got=(unit bask:tarball)  (~(get si:nexus silo) val)
         ?~  got  ~
-        `[key u.got]
+        =/  res=(each sage:tarball tang)  (clam-bask cod u.got)
+        ?:  ?=(%| -.res)  ~
+        `[key p.res]
       (enqu-take here (sys-give /peep) ~ %peep wire.dart &+hits)
       ::
         %gain
@@ -1794,24 +2055,9 @@
         %&  (enqu-take:p.res here (sys-give /lost) ~ %lost wire.dart ~)
         %|  (enqu-take here (sys-give /lost) ~ %lost wire.dart `p.res)
       ==
-    ==
-    ::
-      %manu
-    ?-    -.target.dart
-        %&
-      ::  Explicit: build nexus from neck, call on-manu directly
-      =/  nex=(unit nexus:nexus)  (build-nexus neck.p.target.dart)
-      ?~  nex
-        (enqu-take here (sys-give /manu) ~ %manu wire.dart |+~[leaf+"nexus not found: {(trip neck.p.target.dart)}"])
-      =/  text=@t  (on-manu:u.nex mana.p.target.dart)
-      (enqu-take here (sys-give /manu) ~ %manu wire.dart &+text)
       ::
-        %|
+        %manu
       ::  By road: resolve, find nearest nexus, relativize, call on-manu
-      =/  dest-lane=(unit lane:tarball)  (lane-from-road:tarball [%& here] p.target.dart)
-      ?~  dest-lane
-        (enqu-take here (sys-give /manu) ~ %manu wire.dart |+~[leaf+"bad road"])
-      ::  Full path from lane
       =/  target-path=path
         ?-(-.u.dest-lane %& (snoc path.p.u.dest-lane name.p.u.dest-lane), %| p.u.dest-lane)
       ::  Walk up tree to find nearest covering nexus
@@ -1826,9 +2072,10 @@
         $(target-path (snip `path`target-path))
       ?~  nex-info
         (enqu-take here (sys-give /manu) ~ %manu wire.dart |+~[leaf+"no nexus covers this path"])
-      =/  nex=(unit nexus:nexus)  (build-nexus q.u.nex-info)
-      ?~  nex
-        (enqu-take here (sys-give /manu) ~ %manu wire.dart |+~[leaf+"nexus build failed: {(trip q.u.nex-info)}"])
+      ::  ~&  >  "process-manu-search: build-nexus {(trip q.u.nex-info)} at {(spud (snoc path.here name.here))}"
+      =/  nex-res=(each nexus:nexus tang)  (build-nexus cod q.u.nex-info)
+      ?:  ?=(%| -.nex-res)
+        (enqu-take here (sys-give /manu) ~ %manu wire.dart |+~[leaf+"nexus build failed: {(trip (rail-to-arm:tarball q.u.nex-info))}"])
       ::  Relativize target path to nexus location
       =/  rel-path=path  (slag (lent p.u.nex-info) target-path)
       ::  Build query from relative path + lane type
@@ -1839,12 +2086,21 @@
           =/  =mark
             =/  content=(unit content:tarball)
               (~(get ba:tarball ball) path.p.u.dest-lane name.p.u.dest-lane)
-            (fall (bind content |=(c=content:tarball p.cage.c)) %$)
+            (fall (bind content |=(c=content:tarball name.p.sage.c)) %$)
           [%| [(snip rel-path) (rear rel-path)] mark]
         ==
-      =/  text=@t  (on-manu:u.nex mana)
+      =/  text=@t  (on-manu:p.nex-res mana)
       (enqu-take here (sys-give /manu) ~ %manu wire.dart &+text)
     ==
+    ::
+      %manu
+    ::  Direct: build nexus from neck, call on-manu directly
+    ::  ~&  >  "process-manu-direct: build-nexus {(trip neck.dart)} at {(spud (snoc path.here name.here))}"
+    =/  nex-res=(each nexus:nexus tang)  (build-nexus cod neck.dart)
+    ?:  ?=(%| -.nex-res)
+      (enqu-take here (sys-give /manu) ~ %manu wire.dart |+~[leaf+"nexus not found: {(trip (rail-to-arm:tarball neck.dart))}"])
+    =/  text=@t  (on-manu:p.nex-res mana.dart)
+    (enqu-take here (sys-give /manu) ~ %manu wire.dart &+text)
     ::
       %scry
     ?~  scry.dart
@@ -1875,13 +2131,34 @@
 ++  spawn-proc
   |=  [here=rail:tarball =prod:fiber:nexus]
   ^+  this
+  ::  Skip if nexus is banged — don't try to build processes
+  ?:  (is-nexus-banged here)
+    this
   ::  Bump proc cass (born must already exist from save-file)
   =.  this  (bump-proc here)
-  ::  Build and store proc - use default spool if no nexus
-  =/  =spool:fiber:nexus
-    (fall (build-spool here) default-spool)
-  =/  =process:fiber:nexus  (spool prod)
-  (store-proc here [process ~ ~])
+  ::  Build spool and process — bang file on crash
+  =/  spool-res=(each spool:fiber:nexus tang)
+    (mule |.((fall (build-spool here) default-spool)))
+  ?:  ?=(%| -.spool-res)
+    ~&  >>  "spawn-proc: bang {(spud (snoc path.here name.here))} — on-file crash"
+    (bang-file here p.spool-res)
+  =/  proc-res=(each process:fiber:nexus tang)
+    (mule |.((p.spool-res prod)))
+  ?:  ?=(%| -.proc-res)
+    ~&  >>  "spawn-proc: bang {(spud (snoc path.here name.here))} — spool crash"
+    (bang-file here p.proc-res)
+  ::  Success — process is live. Move existing next into skip so the
+  ::  fresh process doesn't consume stale takes meant for the old one.
+  ::  They merge back on %cont when the process is ready.
+  =/  =process:fiber:nexus  p.proc-res
+  =/  =pipe:nexus  (fall (~(get of pool) path.here) *pipe:nexus)
+  =/  old=(unit proc:fiber:nexus)  (~(get by proc.pipe) name.here)
+  =/  old-next=(qeu take:fiber:nexus)  ?~(old ~ next.u.old)
+  =/  old-skip=(qeu take:fiber:nexus)  ?~(old ~ skip.u.old)
+  =/  merged-skip=(qeu take:fiber:nexus)
+    (~(gas to old-skip) ~(tap to old-next))
+  =.  this  (store-proc here [&+process ~ merged-skip])
+  (enqu-take here (sys-give /start) ~)
 ::
 ++  default-spool
   ^-  spool:fiber:nexus
@@ -1891,13 +2168,19 @@
 ++  process-take
   |=  [here=rail:tarball =take:fiber:nexus]
   ^+  this
-  ::  Get pipe at directory, or empty map
-  =/  =pipe:nexus  (fall (~(get of pool) path.here) ~)
+  ::  Get pipe at directory
+  =/  =pipe:nexus  (fall (~(get of pool) path.here) *pipe:nexus)
   ::  Get proc for this file - must exist
-  =/  prc=(unit proc:fiber:nexus)  (~(get by pipe) name.here)
+  =/  prc=(unit proc:fiber:nexus)  (~(get by proc.pipe) name.here)
   ?~  prc  this
-  ::  Add take to queue, store, and run
   =/  =proc:fiber:nexus  u.prc
+  ::  Crashed process — nack pokes immediately, queue everything else
+  ?:  ?=(%| -.process.proc)
+    ?:  ?=([* ~ %poke *] take)
+      (give-poke-sign here [take `p.process.proc])
+    =.  proc  proc(next (~(put to next.proc) take))
+    (store-proc here proc)
+  ::  Add take to queue, store, and run
   =.  proc  proc(next (~(put to next.proc) take))
   =.  this  (store-proc here proc)
   (process-do-next here)
@@ -1906,58 +2189,73 @@
   |=  here=rail:tarball
   ^+  this
   ::  Get proc from pool
-  =/  =pipe:nexus  (fall (~(get of pool) path.here) ~)
-  =/  =proc:fiber:nexus  (~(got by pipe) name.here)
+  =/  =pipe:nexus  (fall (~(get of pool) path.here) *pipe:nexus)
+  =/  =proc:fiber:nexus  (~(got by proc.pipe) name.here)
+  ::  Crashed process — takes accumulate in next, don't evaluate
+  ?:  ?=(%| -.process.proc)  this
   ::  Get file state from ball
   =/  file-data=(unit content:tarball)
     (~(get ba:tarball ball) path.here name.here)
   ?~  file-data  this  :: file doesn't exist
-  =/  fil-state=vase  q.cage.u.file-data
+  =/  fil-state=vase  q.sage.u.file-data
   ::  Build bowl for this process (with filtered wex/sup)
   =/  =bowl:nexus  (make-bowl here)
   ::  Run the evaluator
-  =/  [darts=(list dart:nexus) done=(list took:eval:fiber:nexus) new-state=vase new-proc=_proc res=result:eval:fiber:nexus]
+  =/  [darts=(list dart:nexus) done=(list took:eval:fiber:nexus) new-state=vase new-proc=proc:fiber:nexus res=result:eval:fiber:nexus]
     (take:eval:fiber:nexus bowl fil-state proc)
   ::  Process darts (emit cards or enqueue takes)
   =.  this  (process-darts here darts)
   ::  Ack consumed pokes
   =.  this  (give-poke-signs here done)
   ::  Validate new state before handling result (runtime, no force)
+  ::  ~&  >  "process-result: validate-new-sage for %{(trip p.sage.u.file-data)} at {(spud (snoc path.here name.here))}"
   =/  validated=(each vase tang)
-    (validate-new-cage p.cage.u.file-data `fil-state new-state %.n)
+    (validate-new-sage path.here p.sage.u.file-data `fil-state new-state %.n)
   ?:  ?=(%| -.validated)
-    ::  Validation failed - treat as crash
-    =.  this  (nack-poke-takes here next.new-proc p.validated)
-    =.  this  (nack-poke-takes here skip.new-proc p.validated)
-    =.  this  (spawn-proc here [%rise p.validated])
-    (enqu-take here (sys-give /rise) ~)
+    ::  Validation failed - bang the file (don't restart, infra is broken)
+    ~&  >>  "process-take: validation failed, bang {(spud (snoc path.here name.here))}"
+    (bang-file here p.validated)
   ::  Validation passed - handle result normally
   ?-    -.res
       %next
     ::  Save state (bumps aeon only if content changed)
-    =.  this  (save-file here [metadata.u.file-data p.cage.u.file-data p.validated])
+    =.  this  (save-file here [metadata.u.file-data p.sage.u.file-data p.validated])
     (store-proc here new-proc)
       %done
     ::  Save final state so subscribers see it, then delete
-    =.  this  (save-file here [metadata.u.file-data p.cage.u.file-data p.validated])
+    =.  this  (save-file here [metadata.u.file-data p.sage.u.file-data p.validated])
     =/  err=tang  ~[leaf+"process completed"]
+    :: only nack-pokes when we're done
+    ::
     =.  this  (nack-poke-takes here next.new-proc err)
     =.  this  (nack-poke-takes here skip.new-proc err)
     =.  this  (clean (snoc path.here name.here) %file)
     (delete path.here name.here)
       %fail
     ::  Process failed - don't save state, restart. Subs survive (wires still route).
-    =.  this  (nack-poke-takes here next.new-proc err.res)
-    =.  this  (nack-poke-takes here skip.new-proc err.res)
-    =.  this  (spawn-proc here [%rise err.res])
+    ::  Sync queues (consumed takes removed), rebuild process, enqueue
+    ::  rise via abet. Same pattern as spawn-proc.
+    ?:  (is-nexus-banged here)  this
+    =.  this  (bump-proc here)
+    =/  spool-res=(each spool:fiber:nexus tang)
+      (mule |.((fall (build-spool here) default-spool)))
+    ?:  ?=(%| -.spool-res)
+      (bang-file here p.spool-res)
+    =/  proc-res=(each process:fiber:nexus tang)
+      (mule |.((p.spool-res [%rise err.res])))
+    ?:  ?=(%| -.proc-res)
+      (bang-file here p.proc-res)
+    =/  merged-skip=(qeu take:fiber:nexus)
+      (~(gas to skip.new-proc) ~(tap to next.new-proc))
+    =.  this  (store-proc here [&+p.proc-res ~ merged-skip])
     (enqu-take here (sys-give /rise) ~)
   ==
 ::
 ++  poke
-  |=  [=give:nexus here=rail:tarball =cage]
+  |=  [=give:nexus here=rail:tarball =sage:tarball]
   ^+  this
   =/  rel-from=from:fiber:nexus  (relativize-from:nexus here from.give)
-  (enqu-take here give ~ %poke rel-from cage)
+  (enqu-take here give ~ %poke rel-from sage)
 ::
 ++  make
   |=  [dest=lane:tarball =make:nexus]
@@ -1986,11 +2284,10 @@
         new-ball  rol-ball
     ==
     ::  Validate all cages in loaded ball
-    =/  validated=ball:tarball  ~|(%validate-ball-make (validate-ball new-ball))
+    =/  validated=ball:tarball  ~|(%validate-ball-make (validate-ball dest-path new-ball))
     ::  Put the final sand, gain, and ball back
     =.  sand  (put-sub-sand sand dest-path new-sand)
     =.  gain  (put-sub-gain gain dest-path new-gain)
-    =.  ball  (~(pub ba:tarball ball) dest-path validated)
     ::  Spawn processes and sync all changes (old is empty)
     (load-ball-changes dest-path *ball:tarball validated)
     ::
@@ -2004,8 +2301,9 @@
     ?^  existing-file
       ~|("file already exists at path" !!)
     ::  Validate the cage before storing (new file, no old content)
+    ::  ~&  >  "process-make: validate-new-sage for %{(trip p.sage.p.make)} at {(spud (snoc path.dest-rail name.dest-rail))}"
     =/  validated=(each vase tang)
-      (validate-new-cage p.cage.p.make ~ q.cage.p.make %.n)
+      (validate-new-sage path.dest-rail p.sage.p.make ~ q.sage.p.make %.n)
     ?:  ?=(%| -.validated)
       ~|("make failed: validation error" (mean p.validated))
     ::  Record gain flag if set
@@ -2013,10 +2311,9 @@
       =.  gain  (set-gain dest-rail %.y)
       this
     ::  Save initial state (bumps file aeon since old content is ~)
-    =.  this  (save-file dest-rail [~ p.cage.p.make p.validated])
+    =.  this  (save-file dest-rail [~ p.sage.p.make p.validated])
     ::  Spawn process (needs file in ball for build-spool)
-    =.  this  (spawn-proc dest-rail [%make ~])
-    (enqu-take dest-rail (sys-give /make) ~)
+    (spawn-proc dest-rail [%make ~])
   ==
 ::
 ++  cull
@@ -2186,20 +2483,19 @@
   =/  old-born=born:nexus  born
   =.  born  (~(bump-file bo:nexus now.bowl [born ball]) here)
   (notify old-born)
-::  Record cage in silo and append to hist on sack.
+::  Record bask in silo and append to hist on sack.
 ::
 ++  record-hist
-  |=  [here=rail:tarball =cage cas=(unit cass:clay)]
+  |=  [here=rail:tarball =sage:tarball cas=(unit cass:clay)]
   ^+  this
-  ::  Skip silo/hist for ephemeral %temp marks
-  ?:  =(%temp p.cage)  this
   =/  sok=sack:nexus  (need (get-born here))
   ::  Use provided cass or compute next from current file cass
   =/  new-cass=cass:clay
     (fall cas (~(next-cass bo:nexus now.bowl [born ball]) file.sok))
   =/  gaining=?  (lookup-gain here)
+  =/  =bask:tarball  [p q.q]:sage
   =/  [=lobe:clay new-silo=silo:nexus new-hist=_hist.sok]
-    (~(record si:nexus silo) cage new-cass gaining file.sok hist.sok)
+    (~(record si:nexus silo) bask new-cass gaining file.sok hist.sok)
   =.  silo  new-silo
   =.  born  (~(put bo:nexus now.bowl [born ball]) here sok(hist new-hist))
   this
@@ -2208,14 +2504,15 @@
 ++  diff-balls
   |=  [here=fold:tarball old-ball=ball:tarball new-ball=ball:tarball]
   ^+  this
-  =.  born  (~(diff-balls bo:nexus now.bowl [born ball]) here old-ball new-ball)
-  this
+  this(born (~(diff-balls bo:nexus now.bowl [born ball]) here old-ball new-ball))
 ::  Spawn processes and sync all changes when a ball is created/reloaded.
 ::  Handles spawning files and bumping all changes (new, changed, deleted files, empty dirs).
 ::
 ++  load-ball-changes
   |=  [here=fold:tarball old-ball=ball:tarball new-ball=ball:tarball]
   ^+  this
+  ::  Write new sub-ball into main ball
+  =.  ball  (~(pub ba:tarball ball) here new-ball)
   =.  this  (spawn-all-files here new-ball)
   =/  old-born=born:nexus  born
   ::  diff-balls (inits/bumps born), record silo/hist, then notify
@@ -2255,7 +2552,7 @@
       ?:  &(in-new !in-old)
         ::  New file: record in silo/hist (born already init'd by diff-balls)
         =/  sok=sack:nexus  (need (get-born [here name]))
-        (record-hist [here name] cage:(~(got by new-files) name) `file.sok)
+        (record-hist [here name] sage:(~(got by new-files) name) `file.sok)
       ?:  &(in-old !in-new)
         ::  Deleted file: drop silo refs
         =/  sok=(unit sack:nexus)  (get-born [here name])
@@ -2265,9 +2562,9 @@
       ::  Both: record if changed
       =/  old-content=content:tarball  (~(got by old-files) name)
       =/  new-content=content:tarball  (~(got by new-files) name)
-      ?.  =(cage.old-content cage.new-content)
+      ?.  =(sage.old-content sage.new-content)
         =/  sok=sack:nexus  (need (get-born [here name]))
-        (record-hist [here name] cage.new-content `file.sok)
+        (record-hist [here name] sage.new-content `file.sok)
       this
     $(all-names t.all-names)
   ::  Recurse into subdirs
@@ -2284,6 +2581,7 @@
 ::
 ++  sync-clay
   ^+  this
+  ~&  >>  "sync-clay: start"
   ::  Ensure /sys/clay directory exists
   =?  ball  =(~ (~(get of ball) /sys/clay))
     (~(put of ball) /sys/clay [~ ~ ~])
@@ -2324,24 +2622,30 @@
     =/  stem=@ta   (rear sans)
     =/  dir=path   (weld base (snip `(list @ta)`sans))
     =/  name=@ta   (cat 3 stem (cat 3 '.' mar))
-    =/  =vase  .^(vase %cr (weld pax fyl))
+    =/  new-vase=vase  .^(vase %cr (weld pax fyl))
     =/  old=(unit content:tarball)
       (~(get ba:tarball ball.acc) [dir name])
-    =/  dais=(unit dais:clay)
-      =/  c=(unit content:tarball)
-        (~(get ba:tarball ball.acc) /sys/daises mar)
-      ?~  c  ~
-      `!<(dais:clay q.cage.u.c)
-    ?~  dais
+    =/  vale=(unit $-(* vase))
+      ?:  ?=(?(%hoon %mime %kelvin) mar)
+        =/  dais=(unit dais:clay)
+          (mole |.(.^(dais:clay %cb (weld pax `path`/[mar]))))
+        ?~  dais  ~
+        `vale:u.dais
+      =/  =blot:tarball  [/ mar]
+      =/  res=(unit built:nexus)  (get-built / (weld /mar path.blot) name.blot)
+      ?~  res  ~
+      ?.  ?=(%vase -.u.res)  ~
+      (mole |.(vale:!<(marc:tarball vase.u.res)))
+    ?~  vale
       ~&  [%sync-clay-skip-no-mark mar fyl]
       acc
-    =/  old-vase=(unit ^vase)  ?~(old ~ `q.cage.u.old)
-    =/  res=(each ^vase tang)
-      (validate-vase:acc u.dais old-vase vase %.n)
+    =/  old-vase=(unit vase)  ?~(old ~ `q.sage.u.old)
+    =/  res=(each vase tang)
+      (validate-vase:acc u.vale old-vase new-vase %.n)
     ?.  ?=(%& -.res)
       ~&  [%sync-clay-vale-failed mar fyl]
       acc
-    (save-file:acc [dir name] [~ mar p.res])
+    (save-file:acc [dir name] [~ [/ mar] p.res])
   ::  Delete files that no longer exist in Clay
   =/  removed=(list path)
     %+  skim  ~(tap in old-files)
@@ -2356,144 +2660,375 @@
     =/  dir=path   (weld base (snip `(list @ta)`sans))
     =/  name=@ta   (cat 3 stem (cat 3 '.' mar))
     (delete:acc dir name)
-  ::  For grubbery desk: incrementally rebuild changed mark/nexus caches
-  =?  this  =(dek %grubbery)
-    (rebuild-changed-caches pre-born)
   ::  Subscribe to %next %z on desk root
+  ~&  >>  "sync-clay-desk: subscribing to {<dek>}"
   %-  emit-card
   [%pass /clay-desk/[dek] %arvo %c %warp our.bowl dek `[%next %z da+now.bowl /]]
-::  Incrementally rebuild mark/nexus caches for files that changed
-::  during a grubbery desk sync.  Diffs born before/after to detect
-::  which /mar/ and /nex/ files actually had content changes.
+::  React to any change under a code nexus.
+::  Enforces: src/ is hoon-only, bin/ is build-managed.
+::  Triggers rebuild when src/ changes.
 ::
-++  rebuild-changed-caches
-  |=  pre-born=born:nexus
+::  Compile a code nexus into its lode in the code map.
+::  Purges non-hoon files from the code nexus.
+::
+++  build-code
+  |=  cod=path
   ^+  this
-  =/  clay-base=path  /sys/clay/grubbery
-  ::  Diff born for /mar subtree to find changed marks
-  =/  old-mar=born:nexus  (~(dip of pre-born) (weld clay-base /mar))
-  =/  new-mar=born:nexus  (~(dip of born) (weld clay-base /mar))
-  =/  mar-changed=(set lane:tarball)
-    (diff-born-state:nexus old-mar new-mar)
-  =/  changed-marks=(list mark)
-    %+  murn  ~(tap in mar-changed)
-    |=  =lane:tarball
-    ?.  ?=([%& *] lane)  ~
-    =/  nom=tape  (trip name.p.lane)
-    =/  len=@ud  (lent nom)
-    ?.  (gth len 5)  ~
-    ?.  =(".hoon" (slag (sub len 5) nom))  ~
-    `(crip (scag (sub len 5) nom))
-  ::  Diff born for /nex subtree to find changed nexuses
-  =/  old-nex=born:nexus  (~(dip of pre-born) (weld clay-base /nex))
-  =/  new-nex=born:nexus  (~(dip of born) (weld clay-base /nex))
-  =/  nex-changed=(set lane:tarball)
-    (diff-born-state:nexus old-nex new-nex)
-  =/  changed-necks=(list neck:tarball)
-    %+  murn  ~(tap in nex-changed)
-    |=  =lane:tarball
-    ?.  ?=([%& *] lane)  ~
-    =/  nom=tape  (trip name.p.lane)
-    =/  len=@ud  (lent nom)
-    ?.  (gth len 5)  ~
-    ?.  =(".hoon" (slag (sub len 5) nom))  ~
-    =/  stem=@ta  (crip (scag (sub len 5) nom))
-    =/  segs=path  (snoc path.p.lane stem)
-    `(rap 3 (join '-' segs))
-  ::  Rebuild marks if any changed
-  =?  this  ?=(^ changed-marks)
-    ~&  >  [%sync-marks %rebuilding (lent changed-marks)]
-    (rebuild-marks-incremental changed-marks)
-  ::  Rebuild nexuses if any changed
-  =?  this  ?=(^ changed-necks)
-    ~&  >  [%sync-nexuses %rebuilding (lent changed-necks)]
-    (rebuild-nexuses-incremental changed-necks)
+  ~&  >  "build-code: start {(spud cod)}"
+  =/  src-ball=ball:tarball  (~(dip ba:tarball ball) cod)
+  ::  Separate hoon and non-hoon files
+  =/  all-files=(list [=rail:tarball =content:tarball])
+    ~(tap ba:tarball src-ball)
+  ~&  >  "build-code: {<(lent all-files)>} files"
+  =/  hoon-ball=ball:tarball
+    %+  roll  all-files
+    |=  [[=rail:tarball =content:tarball] acc=_src-ball]
+    ?.  =(p.sage.content %hoon)
+      (~(del ba:tarball acc) path.rail name.rail)
+    acc
+  =/  mime-files=(list [=rail:tarball =content:tarball])
+    (skim all-files |=([* =content:tarball] =([/ %mime] p.sage.content)))
+  ::  Check kelvin compatibility
+  =/  kel-content=(unit content:tarball)
+    (~(get ba:tarball src-ball) [/ %'sys.kelvin'])
+  ~&  >  "build-code: kelvin file {?~(kel-content "missing" "found")}"
+  =/  kel-ok=?
+    ?~  kel-content
+      ~&  >  "build-code: no sys.kelvin, skipping check"
+      %.y
+    ~&  >  "build-code: sys.kelvin mark={<p.sage.u.kel-content>}"
+    ~&  >  "build-code: sys.kelvin type={<p.q.sage.u.kel-content>}"
+    =/  waft-res=(each waft:clay tang)
+      (mule |.(!<(waft:clay q.sage.u.kel-content)))
+    ?:  ?=(%| -.waft-res)
+      ~&  >>>  "build-code: failed to extract waft from sys.kelvin"
+      ~&  >>>  p.waft-res
+      %.y
+    =/  wefts=(set weft)  (waft-to-wefts:clay p.waft-res)
+    ~&  >  "build-code: wefts={<wefts>} checking for [%grubbery {<kel>}]"
+    =/  ok=?  (~(has in wefts) [%grubbery kel])
+    ~&  >  "build-code: kelvin ok={<ok>}"
+    ok
+  ::  Ensure %code neck on code nexus directory
+  =/  code-lump=lump:tarball
+    (fall (~(get of ball) cod) *lump:tarball)
+  =.  ball  (~(put of ball) cod code-lump(neck `[/ %code]))
+  ::  Get or create lode for this code nexus
+  =/  =lode:nexus  (fall (~(get by code) cod) *lode:nexus)
+  =/  old-bins=bins:nexus  bins.lode
+  ::  Kelvin mismatch: every file becomes a crash
+  ?.  kel-ok
+    ~&  >>>  "build-code: kelvin mismatch in {(spud cod)}"
+    =/  =waft:clay  !<(waft:clay q.sage:(need kel-content))
+    =/  err=tang
+      :~  leaf+"incompatible kelvin: {(spud cod)}"
+          leaf+"  code nexus declares: {<(waft-to-wefts:clay waft)>}"
+          leaf+"  grubbery expects: [%grubbery {<kel>}]"
+      ==
+    ~&  >>>  "build-code: building tang bins for {<(lent all-files)>} files"
+    =/  hoon-count=@ud  0
+    =/  new-bins=bins:nexus
+      %+  roll  all-files
+      |=  [[=rail:tarball =content:tarball] acc=bins:nexus]
+      ?.  =([/ %hoon] p.sage.content)  acc
+      =/  stem=@ta  (strip-hoon:build name.rail)
+      =/  node=(map @ta built:nexus)
+        (fall (~(get of acc) path.rail) *(map @ta built:nexus))
+      (~(put of acc) path.rail (~(put by node) stem [%tang err]))
+    ~&  >>>  "build-code: tang bins built"
+    =.  lode  [~ ~ new-bins]
+    =.  code  (~(put by code) cod lode)
+    ~&  >>>  "build-code: kelvin mismatch done, returning"
+    this
+  ::  Reconstruct cache from bins + keys
+  =/  old-cache=build-cache:build  (bins-to-cache:build bins.lode keys.lode)
+  ~&  >  "build-code: compiling..."
+  ::  Single compilation pass: marks, libs, nexuses (hoon only)
+  =/  res=build-out:build  (build-all:build sut src-ball old-cache)
+  ~&  >  "build-code: compiled {<~(wyt by results.res)>} results"
+  ::  Build bins axal from results + mime files
+  ::  Seed bins with mime files
+  =/  new-bins=bins:nexus
+    %+  roll  mime-files
+    |=  [[=rail:tarball =content:tarball] acc=bins:nexus]
+    =/  =mime  !<(mime q.sage.content)
+    =/  node=(map @ta built:nexus)
+      (fall (~(get of acc) path.rail) *(map @ta built:nexus))
+    (~(put of acc) path.rail (~(put by node) name.rail [%mime mime]))
+  ::  Add compiled hoon results
+  =.  new-bins
+    %+  roll  ~(tap by results.res)
+    |=  [[=rail:tarball =build-result:build] acc=_new-bins]
+    =/  stem=@ta  (strip-hoon:build name.rail)
+    =/  =built:nexus
+      ?:  ?=(%| -.build-result)
+        ~&  >>>  "build-code: FAILED {(spud (snoc path.rail name.rail))}"
+        %-  (slog (flop p.build-result))
+        [%tang p.build-result]
+      =/  val-err=(unit tang)  (validate-build rail p.build-result)
+      ?^  val-err
+        ~&  >>  "validate-build failed: {(spud (snoc path.rail name.rail))}"
+        [%tang u.val-err]
+      [%vase p.build-result]
+    =/  node=(map @ta built:nexus)
+      (fall (~(get of acc) path.rail) *(map @ta built:nexus))
+    (~(put of acc) path.rail (~(put by node) stem built))
+  ::  Update build state
+  ::  Note: /mar entries in results are already marcs (built in build.hoon)
+  ~&  >  "build-code: updating lode"
+  =.  lode  [keys.res deps.res new-bins]
+  =.  code  (~(put by code) cod lode)
+  ::  Validate marks: clam existing grubs through changed marks
+  ~&  >  "build-code: validate-marks"
+  =^  new-bins  this  (validate-marks cod old-bins new-bins)
+  =/  upd-lode=lode:nexus  (fall (~(get by code) cod) *lode:nexus)
+  =.  code  (~(put by code) cod upd-lode(bins new-bins))
+  ::  Validate nexuses: run on-load for directories using changed nexuses
+  ~&  >  "build-code: validate-nexuses"
+  =.  this  (validate-nexuses cod old-bins new-bins)
+  ~&  >  "build-code: done"
   this
-::  Rebuild daises and tubes for a list of changed marks
+::  Validate marks: for each changed mark in bin/mar/, build a vale gate
+::  Walk ball under a code namespace, pruning at child code namespaces.
+::  Returns all [fold lump] pairs governed by this code namespace —
+::  i.e. under scope but not under a deeper code namespace.
 ::
-++  rebuild-marks-incremental
-  |=  changed=(list mark)
-  ^+  this
-  =/  cores=(map mark vase)  (build-mark-cores:marks our.bowl q.byk.bowl now.bowl)
-  =/  all-marks=(set mark)  ~(key by cores)
-  =/  changed-set=(set mark)  (silt changed)
-  ::  Rebuild daises for changed marks
-  =.  ball
-    %+  roll  changed
-    |=  [mak=mark acc=_ball]
-    =/  core=(unit vase)  (~(get by cores) mak)
-    ?~  core
-      (~(del ba:tarball acc) [/sys/daises mak])
-    =/  res=(each dais:clay tang)
-      (mule |.((build-dais:marks cores mak u.core)))
-    ?:  ?=(%| -.res)
-      %-  (%*(. slog pri 3) leaf+"{<mak>}: dais build failed" (flop p.res))
-      acc
-    (~(put ba:tarball acc) [/sys/daises mak] [~ %temp !>(p.res)])
-  ::  Discover all tube pairs and rebuild those involving changed marks
-  =/  pairs=(list mars:clay)
+++  governed-dirs
+  |=  cod=path
+  ^-  (list [=fold:tarball =lump:tarball])
+  =/  scope=path  (snip `(list @ta)`cod)
+  =/  sub=ball:tarball  (~(dip ba:tarball ball) scope)
+  =/  out=(list [=fold:tarball =lump:tarball])  ~
+  =|  here=path
+  |-
+  ::  Check if any child is a code namespace — if so, this directory
+  ::  is another code namespace's scope, not ours. Prune entirely.
+  ::  Exception: here=~ is our own scope (we expect our own /code child).
+  =/  has-child-code=?
+    %+  lien  ~(tap by dir.sub)
+    |=  [name=@ta kid=ball:tarball]
+    ?&(=(%code name) ?=(^ fil.kid) ?=(^ neck.u.fil.kid) =([/ %code] u.neck.u.fil.kid))
+  ::  Collect this node if it has a lump
+  =?  out  ?=(^ fil.sub)
+    [[(weld scope here) u.fil.sub] out]
+  ::  Child code namespace means everything below is governed by it, not us.
+  ::  Collect the node but don't descend. Exception: here=~ is our own scope.
+  ?:  ?&(has-child-code !=(here ~))
+    out
+  ::  Descend into children, skipping the code directory itself
+  =/  kids=(list [@ta ball:tarball])  ~(tap by dir.sub)
+  |-
+  ?~  kids  out
+  =/  [name=@ta kid=ball:tarball]  i.kids
+  =?  out  !=(name %code)
+    ^$(here (snoc here name), sub kid)
+  $(kids t.kids)
+::  Walk ball under a code namespace, collecting all files governed by it.
+::  Prunes at child code namespaces.
+::
+++  governed-files
+  |=  cod=path
+  ^-  (list [=rail:tarball =content:tarball])
+  =/  dirs=(list [=fold:tarball =lump:tarball])  (governed-dirs cod)
+  %-  zing
+  %+  turn  dirs
+  |=  [=fold:tarball =lump:tarball]
+  %+  turn  ~(tap by contents.lump)
+  |=  [name=@ta =content:tarball]
+  [[fold name] content]
+::  and clam all grubs with that mark through validate-vase.
+::  On success, updates grubs in ball with clammed vases.
+::  On failure, downgrades the mark to .tang in new-bin.
+::
+++  validate-marks
+  |=  [cod=path old-bins=bins:nexus new-bins=bins:nexus]
+  ^+  [new-bins this]
+  ::  Walk /mar subtree to find all [blot built] pairs
+  =/  mar-sub=bins:nexus  (~(dip of new-bins) /mar)
+  =/  old-sub=bins:nexus  (~(dip of old-bins) /mar)
+  =/  all-new=(list [pax=path node=(map @ta built:nexus)])
+    ~(tap of mar-sub)
+  ::  Find changed blots (any change — vase, tang, etc)
+  =/  changed=(list [=blot:tarball =built:nexus])
     %-  zing
-    %+  turn  ~(tap by cores)
-    |=  [mak=mark vas=vase]
-    ^-  (list mars:clay)
-    =/  [grab=(list mark) grow=(list mark)]
-      :-  ?.  (slob %grab -:vas)  ~
-          (sloe -:(slap vas [%limb %grab]))
-      ?.  (slob %grow -:vas)  ~
-      (sloe -:(slap vas [%limb %grow]))
-    ;:  weld
-      (murn grab |=(m=mark ?.((~(has in all-marks) m) ~ `[m mak])))
-      (murn grow |=(m=mark ?.((~(has in all-marks) m) ~ `[mak m])))
-    ==
-  =/  affected=(list mars:clay)
-    %+  skim  pairs
-    |=  =mars:clay
-    |((~(has in changed-set) a.mars) (~(has in changed-set) b.mars))
-  =.  ball
-    %+  roll  affected
-    |=  [=mars:clay acc=_ball]
-    =/  tub=(unit tube:clay)  (try-build-tube:marks cores mars)
-    ?~  tub
-      (~(del ba:tarball acc) [/sys/tubes/[a.mars] b.mars])
-    (~(put ba:tarball acc) [/sys/tubes/[a.mars] b.mars] [~ %temp !>(u.tub)])
-  ::  Delete all tubes for deleted marks
-  =/  deleted=(list mark)
-    (skip changed |=(mak=mark (~(has by cores) mak)))
-  =.  ball
-    %+  roll  deleted
-    |=  [mak=mark acc=_ball]
-    =.  acc  (~(lop ba:tarball acc) /sys/tubes/[mak])
-    =/  sources=(list @ta)  (~(lss ba:tarball acc) /sys/tubes)
-    %+  roll  sources
-    |=  [src=@ta inner=_acc]
-    (~(del ba:tarball inner) [/sys/tubes/[src] mak])
-  ~&  >  [%marks-rebuilt (lent changed) %tubes (lent affected)]
-  this
-::  Rebuild nexus cores for a list of changed necks
+    %+  turn  all-new
+    |=  [pax=path node=(map @ta built:nexus)]
+    %+  murn  ~(tap by node)
+    |=  [nam=@ta =built:nexus]
+    =/  old-node=(map @ta built:nexus)
+      (fall (~(get of old-sub) pax) *(map @ta built:nexus))
+    =/  old=(unit built:nexus)  (~(get by old-node) nam)
+    ?:  =(old `built)  ~
+    `[[pax nam] built]
+  ::  Process each changed mark
+  =/  remaining=_changed  changed
+  |-
+  ?~  remaining  [new-bins this]
+  =/  [=blot:tarball =built:nexus]  i.remaining
+  =/  nam=@tas  (rail-to-arm:tarball blot)
+  ::  Find all grubs with this mark, including booms with matching inner mark
+  =/  grubs=(list [=rail:tarball =content:tarball])
+    %+  skim  (governed-files cod)
+    |=  [=rail:tarball =content:tarball]
+    ?:  =(name.blot name.p.sage.content)  &
+    ?.  =([/ %boom] p.sage.content)  |
+    =/  [* inner=bask:tarball]  ;;([tang bask:tarball] q.q.sage.content)
+    =(name.blot name.p.inner)
+  ?~  grubs  $(remaining t.remaining)
+  ::  Get vale gate, or a crash gate if mark failed to compile
+  =/  vale=$-(* vase)
+    ?.  ?=(%vase -.built)
+      |=(* (mean ?:(?=(%tang -.built) tang.built ~[leaf+"validate-marks: {(trip nam)} failed"])))
+    =/  marc-res=(each marc:tarball tang)
+      (mule |.(!<(marc:tarball vase.built)))
+    ?:(?=(%| -.marc-res) |=(* (mean p.marc-res)) vale.p.marc-res)
+  ::  Clam each grub; success restores cage, failure booms
+  =/  results=(list [=rail:tarball =content:tarball res=(each vase tang)])
+    %+  turn  grubs
+    |=  [=rail:tarball =content:tarball]
+    =/  noun=*
+      ?:  =([/ %boom] p.sage.content)
+        =/  [* =bask:tarball]  ;;([tang bask:tarball] q.q.sage.content)
+        q.bask
+      q.q.sage.content
+    =/  new=(each vase tang)  (mule |.((vale noun)))
+    ?:  ?=(%| -.new)  [rail content new]
+    [rail content (validate-vase vale `q.sage.content p.new %.n)]
+  =.  this
+    %+  roll  results
+    |=  [[=rail:tarball =content:tarball res=(each vase tang)] acc=_this]
+    ?:  ?=(%& -.res)
+      (save-file:acc rail content(sage [p.sage.content p.res]))
+    ~&  >>  "validate-marks: boom {(spud (snoc path.rail name.rail))}"
+    =/  noun=*
+      ?:  =([/ %boom] p.sage.content)
+        =/  [* =bask:tarball]  ;;([tang bask:tarball] q.q.sage.content)
+        q.bask
+      q.q.sage.content
+    (save-file:acc rail content(sage [[/ %boom] !>([p.res [name.blot noun]])]))
+  =/  n-boom=@ud
+    (lent (skim results |=([* * res=(each vase tang)] ?=(%| -.res))))
+  ~&  >  "validate-marks: {(trip nam)} — {<(sub (lent grubs) n-boom)>} ok, {<n-boom>} boom"
+  $(remaining t.remaining)
+::  Reload nexuses: for each changed nexus in bin/nex/, find all
+::  directories using that neck, run on-load with the new code, and
+::  apply the results (like reload-nexus). Crashes if any on-load fails.
 ::
-++  rebuild-nexuses-incremental
-  |=  changed=(list neck:tarball)
+++  validate-nexuses
+  |=  [cod=path old-bins=bins:nexus new-bins=bins:nexus]
   ^+  this
-  =/  base=path  /(scot %p our.bowl)/[q.byk.bowl]/(scot %da now.bowl)
-  =.  ball
-    %+  roll  changed
-    |=  [=neck:tarball acc=_ball]
-    =/  exists=?  .^(? %cu (weld base /nex/[neck]/hoon))
-    ?.  exists
-      (~(del ba:tarball acc) [/sys/nexuses neck])
-    =/  res=(each vase tang)
-      (mule |.(.^(vase %ca (weld base /nex/[neck]/hoon))))
-    ?:  ?=(%| -.res)
-      %-  (%*(. slog pri 3) leaf+"{<neck>}: nexus build failed" (flop p.res))
-      acc
-    =/  nex-res=(each nexus:nexus tang)
-      (mule |.(!<(nexus:nexus p.res)))
-    ?:  ?=(%| -.nex-res)
-      %-  (%*(. slog pri 3) leaf+"{<neck>}: nexus type mismatch" (flop p.nex-res))
-      acc
-    (~(put ba:tarball acc) [/sys/nexuses neck] [~ %temp !>(p.nex-res)])
-  ~&  >  [%nexuses-rebuilt (lent changed)]
-  this
+  ::  Find changed nexuses in bins /nex subtree
+  =/  nex-sub=bins:nexus  (~(dip of new-bins) /nex)
+  =/  old-sub=bins:nexus  (~(dip of old-bins) /nex)
+  =/  all-new=(list [pax=path node=(map @ta built:nexus)])
+    ~(tap of nex-sub)
+  =/  changed=(list [=neck:tarball =built:nexus])
+    %-  zing
+    %+  turn  all-new
+    |=  [pax=path node=(map @ta built:nexus)]
+    %+  murn  ~(tap by node)
+    |=  [nam=@ta =built:nexus]
+    =/  old-node=(map @ta built:nexus)
+      (fall (~(get of old-sub) pax) *(map @ta built:nexus))
+    =/  old=(unit built:nexus)  (~(get by old-node) nam)
+    ?:  =(old `built)  ~
+    `[[pax nam] built]
+  ::  Process each changed nexus
+  =/  remaining=_changed  changed
+  |-
+  ?~  remaining  this
+  =/  [=neck:tarball =built:nexus]  i.remaining
+  ::  Extract nexus or propagate error
+  =/  nex-res=(each nexus:nexus tang)
+    ?+  -.built  |+~[leaf+"validate-nexuses: unexpected built type {<-.built>}"]
+      %tang  |+tang.built
+      %vase  (mule |.(!<(nexus:nexus vase.built)))
+    ==
+  ::  Find all directories using this neck, governed by this code namespace
+  =/  dirs=(list fold:tarball)
+    %+  murn  (governed-dirs cod)
+    |=  [=fold:tarball =lump:tarball]
+    ?.  ?&(?=(^ neck.lump) =(u.neck.lump neck))  ~
+    `fold
+  ?~  dirs  $(remaining t.remaining)
+  ::  Run on-load and apply results for each directory
+  ::  (reload-nexus-at handles bang/clear internally)
+  =/  dir-remaining=(list fold:tarball)  dirs
+  |-
+  ?~  dir-remaining  ^$(remaining t.remaining)
+  =/  dest=fold:tarball  i.dir-remaining
+  ?:  ?=(%| -.nex-res)
+    ~&  >>  "validate-nexuses: bang {(trip (rail-to-arm:tarball neck))} at {(spud dest)}"
+    =.  this  (bang-nexus dest p.nex-res)
+    $(dir-remaining t.dir-remaining)
+  ~&  >  "validate-nexuses: reloading {(trip (rail-to-arm:tarball neck))} at {(spud dest)}"
+  =.  this  (reload-nexus-at dest p.nex-res)
+  $(dir-remaining t.dir-remaining)
+::  Validate a compiled artifact based on its source path.
+::
+::  Returns ~ if valid, (unit tang) if the artifact doesn't match
+::  the expected type for its location:
+::    mar/*        — mark door (has +grab, +grow)
+::    nex/*        — nexus:nexus
+::
+++  validate-build
+  |=  [=rail:tarball =vase]
+  ^-  (unit tang)
+  =/  dir=path  path.rail
+  ::  Marks: validated by build-marc after compilation, not here.
+  ::  Cached entries are marcs (not raw doors), so slob won't find arms.
+  ?:  =(/mar (scag 1 dir))  ~
+  ?:  =(/nex (scag 1 dir))
+    =/  res=(each nexus:nexus tang)
+      (mule |.(!<(nexus:nexus vase)))
+    ?:(?=(%& -.res) ~ `(weld ~[leaf+"nexus {(trip name.rail)}: type mismatch"] p.res))
+  ::  No validation for other paths (e.g. lib/*.hoon)
+  ~
+::  Mirror /gub/ from Clay into /code/, then build.
+::
+++  sync-gub
+  ^+  this
+  ~&  >  "sync-gub: start"
+  =/  pax=path  /(scot %p our.bowl)/[q.byk.bowl]/(scot %da now.bowl)
+  ::  Build the target ball for /code/
+  =/  files=(list path)  .^((list path) %ct (weld pax /gub))
+  =/  new-src=ball:tarball
+    %+  roll  files
+    |=  [fyl=path acc=ball:tarball]
+    ?.  ?=([@ @ @ *] fyl)  acc
+    =/  mar=@tas   (rear fyl)
+    =/  sans=path  (snip `(list @ta)`fyl)
+    =/  stem=@ta   (rear sans)
+    =/  rel-dir=path  (slag 1 (snip `(list @ta)`sans))
+    =/  name=@ta   (cat 3 stem (cat 3 '.' mar))
+    ::  sys.kelvin: store as kelvin mark at root
+    ?:  =(%'sys.kelvin' name)
+      =/  =vase  .^(vase %cr (weld pax fyl))
+      =/  =waft:clay  ;;(waft:clay q.vase)
+      (~(put ba:tarball acc) [/ %'sys.kelvin'] [~ [/ %kelvin] !>(waft)])
+    ?:  =(mar %hoon)
+      =/  =vase  .^(vase %cr (weld pax fyl))
+      =/  val=(each ^vase tang)  (validate-new-sage /code [/ mar] ~ vase %.y)
+      ?.  ?=(%& -.val)
+        ~&  >>>  "sync-gub: validation failed for {(trip name)}: {(trip (render-tang:build p.val))}"
+        acc
+      (~(put ba:tarball acc) [rel-dir name] [~ [/ mar] p.val])
+    ::  Non-hoon: convert to mime via tube, store as %mime grub
+    =/  =vase  .^(vase %cr (weld pax fyl))
+    =/  tub=tube:clay  .^(tube:clay %cc (weld pax /[mar]/mime))
+    =/  =mime  !<(mime (tub vase))
+    (~(put ba:tarball acc) [rel-dir name] [~ [/ %mime] !>(mime)])
+  ::  Get old ball at /code/
+  =/  old-src=ball:tarball  (~(dip ba:tarball ball) /code)
+  ::  Diff and bump src changes (born, silo, hist, notify)
+  ~&  >  "sync-gub: load-ball-changes start"
+  =.  this  (load-ball-changes /code old-src new-src)
+  ~&  >  "sync-gub: load-ball-changes done"
+  ::  Compile
+  ~&  >  "sync-gub: build-code start"
+  =/  res=_this  (build-code /code)
+  ~&  >  "sync-gub: build-code done"
+  res
 ::  List all files mirrored under a /sys/clay/[desk] path
 ::  Returns Clay-style paths (like /app/foo/hoon) with mark as last element
 ::
@@ -2545,11 +3080,15 @@
   ^+  this
   ?~  riot
     ::  Desk was deleted — unsub, remove mirror
-    ~&  >  [%clay-desk-deleted dek]
+    ~&  >>  "on-clay-writ: desk deleted {<dek>}"
     (unmount-clay-desk dek)
   ::  Desk changed — re-sync files and re-subscribe
-  ~&  >  [%clay-desk-changed dek]
-  (sync-clay-desk dek)
+  ~&  >>  "on-clay-writ: desk changed {<dek>}"
+  =.  this  (sync-clay-desk dek)
+  =?  this  =(dek %grubbery)
+    ~&  >>  "on-clay-writ: triggering sync-gub"
+    sync-gub
+  this
 ::
 ++  unmount-clay-desk
   |=  dek=desk
@@ -2561,7 +3100,7 @@
 ++  sync-dill
   ^+  this
   ::  Create dill/logs grub and subscribe
-  =.  this  (save-file [/sys/dill %'logs.dill-told'] [~ %dill-told !>(*told:dill)])
+  =.  this  (save-file [/sys/dill %'logs.dill-told'] [~ [/ %dill-told] !>(*told:dill)])
   =.  gain  (set-gain [/sys/dill %'logs.dill-told'] %.y)
   =.  this  (emit-card [%pass /dill/logs %arvo %d %logs `~])
   ::  Scry for sessions
@@ -2581,7 +3120,7 @@
     %+  roll  sessions
     |=  [ses=@tas acc=_this]
     =.  gain.acc  (set-gain:acc [/sys/dill/sessions ses] %.y)
-    (save-file:acc [/sys/dill/sessions ses] [~ %dill-blit !>(*(list blit:dill))])
+    (save-file:acc [/sys/dill/sessions ses] [~ [/ %dill-blit] !>(*(list blit:dill))])
   %-  emit-cards
   %+  turn  sessions
   |=(ses=@tas [%pass /dill/session/[ses] %arvo %d %shot ses %view ~])
@@ -2593,10 +3132,10 @@
     (~(put of ball) /sys/jael [~ ~ ~])
   ::  Create grubs and subscribe
   =.  this
-    (save-file [/sys/jael %'private-keys.jael-private-keys'] [~ %jael-private-keys !>(*[life (map life ring)])])
+    (save-file [/sys/jael %'private-keys.jael-private-keys'] [~ [/ %jael-private-keys] !>(*[life (map life ring)])])
   =.  gain  (set-gain [/sys/jael %'private-keys.jael-private-keys'] %.y)
   =.  this
-    (save-file [/sys/jael %'public-keys.jael-public-keys-result'] [~ %jael-public-keys-result !>(*public-keys-result:jael)])
+    (save-file [/sys/jael %'public-keys.jael-public-keys-result'] [~ [/ %jael-public-keys-result] !>(*public-keys-result:jael)])
   =.  gain  (set-gain [/sys/jael %'public-keys.jael-public-keys-result'] %.y)
   ::  Subscribe to private keys
   =.  this
@@ -2608,7 +3147,7 @@
 ++  on-jael-public
   |=  =public-keys-result:jael
   ^+  this
-  (save-file [/sys/jael %'public-keys.jael-public-keys-result'] [~ %jael-public-keys-result !>(public-keys-result)])
+  (save-file [/sys/jael %'public-keys.jael-public-keys-result'] [~ [/ %jael-public-keys-result] !>(public-keys-result)])
 ::  Save file state and bump ONLY if content actually changed.
 ::  This is the ONLY correct way to update file state.
 ::  Invariant: file aeon changes iff file content changes.
@@ -2622,12 +3161,21 @@
   =/  old=(unit content:tarball)  (~(get ba:tarball ball) here)
   =.  ball  (~(put ba:tarball ball) here new-content)
   ?:  ?&  ?=(^ old)
-          =(cage.u.old cage.new-content)
+          =(sage.u.old sage.new-content)
       ==
     this
   ::  Record content in silo and hist
-  =.  this  (record-hist here cage.new-content ~)
-  (bump-file here)
+  =.  this  (record-hist here sage.new-content ~)
+  =.  this  (bump-file here)
+  ::  Rebuild if change is inside a code nexus
+  =/  cod=(unit path)
+    =+  pax=path.here
+    |-  ?:  (~(has by code) pax)  `pax
+    ?~  pax  ~
+    $(pax (snip `path`pax))
+  ?~  cod  this
+  ~&  >>>  "save-file: triggering build-code from {(spud (snoc path.here name.here))}"
+  (build-code u.cod)
 ::
 ++  wrap-wire
   |=  [here=rail:tarball =wire]

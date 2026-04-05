@@ -8,7 +8,7 @@
 /-  c=chat
 /-  claw
 /-  lcm
-/+  nexus, tarball, io=fiberio, loader, story-parse, tools=claw-tools, cron
+/+  nexus, tarball, io=fiberio, loader, story-parse, tools=claw-tools, cron, s3-client
 !:
 ^-  nexus:nexus
 =>
@@ -291,7 +291,7 @@
       |-
       ?~  rem  ^$
       ;<  ~  bind:m
-        (poke:io /route (bot-road i.rem) %json !>(event-data))
+        (poke:io /route (bot-road i.rem) [/ %json] !>(event-data))
       $(rem t.rem)
     ::
         ?(%dm-post %dm-reply)
@@ -306,7 +306,7 @@
         $
       %-  (slog leaf+"claw-grub: routing {(trip event-type)} to {(trip bot-id)}" ~)
       ;<  ~  bind:m
-        (poke:io /route (bot-road bot-id) %json !>(event-data))
+        (poke:io /route (bot-road bot-id) [/ %json] !>(event-data))
       $
     ==
   ::
@@ -354,7 +354,7 @@
       ==
     %-  (slog leaf+"claw-grub: dm-watch routing to {(trip bot-id)}" ~)
     ;<  ~  bind:m
-      (poke:io /route (bot-road bot-id) %json !>(dm-event))
+      (poke:io /route (bot-road bot-id) [/ %json] !>(dm-event))
     $
   ::
       %cron
@@ -373,7 +373,7 @@
       (peek:io /cron-cfg/[bot-id] (cord-to-road:tarball (crip "./bots/{(trip bot-id)}/config.json")) `%json)
     ?.  ?=([%& %file *] cfg-seen)
       $(bot-list t.bot-list)
-    =/  cfg=json  !<(json q.cage.p.cfg-seen)
+    =/  cfg=json  !<(json q.sage.p.cfg-seen)
     ?.  ?=([%o *] cfg)
       $(bot-list t.bot-list)
     =/  cron-json=(unit json)  (~(get by p.cfg) 'cron')
@@ -405,7 +405,7 @@
           ['is_cron' b+%.y]
       ==
     ;<  ~  bind:m
-      (poke:io /cron (bot-road bot-id) %json !>(cron-event))
+      (poke:io /cron (bot-road bot-id) [/ %json] !>(cron-event))
     $(jobs t.jobs)
   ==
 ::
@@ -425,7 +425,7 @@
   ;<  reg-seen=seen:nexus  bind:m
     (peek:io /reg (cord-to-road:tarball './bots-registry.json') `%json)
   ?.  ?=([%& %file *] reg-seen)  (pure:m ~)
-  =/  reg=json  !<(json q.cage.p.reg-seen)
+  =/  reg=json  !<(json q.sage.p.reg-seen)
   ?.  ?=([%o *] reg)  (pure:m ~)
   =/  bot-ids=(list [@tas @t])
     %+  murn  ~(tap by p.reg)
@@ -443,7 +443,7 @@
     (peek:io /bot-cfg/[id] (cord-to-road:tarball (crip "./bots/{(trip id)}/config.json")) `%json)
   =/  wl=(map @p @t)
     ?.  ?=([%& %file *] cfg-seen)  ~
-    =/  cfg=json  !<(json q.cage.p.cfg-seen)
+    =/  cfg=json  !<(json q.sage.p.cfg-seen)
     ?.  ?=([%o *] cfg)  ~
     =/  wl-json=(unit json)  (~(get by p.cfg) 'whitelist')
     ?~  wl-json  ~
@@ -513,20 +513,20 @@
   =/  m  (fiber:fiber:nexus ,~)
   ^-  form:m
   |-
-  ;<  =cage  bind:m  take-poke:io
-  ?.  ?=(%json p.cage)  $
-  =/  event-data=json  !<(json q.cage)
+  ;<  =sage:tarball  bind:m  take-poke:io
+  ?.  =([/ %json] p.sage)  $
+  =/  event-data=json  !<(json q.sage)
   ::  read bot config + global config
   ;<  cfg-seen=seen:nexus  bind:m
     (peek:io /cfg (cord-to-road:tarball './config.json') `%json)
   =/  bot-cfg=json
     ?.  ?=([%& %file *] cfg-seen)  (need (de:json:html '{}'))
-    !<(json q.cage.p.cfg-seen)
+    !<(json q.sage.p.cfg-seen)
   ;<  global-seen=seen:nexus  bind:m
     (peek:io /gcfg (cord-to-road:tarball '../../config.json') `%json)
   =/  global-cfg=json
     ?.  ?=([%& %file *] global-seen)  (need (de:json:html '{}'))
-    !<(json q.cage.p.global-seen)
+    !<(json q.sage.p.global-seen)
   ::  resolve effective config (bot overrides global)
   =/  bname=@t    (jget bot-cfg 'name' '')
   =/  bavatar=@t  (jget bot-cfg 'avatar' '')
@@ -650,11 +650,6 @@
   =/  extra-msgs=(list json)  ~
   =/  round=@ud  0
   |-
-  ?:  (gte round 5)
-    %-  (slog leaf+"claw-grub: bot '{(trip bot-id)}' hit tool loop limit" ~)
-    ;<  ~  bind:m
-      (send-reply our from is-dm is-thread nk ns nn parent-id 'I hit my tool iteration limit. Here is what I have so far.' bname bavatar now)
-    ^$
   =/  all-msgs=json  [%a (weld base-msgs extra-msgs)]
   =/  body-cord=@t
     %-  en:json:html
@@ -672,7 +667,12 @@
     `(as-octs:mimes:html body-cord)
   ;<  ~  bind:m  (send-request:io request)
   ;<  =client-response:iris  bind:m  take-client-response:io
-  ?>  ?=(%finished -.client-response)
+  ?.  ?=(%finished -.client-response)
+    ::  request cancelled/timed out — report error and return to main loop
+    %-  (slog leaf+"claw-grub: bot '{(trip bot-id)}' LLM request cancelled/timed out" ~)
+    ;<  ~  bind:m
+      (send-reply our from is-dm is-thread nk ns nn parent-id 'Error: LLM request timed out. Try again.' bname bavatar now)
+    ^$
   =/  status=@ud  status-code.response-header.client-response
   =/  response-body=@t
     ?~  full-file.client-response  ''
@@ -764,9 +764,288 @@
   =/  [tid=@t tname=@t targs=@t]  i.pending
   =/  rest=(list [id=@t name=@t arguments=@t])  t.pending
   %-  (slog leaf+"claw-grub: executing tool '{(trip tname)}' args={(trip (end 3^80 targs))}" ~)
+  ::  helper: join list of cords with newlines
+  =/  join-cords
+    |=  lst=(list @t)
+    ^-  @t
+    ?~  lst  ''
+    =/  out=@t  i.lst
+    =/  rem=(list @t)  t.lst
+    |-
+    ?~  rem  out
+    $(rem t.rem, out (rap 3 out '\0a' i.rem ~))
+  ::  helper: safe scry — wraps .^ in mule, returns result or error text
+  =/  safe-scry
+    |=  [pax=path truncate=@ud]
+    ^-  @t
+    =/  res=(each json tang)  (mule |.(.^(json %gx pax)))
+    ?:  ?=(%| -.res)
+      (rap 3 'error: scry failed at ' (crip (spud pax)) ~)
+    (crip (scag truncate (trip (en:json:html p.res))))
+  =/  safe-scry-noun
+    |=  pax=path
+    ^-  (each * tang)
+    (mule |.(.^(* %gx pax)))
+  =/  mk-res
+    |=  c=@t
+    %-  (slog leaf+"claw-grub: tool '{(trip tname)}' result ({<(met 3 c)>} bytes): {(trip (end 3^120 c))}" ~)
+    (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+c]])
+  =/  args-json=(unit json)  (de:json:html targs)
+  ::
+  ::  ── SCRY-BASED TOOL INTERCEPTS ──────────────────────────
+  ::  All agent scries go through mule to prevent bail:4 crashes
+  ::
+  ?:  =('get_contact' tname)
+    =/  ship-str=@t  ?~(args-json '' (jget u.args-json 'ship' ''))
+    =/  res  (safe-scry-noun /(scot %p our.bowl)/contacts/(scot %da now.bowl)/all/noun)
+    =/  result=@t
+      ?:  ?=(%| -.res)  'error: could not read contacts'
+      =/  target=(unit @p)  (slaw %p ship-str)
+      ?~  target  'error: invalid ship'
+      =/  entry  (~(get by ;;((map @p *) p.res)) u.target)
+      ?~  entry  (rap 3 'no contact data for ' ship-str ~)
+      (crip (scag 2.000 (trip (crip ~(ram re (sell !>(u.entry)))))))
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('list_contacts' tname)
+    =/  result=@t  (safe-scry /(scot %p our.bowl)/contacts/(scot %da now.bowl)/v1/all/json 4.000)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('list_groups' tname)
+    =/  result=@t  (safe-scry /(scot %p our.bowl)/groups/(scot %da now.bowl)/v2/groups/json 4.000)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('list_channels' tname)
+    =/  result=@t  (safe-scry /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/channels/json 4.000)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('read_channel_history' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  ch=@t  (jget u.args-json 'channel' '')
+    =/  n=@ud  (fall (rush (jget u.args-json 'count' '10') dem) 10)
+    =/  parsed  (parse-nest:tools ch)
+    ?~  parsed
+      (exec-tool-list rest [(mk-res 'error: bad channel format. use kind/~host/name') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  [kind=kind:d =ship name=@tas]  u.parsed
+    =/  result=@t  (safe-scry /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind)/(scot %p ship)/[name]/posts/newest/(scot %ud n)/outline/json 6.000)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('read_dm_history' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  ship-str=@t  (jget u.args-json 'ship' '')
+    =/  target=(unit @p)  (slaw %p ship-str)
+    ?~  target
+      (exec-tool-list rest [(mk-res 'error: invalid ship') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  n=@ud  (fall (rush (jget u.args-json 'count' '20') dem) 20)
+    =/  result=@t  (safe-scry /(scot %p our.bowl)/chat/(scot %da now.bowl)/dm/(scot %p u.target)/writs/newest/(scot %ud n)/light/json 6.000)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('search_messages' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  ch=@t  (jget u.args-json 'channel' '')
+    =/  query=@t  (jget u.args-json 'query' '')
+    =/  n=@ud  (fall (rush (jget u.args-json 'count' '50') dem) 50)
+    =/  parsed  (parse-nest:tools ch)
+    ?~  parsed
+      (exec-tool-list rest [(mk-res 'error: bad channel format') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  [kind=kind:d =ship name=@tas]  u.parsed
+    =/  result=@t  (safe-scry /(scot %p our.bowl)/channels/(scot %da now.bowl)/v4/(scot %tas kind)/(scot %p ship)/[name]/search/text/0/(scot %ud n)/(scot %t query)/json 6.000)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('local_mcp_list' tname)
+    =/  has-mcp=?
+      =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl)/desk/bill)))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-mcp
+      (exec-tool-list rest [(mk-res 'The %mcp desk is not installed.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  result=@t  (safe-scry /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/tools/json 6.000)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('list_conversations' tname)
+    =/  result=@t  (safe-scry /(scot %p our.bowl)/lcm/(scot %da now.bowl)/conversations/json 4.000)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('search_history' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  query=@t  (jget u.args-json 'query' '')
+    ::  get all conversations, search each
+    =/  convs-res=(each json tang)  (mule |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/conversations/json)))
+    ?:  ?=(%| -.convs-res)
+      (exec-tool-list rest [(mk-res 'error: could not read LCM conversations') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ?.  ?=([%o *] p.convs-res)
+      (exec-tool-list rest [(mk-res 'no conversations') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  all-results=(list @t)
+      %+  murn  ~(tap by p.p.convs-res)
+      |=  [conv-key=@t *]
+      =/  grep-res=(each json tang)
+        (mule |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/grep/[conv-key]/[query]/json)))
+      ?:  ?=(%| -.grep-res)  ~
+      =/  txt=@t  (en:json:html p.grep-res)
+      ?:  =(txt '[]')  ~
+      `(rap 3 conv-key ': ' txt ~)
+    =/  result=@t  (crip (scag 6.000 (trip (join-cords all-results))))
+    (exec-tool-list rest [(mk-res ?:(=('' result) 'no results found' result)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('describe_summary' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  sid=@t  (jget u.args-json 'id' '')
+    =/  convs-res=(each json tang)  (mule |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/conversations/json)))
+    ?:  ?=(%| -.convs-res)
+      (exec-tool-list rest [(mk-res 'error: could not read LCM conversations') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ?.  ?=([%o *] p.convs-res)
+      (exec-tool-list rest [(mk-res 'no conversations') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  all-results=(list @t)
+      %+  murn  ~(tap by p.p.convs-res)
+      |=  [conv-key=@t *]
+      =/  desc-res=(each json tang)
+        (mule |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/describe/[conv-key]/[sid]/json)))
+      ?:  ?=(%| -.desc-res)  ~
+      =/  txt=@t  (en:json:html p.desc-res)
+      ?:  =(txt 'null')  ~
+      `txt
+    =/  result=@t  (crip (scag 6.000 (trip (join-cords all-results))))
+    (exec-tool-list rest [(mk-res ?:(=('' result) (rap 3 'summary ' sid ' not found' ~) result)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ::
+  ::  ── ASYNC HTTP TOOL INTERCEPTS ──────────────────────────
+  ::  web_search, image_search, http_fetch use fiber I/O
+  ::
+  ?:  =('web_search' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  query=@t  (jget u.args-json 'query' '')
+    =/  count=@t  (jget u.args-json 'count' '5')
+    ?:  =('' bbrave)
+      (exec-tool-list rest [(mk-res 'error: no Brave API key configured') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  body=@t
+      (en:json:html (pairs:enjs:format ~[['q' s+query] ['count' s+count]]))
+    =/  =request:http
+      :^  %'POST'  'https://api.search.brave.com/res/v1/web/search'
+        :~  ['Content-Type' 'application/json']
+            ['Accept' 'application/json']
+            ['Accept-Encoding' 'gzip']
+            ['User-Agent' 'claw-bot/1.0 (Urbit LLM agent; +https://github.com/yapishu/claw)']
+            ['X-Subscription-Token' bbrave]
+        ==
+      `(as-octs:mimes:html body)
+    ;<  ~  bind:m  (send-request:io request)
+    ;<  =client-response:iris  bind:m  take-client-response:io
+    ?.  ?=(%finished -.client-response)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  result=@t
+      (crip (scag 6.000 (trip ?~(full-file.client-response '' q.data.u.full-file.client-response))))
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('image_search' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  query=@t  (jget u.args-json 'query' '')
+    =/  count=@t  (jget u.args-json 'count' '5')
+    ?:  =('' bbrave)
+      (exec-tool-list rest [(mk-res 'error: no Brave API key configured') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ::  double-encode query (Iris re-encodes, Brave decodes the double)
+    =/  encoded-q=@t  (crip (en-urlt:html (en-urlt:html (trip query))))
+    =/  n=@ud  (fall (rush count dem) 5)
+    =/  search-url=@t
+      (rap 3 'https://api.search.brave.com/res/v1/images/search?q=' encoded-q '&count=' (scot %ud n) ~)
+    =/  =request:http
+      :^  %'GET'  search-url
+        :~  ['User-Agent' 'claw-bot/1.0 (Urbit LLM agent; +https://github.com/yapishu/claw)']
+            ['X-Subscription-Token' bbrave]
+        ==
+      ~
+    ;<  ~  bind:m  (send-request:io request)
+    ;<  =client-response:iris  bind:m  take-client-response:io
+    ?.  ?=(%finished -.client-response)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  result=@t
+      (crip (scag 6.000 (trip ?~(full-file.client-response '' q.data.u.full-file.client-response))))
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ?:  =('http_fetch' tname)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  url=@t  (jget u.args-json 'url' '')
+    ?:  =('' url)
+      (exec-tool-list rest [(mk-res 'error: url required') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  =request:http
+      :^  %'GET'  url
+        ~[['Accept-Encoding' 'gzip'] ['User-Agent' 'claw-bot/1.0 (Urbit LLM agent; +https://github.com/yapishu/claw)']]
+      ~
+    ;<  ~  bind:m  (send-request:io request)
+    ;<  =client-response:iris  bind:m  take-client-response:io
+    ?.  ?=(%finished -.client-response)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  result=@t
+      (crip (scag 6.000 (trip ?~(full-file.client-response '' q.data.u.full-file.client-response))))
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ::
+  ::  ── UPLOAD IMAGE ────────────────────────────────────────
+  ::  intercept upload_image — check storage BEFORE fetching
+  ::  (storage scries can bail:4 which is uncatchable)
+  ?:  =('upload_image' tname)
+    =/  mk-res
+    |=  c=@t
+    %-  (slog leaf+"claw-grub: tool '{(trip tname)}' result ({<(met 3 c)>} bytes): {(trip (end 3^120 c))}" ~)
+    (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+c]])
+    =/  args-json=(unit json)  (de:json:html targs)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  url=@t  (jget u.args-json 'url' '')
+    ?:  =('' url)
+      (exec-tool-list rest [(mk-res 'error: url required') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ::  pre-check: verify %storage desk exists via Clay (safe, no bail)
+    =/  has-storage=?
+      =/  r=(each ? tang)
+        (mule |.(.^(? %cu /(scot %p our.bowl)/landscape/(scot %da now.bowl)/app/storage/hoon)))
+      ?:(?=(%| -.r) %.n p.r)
+    ?.  has-storage
+      (exec-tool-list rest [(mk-res 'error: %storage agent not available. Configure S3 in system settings.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ::  pre-check: read S3 creds (scry storage agent — bail:4 uncatchable without this)
+    =/  cred-check=(each [cred-json=json conf-json=json] tang)
+      %-  mule  |.
+      :-  .^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/credentials/json)
+      .^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/json)
+    ?:  ?=(%| -.cred-check)
+      (exec-tool-list rest [(mk-res 'error: could not read S3 credentials from %storage. Configure S3 storage first.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ::  extract S3 creds NOW (before any async ops, so we never re-scry)
+    =/  s3-creds=s3-creds:s3-client
+      (scry-s3-creds:s3-client cred-json.p.cred-check conf-json.p.cred-check)
+    ::  phase 1: fetch the source image
+    %-  (slog leaf+"claw-grub: upload_image: fetching {(trip (end 3^60 url))}" ~)
+    =/  =request:http
+      :^  %'GET'  url
+        ~[['Accept-Encoding' 'gzip'] ['User-Agent' 'claw-bot/1.0 (Urbit LLM agent; +https://github.com/yapishu/claw)']]
+      ~
+    ;<  ~  bind:m  (send-request:io request)
+    ;<  =client-response:iris  bind:m  take-client-response:io
+    ?.  ?=(%finished -.client-response)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ?~  full-file.client-response
+      (exec-tool-list rest [(mk-res 'error: empty response from image URL') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  img-data=octs  data.u.full-file.client-response
+    =/  ct=@t
+      =/  ct-header=(unit @t)
+        %-  ~(get by (malt headers.response-header.client-response))
+        'content-type'
+      (fall ct-header 'image/png')
+    ::  phase 2: build S3 PUT directly (no re-scry)
+    ;<  fresh-now=@da  bind:m  get-time:io
+    =/  s3-result=(unit [=card:agent:gall url=@t])
+      (s3-presigned-put:s3-client s3-creds fresh-now img-data ct)
+    ?~  s3-result
+      (exec-tool-list rest [(mk-res 'error: S3 presigned PUT failed — check credentials') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    %-  (slog leaf+"claw-grub: upload_image: uploading to S3 → {(trip url.u.s3-result)}" ~)
+    ::  fire the S3 PUT request
+    ?>  ?=([%pass * %arvo %i %request * *] card.u.s3-result)
+    =/  s3-req=request:http  +>+>+<.card.u.s3-result
+    ;<  ~  bind:m  (send-request:io s3-req)
+    ;<  =client-response:iris  bind:m  take-client-response:io
+    ?.  ?=(%finished -.client-response)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  s3-status=@ud  status-code.response-header.client-response
+    ?.  =(200 s3-status)
+      (exec-tool-list rest [(mk-res (rap 3 'error: S3 upload returned ' (crip "{<s3-status>}") ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    %-  (slog leaf+"claw-grub: upload_image: success → {(trip url.u.s3-result)}" ~)
+    (exec-tool-list rest [(mk-res url.u.s3-result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
   ::  intercept delegate — spawn a sub-agent task
   ?:  =('delegate' tname)
-    =/  mk-res  |=(c=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+c]]))
+    =/  mk-res
+    |=  c=@t
+    %-  (slog leaf+"claw-grub: tool '{(trip tname)}' result ({<(met 3 c)>} bytes): {(trip (end 3^120 c))}" ~)
+    (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+c]])
     =/  args-json=(unit json)  (de:json:html targs)
     ?~  args-json
       (exec-tool-list rest [(mk-res 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
@@ -785,10 +1064,10 @@
           ['parent_bot' s+bot-id]
       ==
     =/  cfg-road=road:tarball  [%& %& /bots/[bot-id]/tasks/[task-id] %'config.json']
-    =/  cfg-make=make:nexus  [%| %.n json+!>(task-cfg) ~]
+    =/  cfg-make=make:nexus  [%| %.n [[/ %json] !>(task-cfg)] ~]
     ;<  ~  bind:m  (make:io /task-cfg cfg-road cfg-make)
     =/  sig-road=road:tarball  [%& %& /bots/[bot-id]/tasks/[task-id] %'main.sig']
-    =/  sig-make=make:nexus  [%| %.n sig+!>(~) ~]
+    =/  sig-make=make:nexus  [%| %.n [[/ %sig] !>(~)] ~]
     ;<  ~  bind:m  (make:io /task-sig sig-road sig-make)
     %-  (slog leaf+"claw-grub: spawned task '{(trip task-id)}' for bot '{(trip bot-id)}'" ~)
     (exec-tool-list rest [(mk-res (rap 3 'Delegated task to sub-agent ' task-id '. It will work independently and report back when done.' ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
@@ -801,7 +1080,7 @@
       (peek:io /profile-peek (cord-to-road:tarball './config.json') `%json)
     =/  cfg=json
       ?.  ?=([%& %file *] cfg-seen)  [%o ~]
-      !<(json q.cage.p.cfg-seen)
+      !<(json q.sage.p.cfg-seen)
     ?.  ?=([%o *] cfg)
       (exec-tool-list rest ~ bowl bbrave is-owner bot-id bname-u bavatar-u)
     =/  nick=@t  (jget u.args-json 'nickname' '')
@@ -811,7 +1090,7 @@
       =?  c  !=('' nick)    (~(put by c) 'name' s+nick)
       =?  c  !=('' avatar)  (~(put by c) 'avatar' s+avatar)
       [%o c]
-    ;<  ~  bind:m  (over:io /profile-write (cord-to-road:tarball './config.json') json+!>(new-cfg))
+    ;<  ~  bind:m  (over:io /profile-write (cord-to-road:tarball './config.json') [[/ %json] !>(new-cfg)])
     ::  also update registry if name changed
     ?:  =('' nick)
       =/  msg=@t  ?:(=('' avatar) 'no changes' 'avatar updated')
@@ -821,9 +1100,9 @@
       (peek:io /reg-peek (cord-to-road:tarball '../../bots-registry.json') `%json)
     =/  reg=json
       ?.  ?=([%& %file *] reg-seen)  [%o ~]
-      !<(json q.cage.p.reg-seen)
+      !<(json q.sage.p.reg-seen)
     ?:  ?=([%o *] reg)
-      ;<  ~  bind:m  (over:io /reg-write (cord-to-road:tarball '../../bots-registry.json') json+!>([%o (~(put by p.reg) bot-id s+nick)]))
+      ;<  ~  bind:m  (over:io /reg-write (cord-to-road:tarball '../../bots-registry.json') [[/ %json] !>([%o (~(put by p.reg) bot-id s+nick)])])
       =/  make-result  |=(content=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+content]]))
       (exec-tool-list rest [(make-result (rap 3 'profile updated: name=' nick ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
     =/  make-result  |=(content=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+content]]))
@@ -848,7 +1127,7 @@
       (peek:io /cron-peek (cord-to-road:tarball './config.json') `%json)
     =/  cfg=json
       ?.  ?=([%& %file *] cfg-seen)  [%o ~]
-      !<(json q.cage.p.cfg-seen)
+      !<(json q.sage.p.cfg-seen)
     =/  cron-json=json
       ?.  ?=([%o *] cfg)  [%a ~]
       (fall (~(get by p.cfg) 'cron') [%a ~])
@@ -864,7 +1143,7 @@
       (peek:io /cron-peek (cord-to-road:tarball './config.json') `%json)
     =/  cfg=json
       ?.  ?=([%& %file *] cfg-seen)  [%o ~]
-      !<(json q.cage.p.cfg-seen)
+      !<(json q.sage.p.cfg-seen)
     ?.  ?=([%o *] cfg)
       (exec-tool-list rest [(make-result 'error: no bot config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
     =/  cron=json  (fall (~(get by p.cfg) 'cron') [%a ~])
@@ -872,7 +1151,7 @@
       (exec-tool-list rest [(make-result 'error: invalid cron config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
     =/  new-job=json  (pairs:enjs:format ~[['schedule' s+sched] ['prompt' s+prompt]])
     =/  new-cfg=json  [%o (~(put by p.cfg) 'cron' [%a (snoc p.cron new-job)])]
-    ;<  ~  bind:m  (over:io /cron-write (cord-to-road:tarball './config.json') json+!>(new-cfg))
+    ;<  ~  bind:m  (over:io /cron-write (cord-to-road:tarball './config.json') [[/ %json] !>(new-cfg)])
     =/  msg=@t  (rap 3 'Scheduled cron ' sched ': ' (end 3^40 prompt) ~)
     (exec-tool-list rest [(make-result msg) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
   ?:  =('cron_remove' tname)
@@ -884,7 +1163,7 @@
       (peek:io /cron-peek (cord-to-road:tarball './config.json') `%json)
     =/  cfg=json
       ?.  ?=([%& %file *] cfg-seen)  [%o ~]
-      !<(json q.cage.p.cfg-seen)
+      !<(json q.sage.p.cfg-seen)
     ?.  ?=([%o *] cfg)
       (exec-tool-list rest [(make-result 'error: no bot config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
     =/  cron=json  (fall (~(get by p.cfg) 'cron') [%a ~])
@@ -898,7 +1177,7 @@
       =?  out  !=(i idx)  [i.p.cron out]
       $(p.cron t.p.cron, i +(i))
     =/  new-cfg=json  [%o (~(put by p.cfg) 'cron' [%a new-cron])]
-    ;<  ~  bind:m  (over:io /cron-write (cord-to-road:tarball './config.json') json+!>(new-cfg))
+    ;<  ~  bind:m  (over:io /cron-write (cord-to-road:tarball './config.json') [[/ %json] !>(new-cfg)])
     (exec-tool-list rest [(make-result 'Removed cron job') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
   ::  wrap execution in mule — a crashing tool must never kill the bot
   =/  exec-result=(each tool-result:tools tang)
@@ -963,7 +1242,8 @@
   =/  ireq=request:http  +>+>+<.async-card
   ;<  ~  bind:m  (send-request:io ireq)
   ;<  =client-response:iris  bind:m  take-client-response:io
-  ?>  ?=(%finished -.client-response)
+  ?.  ?=(%finished -.client-response)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
   =/  tool-body=@t
     (parse-tool-response:tools tname ?~(full-file.client-response '' q.data.u.full-file.client-response))
   (exec-tool-list rest [(make-result tool-body) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
@@ -982,6 +1262,7 @@
   ;<  fresh-now=@da  bind:m  get-time:io
   =/  bname-u=(unit @t)  ?:(=('' bname) ~ `bname)
   =/  bavatar-u=(unit @t)  ?:(=('' bavatar) ~ `bavatar)
+  %-  (slog leaf+"claw-grub: send-reply author: name={<bname-u>} avatar={<bavatar-u>}" ~)
   =/  =author:d  (bot-author our bname-u bavatar-u)
   =/  =story:d  (text-to-story:story-parse text)
   ?:  is-dm
@@ -1021,7 +1302,7 @@
     (peek:io /ctx/[field] [%& %& /context filename] `%txt)
   =/  content=@t
     ?.  ?=([%& %file *] ctx-seen)  ''
-    =/  wain-val=wain  !<(wain q.cage.p.ctx-seen)
+    =/  wain-val=wain  !<(wain q.sage.p.ctx-seen)
     (of-wain:format wain-val)
   =?  parts  !=('' content)
     :_  parts
@@ -1051,7 +1332,7 @@
     (peek:io /task-cfg (cord-to-road:tarball './config.json') `%json)
   =/  task-cfg=json
     ?.  ?=([%& %file *] task-seen)  [%o ~]
-    !<(json q.cage.p.task-seen)
+    !<(json q.sage.p.task-seen)
   =/  task-prompt=@t  (jget task-cfg 'task' '')
   =/  report-to=@t   (jget task-cfg 'report_to' '')
   ?:  =('' task-prompt)
@@ -1062,7 +1343,7 @@
     (peek:io /bot-cfg (cord-to-road:tarball '../../config.json') `%json)
   =/  bot-cfg=json
     ?.  ?=([%& %file *] bot-cfg-seen)  [%o ~]
-    !<(json q.cage.p.bot-cfg-seen)
+    !<(json q.sage.p.bot-cfg-seen)
   =/  bname=@t  (jget bot-cfg 'name' '')
   =/  bavatar=@t  (jget bot-cfg 'avatar' '')
   ::  read global config
@@ -1070,7 +1351,7 @@
     (peek:io /gcfg (cord-to-road:tarball '../../../../config.json') `%json)
   =/  global-cfg=json
     ?.  ?=([%& %file *] global-seen)  [%o ~]
-    !<(json q.cage.p.global-seen)
+    !<(json q.sage.p.global-seen)
   =/  bmodel=@t
     =/  bm=@t  (jget bot-cfg 'model' '')
     ?:(=('' bm) (jget global-cfg 'model' 'anthropic/claude-sonnet-4') bm)
@@ -1123,7 +1404,9 @@
       `(as-octs:mimes:html body-cord)
     ;<  ~  bind:m  (send-request:io request)
     ;<  =client-response:iris  bind:m  take-client-response:io
-    ?>  ?=(%finished -.client-response)
+    ?.  ?=(%finished -.client-response)
+      %-  (slog leaf+"claw-grub: task '{(trip task-id)}' LLM request timed out" ~)
+      (pure:m ~)
     =/  status=@ud  status-code.response-header.client-response
     =/  response-body=@t
       ?~  full-file.client-response  ''
@@ -1167,7 +1450,7 @@
     (peek:io /task-ctx/[field] [%& %& /context filename] `%txt)
   =/  content=@t
     ?.  ?=([%& %file *] ctx-seen)  ''
-    =/  wain-val=wain  !<(wain q.cage.p.ctx-seen)
+    =/  wain-val=wain  !<(wain q.sage.p.ctx-seen)
     (of-wain:format wain-val)
   =?  ctx-parts  !=('' content)
     :_  ctx-parts
@@ -1203,17 +1486,17 @@
       ?(~ [~ %0])
     %+  spin:loader  [sand gain ball]
     :~  (ver-row:loader 1)
-        [%fall %& [/ %'config.json'] %.n [~ %json !>(default-config)]]
-        [%fall %& [/ %'bots-registry.json'] %.n [~ %json !>(default-registry)]]
-        [%fall %& [/ %'main.sig'] %.n [~ %sig !>(~)]]
+        [%fall %& [/ %'config.json'] %.n [~ [/ %json] !>(default-config)]]
+        [%fall %& [/ %'bots-registry.json'] %.n [~ [/ %json] !>(default-registry)]]
+        [%fall %& [/ %'main.sig'] %.n [~ [/ %sig] !>(~)]]
         [%fall %| /bots [~ ~] [~ ~] empty-dir:loader]
-        [%fall %& [/bots/brap %'config.json'] %.n [~ %json !>(default-bot-config)]]
-        [%fall %& [/bots/brap %'main.sig'] %.n [~ %sig !>(~)]]
+        [%fall %& [/bots/brap %'config.json'] %.n [~ [/ %json] !>(default-bot-config)]]
+        [%fall %& [/bots/brap %'main.sig'] %.n [~ [/ %sig] !>(~)]]
         [%fall %| /bots/brap/context [~ ~] [~ ~] empty-dir:loader]
         [%fall %| /bots/brap/conversations [~ ~] [~ ~] empty-dir:loader]
         ::  grubbery subsystems (server + explorer)
-        [%fall %| /'server.server' [~ ~] [~ ~] [`[~ `%server ~] ~]]
-        [%fall %| /'explorer.explorer' [~ ~] [~ ~] [`[~ `%explorer ~] ~]]
+        [%fall %| /'server.server' [~ ~] [~ ~] [`[~ `[/ %server] ~] ~]]
+        [%fall %| /'explorer.explorer' [~ ~] [~ ~] [`[~ `[/ %explorer] ~] ~]]
         ::  system internals
         [%fall %| /sys/daises [~ ~] [~ ~] empty-dir:loader]
         [%fall %| /sys/nexuses [~ ~] [~ ~] empty-dir:loader]
@@ -1230,13 +1513,13 @@
         [%stay %& [/ %'bots-registry.json']]
         [%stay %& [/ %'main.sig']]
         [%stay %| /bots]
-        [%fall %& [/bots/brap %'config.json'] %.n [~ %json !>(default-bot-config)]]
-        [%fall %& [/bots/brap %'main.sig'] %.n [~ %sig !>(~)]]
+        [%fall %& [/bots/brap %'config.json'] %.n [~ [/ %json] !>(default-bot-config)]]
+        [%fall %& [/bots/brap %'main.sig'] %.n [~ [/ %sig] !>(~)]]
         [%fall %| /bots/brap/context [~ ~] [~ ~] empty-dir:loader]
         [%fall %| /bots/brap/conversations [~ ~] [~ ~] empty-dir:loader]
         ::  grubbery subsystems
-        [%fall %| /'server.server' [~ ~] [~ ~] [`[~ `%server ~] ~]]
-        [%fall %| /'explorer.explorer' [~ ~] [~ ~] [`[~ `%explorer ~] ~]]
+        [%fall %| /'server.server' [~ ~] [~ ~] [`[~ `[/ %server] ~] ~]]
+        [%fall %| /'explorer.explorer' [~ ~] [~ ~] [`[~ `[/ %explorer] ~] ~]]
         [%stay %| /sys/daises]
         [%stay %| /sys/nexuses]
         [%stay %| /sys/tubes]

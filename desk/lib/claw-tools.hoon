@@ -92,8 +92,8 @@
       ::  channel search
       (tool-fn 'search_messages' 'Search messages in ANY channel by text. Use list_channels first to find channel nests, then search each one. Can search multiple channels by calling this tool multiple times with different channel values.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['query' (req-str 'Search text')] ['count' (opt-str 'Max results (default 50)')]]))
       ::  DM reactions
-      (tool-fn 'react_dm' 'React to a DM with an emoji.' (obj ~[['ship' (req-str 'DM counterpart ship')] ['msg_author' (req-str 'Author of the message to react to')] ['msg_time' (req-str 'Message timestamp ID')] ['emoji' (req-str 'Emoji character')]]))
-      (tool-fn 'unreact_dm' 'Remove your reaction from a DM.' (obj ~[['ship' (req-str 'DM counterpart ship')] ['msg_author' (req-str 'Author of the message')] ['msg_time' (req-str 'Message timestamp ID')]]))
+      (tool-fn 'react_dm' 'React to a DM with an emoji. Use the seal.id field from read_dm_history results to get the msg_author and msg_time. The seal.id format is ~ship/number.with.dots — split on / to get author (before /) and time (after /).' (obj ~[['ship' (req-str 'DM counterpart ship')] ['msg_author' (req-str 'Author ship from seal.id (the part before /)')] ['msg_time' (req-str 'Message time from seal.id (the part after /, e.g. 170.141.184.507...)')] ['emoji' (req-str 'Emoji character')]]))
+      (tool-fn 'unreact_dm' 'Remove reaction from a DM. Use seal.id from read_dm_history — split on / for author and time.' (obj ~[['ship' (req-str 'DM counterpart ship')] ['msg_author' (req-str 'Author from seal.id (before /)')] ['msg_time' (req-str 'Time from seal.id (after /)')]]))
       ::  cron jobs
       (tool-fn 'cron_add' 'Schedule a recurring task using cron syntax. You will be given the prompt on the cron schedule and process it. Owner only. Cron format: "min hour dom month dow" where each field is: * (any), */N (every N), N (exact), N,M (list). dow: 0=Sun..6=Sat. Examples: "*/30 * * * *" (every 30min), "0 9 * * *" (daily 9am), "0 9 * * 1,3,5" (Mon/Wed/Fri 9am), "0 0 1 * *" (1st of month midnight).' (obj ~[['schedule' (req-str 'Cron expression (5 fields: min hour dom month dow)')] ['prompt' (req-str 'What to do each time (e.g. "Check the weather and summarize")')]]))
       (tool-fn 'cron_list' 'List all scheduled recurring tasks with IDs, prompts, and cron schedules.' (obj ~))
@@ -230,7 +230,10 @@
   ::  upload_image: phase 1 - fetch image from source URL
   ::  phase 2 (S3 PUT) happens in +make-s3-put below
   ::
+  ::  upload_image: handled by bot process (two-phase fiber flow)
   ?:  =('upload_image' name)
+    [%sync ~ 'upload_image: handled by bot process']
+  ?:  =('upload_image_DISABLED' name)
     =,  dejs:format
     =/  url=@t  ((ot ~[url+so]) u.args)
     ::  check if S3 creds exist or memex is configured
@@ -812,7 +815,7 @@
     ?~  counterpart  [%sync ~ 'error: bad ship']
     =/  author=(unit @p)  (slaw %p u.mauthor)
     ?~  author  [%sync ~ 'error: bad msg_author']
-    =/  msg-time=(unit @da)  (slaw %da u.mtime)
+    =/  msg-time=(unit @da)  (parse-msg-time u.mtime)
     ?~  msg-time  [%sync ~ 'error: bad msg_time']
     =/  msg-id=id:chat  [u.author u.msg-time]
     =/  dm-diff=diff:writs:chat  [msg-id [%add-react our.bowl u.emoji]]
@@ -833,7 +836,7 @@
     ?~  counterpart  [%sync ~ 'error: bad ship']
     =/  author=(unit @p)  (slaw %p u.mauthor)
     ?~  author  [%sync ~ 'error: bad msg_author']
-    =/  msg-time=(unit @da)  (slaw %da u.mtime)
+    =/  msg-time=(unit @da)  (parse-msg-time u.mtime)
     ?~  msg-time  [%sync ~ 'error: bad msg_time']
     =/  msg-id=id:chat  [u.author u.msg-time]
     =/  dm-diff=diff:writs:chat  [msg-id [%del-react our.bowl]]
@@ -921,14 +924,27 @@
   ::  these stubs exist so the tools library doesn't crash; the nexus
   ::  intercepts cron_add/cron_list/cron_remove before reaching here
   ::
-  ?:  =('cron_add' name)
-    [%sync ~ 'cron_add: handled by bot process']
-  ?:  =('cron_list' name)
-    [%sync ~ 'cron_list: handled by bot process']
-  ?:  =('cron_remove' name)
-    [%sync ~ 'cron_remove: handled by bot process']
-  ?:  =('delegate' name)
-    [%sync ~ 'delegate: handled by bot process']
+  ::  tools handled by the nexus (safe mule-wrapped scries + fiber I/O)
+  ::  these stubs prevent the tools library from doing dangerous raw .^ scries
+  ::
+  ?:  =('cron_add' name)       [%sync ~ 'handled by bot process']
+  ?:  =('cron_list' name)      [%sync ~ 'handled by bot process']
+  ?:  =('cron_remove' name)    [%sync ~ 'handled by bot process']
+  ?:  =('delegate' name)       [%sync ~ 'handled by bot process']
+  ?:  =('get_contact' name)    [%sync ~ 'handled by bot process']
+  ?:  =('list_contacts' name)  [%sync ~ 'handled by bot process']
+  ?:  =('list_groups' name)    [%sync ~ 'handled by bot process']
+  ?:  =('list_channels' name)  [%sync ~ 'handled by bot process']
+  ?:  =('read_channel_history' name)  [%sync ~ 'handled by bot process']
+  ?:  =('read_dm_history' name)       [%sync ~ 'handled by bot process']
+  ?:  =('search_messages' name)       [%sync ~ 'handled by bot process']
+  ?:  =('local_mcp_list' name)        [%sync ~ 'handled by bot process']
+  ?:  =('list_conversations' name)    [%sync ~ 'handled by bot process']
+  ?:  =('search_history' name)        [%sync ~ 'handled by bot process']
+  ?:  =('describe_summary' name)      [%sync ~ 'handled by bot process']
+  ?:  =('web_search' name)    [%sync ~ 'handled by bot process']
+  ?:  =('image_search' name)  [%sync ~ 'handled by bot process']
+  ?:  =('http_fetch' name)    [%sync ~ 'handled by bot process']
   ::
   [%sync ~ (rap 3 'error: unknown tool ' name ~)]
 ::
