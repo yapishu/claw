@@ -402,6 +402,7 @@
       :~  ['from' s+(scot %p our)]
           ['text' s+prompt]
           ['msg_id' s+(scot %da now)]
+          ['is_cron' b+%.y]
       ==
     ;<  ~  bind:m
       (poke:io /cron (bot-road bot-id) %json !>(cron-event))
@@ -545,6 +546,12 @@
   =/  parent-id=@t  (jget event-data 'parent_id' '')
   =/  is-dm=?      =('' nk)
   =/  is-thread=?  !=('' parent-id)
+  =/  is-cron=?
+    =/  cron-flag=(unit json)
+      ?.  ?=([%o *] event-data)  ~
+      (~(get by p.event-data) 'is_cron')
+    ?~  cron-flag  %.n
+    ?=([%b %.y] u.cron-flag)
   ;<  our=@p   bind:m  get-our:io
   ;<  now=@da  bind:m  get-time:io
   ::  no key → tell user
@@ -603,6 +610,8 @@
         'read_dm_history, list_groups, list_channels, get_contact, list_contacts, http_fetch, '
         'add_reaction, local_mcp (for Urbit system access), local_mcp_list (list MCP tools).\0a'
         'For local_mcp: call local_mcp_list first to get exact tool names, then call local_mcp with name and arguments.\0a'
+        ?:  is-cron
+          '\0a---\0a\0a# Automated Cron Task\0a\0aThis is an automated scheduled task. Execute the task using tools as needed. Do NOT send any text reply or confirmation — only use tools to produce output. Your text response will be discarded.\0a'
         '\0a---\0a\0a# Current Conversation\0a\0a'
         ?:  is-dm
           %+  rap  3
@@ -679,6 +688,10 @@
   ::
   ?:  ?=([%text *] parsed)
     =/  [%text reply=@t]  parsed
+    ::  cron tasks: suppress text reply (tools already produced output)
+    ?:  is-cron
+      %-  (slog leaf+"claw-grub: bot '{(trip bot-id)}' cron complete (suppressed reply)" ~)
+      ^$
     %-  (slog leaf+"claw-grub: bot '{(trip bot-id)}' replying: {(trip (end 3^80 reply))}" ~)
     ;<  ~  bind:m
       (send-reply our from is-dm is-thread nk ns nn parent-id reply bname bavatar now)
