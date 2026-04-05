@@ -2110,9 +2110,13 @@
     ::  Path format: /vane/desk/rest... -> /vane/~ship/desk/~date/rest...
     =/  pat=path  path.u.scry.dart
     ?>  ?=([@ @ *] pat)
-    =/  res=vase
+    =/  scry-result=(each vase tang)
+      %-  mule  |.
       !>(.^(mold.u.scry.dart i.pat (scot %p our.bowl) i.t.pat (scot %da now.bowl) t.t.pat))
-    (enqu-take here (sys-give /scry) ~ %scry wire.dart res)
+    ?:  ?=(%| -.scry-result)
+      ::  Scry failed — send veto back to the fiber
+      (enqu-take here (sys-give /scry) ~ %veto [%scry wire.dart scry.dart])
+    (enqu-take here (sys-give /scry) ~ %scry wire.dart p.scry-result)
     ::
       %bowl
     ::  Request bowl - build and enqueue
