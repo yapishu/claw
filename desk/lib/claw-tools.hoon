@@ -98,6 +98,8 @@
       (tool-fn 'cron_add' 'Schedule a recurring task using cron syntax. You will be given the prompt on the cron schedule and process it. Owner only. Cron format: "min hour dom month dow" where each field is: * (any), */N (every N), N (exact), N,M (list). dow: 0=Sun..6=Sat. Examples: "*/30 * * * *" (every 30min), "0 9 * * *" (daily 9am), "0 9 * * 1,3,5" (Mon/Wed/Fri 9am), "0 0 1 * *" (1st of month midnight).' (obj ~[['schedule' (req-str 'Cron expression (5 fields: min hour dom month dow)')] ['prompt' (req-str 'What to do each time (e.g. "Check the weather and summarize")')]]))
       (tool-fn 'cron_list' 'List all scheduled recurring tasks with IDs, prompts, and cron schedules.' (obj ~))
       (tool-fn 'cron_remove' 'Remove a scheduled recurring task by ID. Owner only.' (obj ~[['id' (req-str 'Task ID number')]]))
+      ::  sub-agent delegation
+      (tool-fn 'delegate' 'Delegate a task to a sub-agent that works independently. The sub-agent gets your context and tools, works on the task, and posts the result back in the conversation. Use for research, complex analysis, or any multi-step task you want to run in the background.' (obj ~[['task' (req-str 'Detailed instructions for what the sub-agent should do')] ['report_to' (req-str 'Where to send results. For DMs: dm/~ship. For channels: channel/kind/~ship/name. Use the current conversation context.')]]))
   ==
 ::
 ::  +execute-tool: run a tool, returns sync result or async card
@@ -925,6 +927,8 @@
     [%sync ~ 'cron_list: handled by bot process']
   ?:  =('cron_remove' name)
     [%sync ~ 'cron_remove: handled by bot process']
+  ?:  =('delegate' name)
+    [%sync ~ 'delegate: handled by bot process']
   ::
   [%sync ~ (rap 3 'error: unknown tool ' name ~)]
 ::

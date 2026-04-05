@@ -44,6 +44,7 @@ In claw, each bot is a separate process with its own files. A root process subsc
 - **Conversation memory** — LCM (Lossless Context Management) stores all messages and summarizes old ones to fit within token budgets
 - **Web GUI** — manage bots, config, context, whitelist, and cron at `/apps/claw/`
 - **Error feedback** — HTTP errors and tool failures are reported back to the user with details
+- **Sub-agents** — bots can delegate tasks to temporary worker processes that run independently and report back when done
 
 ## Installation
 
@@ -151,6 +152,20 @@ Bots can use 46 tools via the OpenAI tool-calling protocol:
 
 **MCP**: `local_mcp`, `local_mcp_list`, `install_local_mcp`
 
+**Sub-agents**: `delegate` (spawn a temporary worker process for async tasks)
+
+## Sub-Agents
+
+Bots can delegate tasks to temporary sub-agent processes using the `delegate` tool. A sub-agent is a short-lived grub (file + process) that:
+
+1. Gets created under `/bots/{id}/tasks/{task-id}/`
+2. Inherits the parent bot's config, context, and API key
+3. Runs an independent LLM call with the delegated instructions
+4. Sends the result back to the conversation (DM or channel)
+5. Auto-deletes when complete
+
+This is useful for research, complex analysis, or any multi-step task the bot wants to run in the background while continuing to respond to other messages. The bot tells the user "I've delegated this to a sub-agent" and the sub-agent reports back when done.
+
 ## Cron
 
 Each bot can have scheduled tasks. Cron expressions use standard 5-field format: `minute hour day-of-month month day-of-week`.
@@ -204,10 +219,9 @@ POST actions: `set-key`, `set-model`, `set-brave-key`, `add-bot`, `del-bot`, `bo
 
 Bot messages use the `bot-meta` author type so they display with the bot's own nickname and avatar instead of the host ship's identity. This requires the [`reid/bot`](https://github.com/tloncorp/tlon-apps/tree/reid/bot) branch of `tloncorp/tlon-apps`, which adds frontend support for rendering bot authors, `@botname` mention autocomplete, and bot badge display.
 
-On live ships, you only need to update the glob (the frontend bundle):
+On live ships, you only need to update the glob (the frontend bundle). Update `desk.docket-0` on the `%groups` desk to point at this glob:
 ```
-:: in dojo, point your groups desk at the bot-meta glob:
-:docket &docket-install-glob 'https://bin.aeroe.io/groups/glob-0v7.icpsd.i0mb4.b8bda.vshk9.bhnf2.glob'
+https://bin.aeroe.io/groups/glob-0v7.icpsd.i0mb4.b8bda.vshk9.bhnf2.glob
 ```
 
 On fakenet ships, the pill ships with an older version of the `%groups` desk that doesn't include the backend `bot-meta` type. You'll need to also update the desk contents from the `reid/bot` branch of `tloncorp/tlon-apps` before the glob will work.

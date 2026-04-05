@@ -751,6 +751,34 @@
   =/  [tid=@t tname=@t targs=@t]  i.pending
   =/  rest=(list [id=@t name=@t arguments=@t])  t.pending
   %-  (slog leaf+"claw-grub: executing tool '{(trip tname)}' args={(trip (end 3^80 targs))}" ~)
+  ::  intercept delegate — spawn a sub-agent task
+  ?:  =('delegate' tname)
+    =/  mk-res  |=(c=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+c]]))
+    =/  args-json=(unit json)  (de:json:html targs)
+    ?~  args-json
+      (exec-tool-list rest [(mk-res 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    =/  task-prompt=@t  (jget u.args-json 'task' '')
+    =/  report-to=@t  (jget u.args-json 'report_to' '')
+    ?:  =('' task-prompt)
+      (exec-tool-list rest [(mk-res 'error: task description required') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    ::  generate task id from current time
+    ;<  task-now=@da  bind:m  get-time:io
+    =/  task-id=@tas  (crip (scag 12 (slag 2 (trip (scot %uv (mug task-now))))))
+    ::  write task config (instructions + where to report)
+    =/  task-cfg=json
+      %-  pairs:enjs:format
+      :~  ['task' s+task-prompt]
+          ['report_to' s+report-to]
+          ['parent_bot' s+bot-id]
+      ==
+    =/  cfg-road=road:tarball  [%& %& /bots/[bot-id]/tasks/[task-id] %'config.json']
+    =/  cfg-make=make:nexus  [%| %.n json+!>(task-cfg) ~]
+    ;<  ~  bind:m  (make:io /task-cfg cfg-road cfg-make)
+    =/  sig-road=road:tarball  [%& %& /bots/[bot-id]/tasks/[task-id] %'main.sig']
+    =/  sig-make=make:nexus  [%| %.n sig+!>(~) ~]
+    ;<  ~  bind:m  (make:io /task-sig sig-road sig-make)
+    %-  (slog leaf+"claw-grub: spawned task '{(trip task-id)}' for bot '{(trip bot-id)}'" ~)
+    (exec-tool-list rest [(mk-res (rap 3 'Delegated task to sub-agent ' task-id '. It will work independently and report back when done.' ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
   ::  intercept update_profile — write to tarball config
   ?:  =('update_profile' tname)
     =/  args-json=(unit json)  (de:json:html targs)
@@ -996,6 +1024,142 @@
   |-
   ?~  rem  out
   $(rem t.rem, out (rap 3 out '\0a\0a' i.rem ~))
+::
+::  ┌────���─────────────────────────────────────────────┐
+::  │ TASK (SUB-AGENT) LOOP                            │
+::  └─���──────────────────────────────��─────────────────┘
+::
+++  task-loop
+  |=  [bot-id=@tas task-id=@tas]
+  =/  m  (fiber:fiber:nexus ,~)
+  ^-  form:m
+  ::  read task config
+  ;<  task-seen=seen:nexus  bind:m
+    (peek:io /task-cfg (cord-to-road:tarball './config.json') `%json)
+  =/  task-cfg=json
+    ?.  ?=([%& %file *] task-seen)  [%o ~]
+    !<(json q.cage.p.task-seen)
+  =/  task-prompt=@t  (jget task-cfg 'task' '')
+  =/  report-to=@t   (jget task-cfg 'report_to' '')
+  ?:  =('' task-prompt)
+    %-  (slog leaf+"claw-grub: task '{(trip task-id)}' has no prompt, exiting" ~)
+    (pure:m ~)
+  ::  read parent bot's config for API key, model, context
+  ;<  bot-cfg-seen=seen:nexus  bind:m
+    (peek:io /bot-cfg (cord-to-road:tarball '../../config.json') `%json)
+  =/  bot-cfg=json
+    ?.  ?=([%& %file *] bot-cfg-seen)  [%o ~]
+    !<(json q.cage.p.bot-cfg-seen)
+  =/  bname=@t  (jget bot-cfg 'name' '')
+  =/  bavatar=@t  (jget bot-cfg 'avatar' '')
+  ::  read global config
+  ;<  global-seen=seen:nexus  bind:m
+    (peek:io /gcfg (cord-to-road:tarball '../../../../config.json') `%json)
+  =/  global-cfg=json
+    ?.  ?=([%& %file *] global-seen)  [%o ~]
+    !<(json q.cage.p.global-seen)
+  =/  bmodel=@t
+    =/  bm=@t  (jget bot-cfg 'model' '')
+    ?:(=('' bm) (jget global-cfg 'model' 'anthropic/claude-sonnet-4') bm)
+  =/  bkey=@t
+    =/  bk=@t  (jget bot-cfg 'api_key' '')
+    ?:(=('' bk) (jget global-cfg 'api_key' '') bk)
+  ?:  =('' bkey)
+    %-  (slog leaf+"claw-grub: task '{(trip task-id)}' no API key" ~)
+    (pure:m ~)
+  ;<  our=@p  bind:m  get-our:io
+  ;<  now=@da  bind:m  get-time:io
+  ::  read parent bot context files for background
+  =/  ctx-fields=(list @tas)  ~[%identity %soul %agent]
+  =|  ctx-parts=(list @t)
+  |-
+  ?~  ctx-fields
+    ::  all context read — build prompt and call LLM
+    =/  parent-ctx=@t  (join-parts (flop ctx-parts))
+    =/  sys-prompt=@t
+      %+  rap  3
+      :~  '# Sub-Agent Task\0a\0a'
+          'You are a temporary sub-agent of '  bname
+          ' (bot on '  (scot %p our)  ').\0a'
+          'You have been delegated a specific task. Complete it thoroughly, '
+          'then provide your findings as a clear, complete response.\0a'
+          'You have the same tools available as the parent bot.\0a'
+          '\0a---\0a\0a'
+          ?:(=('' parent-ctx) '' (rap 3 '# Parent Bot Context\0a\0a' parent-ctx '\0a\0a---\0a\0a' ~))
+          '# Your Task\0a\0a'
+          task-prompt
+      ==
+    =/  api-msgs=json
+      :-  %a
+      :~  (pairs:enjs:format ~[['role' s+'system'] ['content' s+sys-prompt]])
+          (pairs:enjs:format ~[['role' s+'user'] ['content' s+task-prompt]])
+      ==
+    =/  body-cord=@t
+      %-  en:json:html
+      %-  pairs:enjs:format
+      :~  ['model' s+bmodel]
+          ['messages' api-msgs]
+          ['tools' tool-defs:tools]
+      ==
+    %-  (slog leaf+"claw-grub: task '{(trip task-id)}' calling LLM" ~)
+    =/  =request:http
+      :^  %'POST'  'https://openrouter.ai/api/v1/chat/completions'
+        :~  ['Content-Type' 'application/json']
+            ['Authorization' (crip "Bearer {(trip bkey)}")]
+        ==
+      `(as-octs:mimes:html body-cord)
+    ;<  ~  bind:m  (send-request:io request)
+    ;<  =client-response:iris  bind:m  take-client-response:io
+    ?>  ?=(%finished -.client-response)
+    =/  status=@ud  status-code.response-header.client-response
+    =/  response-body=@t
+      ?~  full-file.client-response  ''
+      q.data.u.full-file.client-response
+    =/  parsed  (parse-llm-response status response-body)
+    =/  result-text=@t
+      ?:  ?=([%error *] parsed)
+        =/  [%error err=@t]  parsed
+        (rap 3 'Sub-agent error: ' err ~)
+      ?:  ?=([%text *] parsed)
+        =/  [%text txt=@t]  parsed
+        txt
+      ::  tools response — just extract text portion for now
+      ?>  ?=([%tools *] parsed)
+      =/  [%tools txt=@t *]  parsed
+      ?:(=('' txt) 'Sub-agent completed (tool calls not supported in sub-agents yet)' txt)
+    %-  (slog leaf+"claw-grub: task '{(trip task-id)}' complete: {(trip (end 3^60 result-text))}" ~)
+    ::  send result as a message
+    ;<  fresh-now=@da  bind:m  get-time:io
+    =/  report-msg=@t
+      (rap 3 '[Sub-agent report for ' bname ']\0a\0aTask: ' (end 3^100 task-prompt) '\0a\0aResult:\0a' result-text ~)
+    ::  parse report_to to determine where to send
+    ?:  |(=('' report-to) =((end 3^3 report-to) 'dm/'))
+      ::  DM: extract ship from "dm/~ship" or default to our
+      =/  target=@p
+        ?:  =('' report-to)  our
+        (fall (slaw %p (rsh 3^3 report-to)) our)
+      (send-reply our target %.y %.n '' '' '' '' report-msg bname bavatar fresh-now)
+    ::  channel: parse "channel/kind/~ship/name"
+    =/  parts=(list @t)  (rash report-to (more fas (cook crip (plus ;~(pose hig low nud dot hep sig)))))
+    ?.  (gte (lent parts) 4)
+      (send-reply our our %.y %.n '' '' '' '' report-msg bname bavatar fresh-now)
+    =/  ch-kind=@t  (snag 1 parts)
+    =/  ch-ship=@t  (snag 2 parts)
+    =/  ch-name=@t  (snag 3 parts)
+    (send-reply our our %.n %.n ch-kind ch-ship ch-name '' report-msg bname bavatar fresh-now)
+  ::  still reading context files
+  =/  field=@tas  i.ctx-fields
+  =/  filename=@ta  (crip "{(trip field)}.txt")
+  ;<  ctx-seen=seen:nexus  bind:m
+    (peek:io /task-ctx/[field] [%& %& /context filename] `%txt)
+  =/  content=@t
+    ?.  ?=([%& %file *] ctx-seen)  ''
+    =/  wain-val=wain  !<(wain q.cage.p.ctx-seen)
+    (of-wain:format wain-val)
+  =?  ctx-parts  !=('' content)
+    :_  ctx-parts
+    (rap 3 '# ' (crip (cuss (trip field))) '\0a\0a' content ~)
+  $(ctx-fields t.ctx-fields)
 --
 ::
 |%
@@ -1104,6 +1268,15 @@
     =/  bot-id=@tas  i.t.path.rail
     %-  (slog leaf+"claw-grub: bot '{(trip bot-id)}' process starting" ~)
     (bot-loop bot-id)
+  ::
+  ::  TASK PROCESS: /bots/{id}/tasks/{task-id}.sig
+  ::  temporary sub-agent that runs a prompt, sends results, then completes
+  ::
+      [[%bots @ %tasks @ ~] %'main.sig']
+    =/  bot-id=@tas  i.t.path.rail
+    =/  task-id=@tas  i.t.t.t.path.rail
+    %-  (slog leaf+"claw-grub: task '{(trip task-id)}' starting for bot '{(trip bot-id)}'" ~)
+    (task-loop bot-id task-id)
   ==
 ::
 ++  on-manu
