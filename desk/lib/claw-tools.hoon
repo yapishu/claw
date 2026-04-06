@@ -55,9 +55,33 @@
       (tool-fn 'read_channel_history' 'Read recent messages from a channel. Returns message IDs, authors, and content.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['count' (opt-str 'Number of messages (default 10)')]]))
       (tool-fn 'read_dm_history' 'Read recent DMs with a ship. Returns message IDs, authors, timestamps, and content.' (obj ~[['ship' (req-str 'Ship to read DM history with e.g. ~sampel-palnet')] ['count' (opt-str 'Number of messages (default 20)')]]))
       ::  MCP tools (call %mcp-server agent via Khan threads)
-      (tool-fn 'local_mcp' 'Execute a local MCP server tool on this Urbit ship. Call local_mcp_list first if unsure of exact names/params. Ship defaults to our ship if not passed. Working examples:\0a- list-files: {"desk":"base","path":"/app"}\0a- get-file: {"desk":"base","path":"/app/hood/hoon"}\0a- prod-hoon: {"hoon":"(mul 7 6)"}\0a- scry: {"agent":"groups","path":"/groups/json"}\0a- insert-file: {"desk":"mydesk","filepath":"/gen/test/hoon","content":":- ..."}\0a- commit-desk: {"desk":"mydesk"}\0a- mount-desk: {"desk":"base"}\0a- new-desk: {"desk":"mydesk"}\0a- poke-our-agent: {"agent":"hood","mark":"helm-hi","data":"hello"}\0a- nuke-agent: {"agent":"myapp"}\0a- revive-agent: {"agent":"myapp"}\0a- install-app: {"desk":"pals","ship":"~paldev"}\0a- toggle-permissions: {"desk":"base","path":"/pub","permissions":true}\0a- run-tests: {"desk":"base","path":"/tests"}\0a- get-our-id: {}' (obj ~[['name' (req-str 'Exact MCP tool name')] ['arguments' (req-str 'JSON object of tool arguments as a string')]]))
-      (tool-fn 'local_mcp_list' 'List all available local MCP server tools. Requires %mcp desk - use install_local_mcp if not present.' (obj ~))
-      (tool-fn 'install_local_mcp' 'Install the %mcp desk from ~matwet. This enables local_mcp and local_mcp_list tools for file management, agent control, code execution, and more.' (obj ~))
+      %+  tool-fn  'urbit_mcp'
+      :_  (obj ~[['name' (req-str 'Exact MCP tool name')] ['arguments' (req-str 'JSON object of tool arguments as a string')]])
+      '''
+      Execute an Urbit MCP server tool on this ship. Ship defaults to our ship.
+      WORKFLOW to create/install software:
+      1. new-desk {"desk":"myapp"} — creates empty desk
+      2. insert-file {"desk":"myapp","filepath":"/app/myapp/hoon","content":"..."} — writes to Clay directly
+      3. insert-file for /desk.bill, /desk.docket-0, /sur/, /lib/, /mar/ etc
+      4. commit-desk {"desk":"myapp"} — compiles. Returns full error trace if code is bad. Fix errors and re-insert.
+      NOTE: insert-file writes DIRECTLY to Clay. commit-desk triggers recompilation. install-app is ONLY for remote desks.
+      Tool param examples (use EXACT param names):
+      - list-files: {"desk":"base","path":"/app"}
+      - get-file: {"desk":"base","path":"/app/hood/hoon"}
+      - insert-file: {"desk":"myapp","filepath":"/app/myapp/hoon","content":":: my code"}
+      - commit-desk: {"desk":"myapp"}
+      - prod-hoon: {"hoon":"(mul 7 6)"}
+      - scry (registered name is "scry"): {"agent":"groups","path":"/groups/json"}
+      - poke-our-agent: {"agent":"hood","mark":"helm-hi","data":"hello"}
+      - nuke-agent: {"agent":"myapp"} / revive-agent: {"agent":"myapp"}
+      - new-desk: {"desk":"myapp"} / mount-desk: {"desk":"base"}
+      - install-app: {"desk":"pals","ship":"~paldev"} (REMOTE only)
+      - toggle-permissions: {"desk":"base","path":"/","permissions":true}
+      - run-tests: {"desk":"base","path":"/tests"}
+      - get-our-id: {}
+      '''
+      (tool-fn 'urbit_mcp_list' 'List all available Urbit MCP server tools. Requires %mcp desk - use install_urbit_mcp if not present.' (obj ~))
+      (tool-fn 'install_urbit_mcp' 'Install the %mcp desk from ~matwet. This enables urbit_mcp and urbit_mcp_list tools for file management, agent control, code execution, and more.' (obj ~))
       ::  LCM history tools
       (tool-fn 'search_history' 'Search compacted conversation history using text search. Searches across messages AND summaries stored by LCM. Returns matching snippets with IDs. Use to find specific content that may have been compacted away. Follow up with describe_summary for full details.' (obj ~[['query' (req-str 'Search terms or topic to find')]]))
       (tool-fn 'describe_summary' 'Look up full metadata and content for an LCM summary by ID. Returns: kind (leaf/condensed), depth, token count, descendant count, time range, source messages, parent summaries, and full content text. Use after search_history to inspect a specific summary.' (obj ~[['id' (req-str 'Summary ID number from search_history results')]]))
@@ -395,20 +419,20 @@
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not read DM history']
     [%sync ~ ?:(=('' p.result) 'no messages found' p.result)]
   ::
-  ::  install_local_mcp: install %mcp desk from ~matwet
+  ::  install_urbit_mcp: install %mcp desk from ~matwet
   ::
-  ?:  =('install_local_mcp' name)
-    [%sync :~([%pass /tool/install-mcp %agent [our.bowl %hood] %poke %kiln-install !>([%mcp ~matwet %mcp])]) 'Installing %mcp desk from ~matwet. This may take a minute. Once installed, local_mcp and local_mcp_list tools will be available.']
+  ?:  =('install_urbit_mcp' name)
+    [%sync :~([%pass /tool/install-mcp %agent [our.bowl %hood] %poke %kiln-install !>([%mcp ~matwet %mcp])]) 'Installing %mcp desk from ~matwet. This may take a minute. Once installed, urbit_mcp and urbit_mcp_list tools will be available.']
   ::
   ::  mcp_list_tools: scry %mcp-server for available tools
   ::
-  ?:  =('local_mcp_list' name)
+  ?:  =('urbit_mcp_list' name)
     ::  check if mcp desk exists before scrying
     =/  has-mcp=?
       =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl)/desk/bill)))
       ?:(?=(%| -.r) %.n p.r)
     ?.  has-mcp
-      [%sync ~ 'The %mcp desk is not installed. Use install_local_mcp to install it from ~matwet.']
+      [%sync ~ 'The %mcp desk is not installed. Use install_urbit_mcp to install it from ~matwet.']
     =/  result=(each @t tang)
       %-  mule  |.
       =/  tools-json=json
@@ -888,8 +912,8 @@
   ?:  =('read_channel_history' name)  [%sync ~ 'handled by bot process']
   ?:  =('read_dm_history' name)       [%sync ~ 'handled by bot process']
   ?:  =('search_messages' name)       [%sync ~ 'handled by bot process']
-  ?:  =('local_mcp_list' name)        [%sync ~ 'handled by bot process']
-  ?:  =('local_mcp' name)             [%sync ~ 'handled by bot process']
+  ?:  =('urbit_mcp_list' name)        [%sync ~ 'handled by bot process']
+  ?:  =('urbit_mcp' name)             [%sync ~ 'handled by bot process']
   ?:  =('list_conversations' name)    [%sync ~ 'handled by bot process']
   ?:  =('search_history' name)        [%sync ~ 'handled by bot process']
   ?:  =('describe_summary' name)      [%sync ~ 'handled by bot process']

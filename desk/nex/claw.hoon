@@ -14,6 +14,26 @@
 ^-  nexus:nexus
 =>
 |%
+::  +unique-request: send HTTP request on a unique wire (prevents duct reuse)
+::
+++  unique-request
+  |=  =request:http
+  =/  m  (fiber:fiber:nexus ,~)
+  ^-  form:m
+  ;<  =@da  bind:m  get-time:io
+  (send-card:io %pass /request/(scot %da da) %arvo %i %request request *outbound-config:iris)
+::
+++  unique-response
+  =/  m  (fiber:fiber:nexus ,client-response:iris)
+  ^-  form:m
+  |=  input:fiber:nexus
+  :+  ~  state
+  ?+  in  [%skip ~]
+      ~  [%wait ~]
+      [~ %arvo * *]
+    ?.  ?=([%iris %http-response *] sign.u.in)  [%skip ~]
+    [%done client-response.sign.u.in]
+  ==
 ::  +jget: get json string value from object, with default
 ::
 ++  jget
@@ -609,8 +629,8 @@
         'do NOT pretend or hallucinate tool results. If a tool fails, report the actual error.\0a'
         'Key tools: web_search, image_search, send_dm, send_channel_message, read_channel_history, '
         'read_dm_history, list_groups, list_channels, get_contact, list_contacts, http_fetch, '
-        'add_reaction, local_mcp (for Urbit system access), local_mcp_list (list MCP tools).\0a'
-        'For local_mcp: call local_mcp_list first to get exact tool names, then call local_mcp with name and arguments.\0a'
+        'add_reaction, urbit_mcp (for Urbit system access), urbit_mcp_list (list MCP tools).\0a'
+        'For urbit_mcp: call urbit_mcp_list first to get exact tool names, then call urbit_mcp with name and arguments.\0a'
         ?:  is-cron
           '\0a---\0a\0a# Automated Cron Task\0a\0aThis is an automated scheduled task. Execute the task using tools as needed. Do NOT send any text reply or confirmation — only use tools to produce output. Your text response will be discarded.\0a'
         '\0a---\0a\0a# Current Conversation\0a\0a'
@@ -645,6 +665,13 @@
   =/  bbrave=@t
     =/  bb=@t  (jget bot-cfg 'brave_key' '')
     ?:(=('' bb) (jget global-cfg 'brave_key' '') bb)
+  ::  resolve MCP server URL and auth code
+  =/  bmcp-url=@t
+    =/  bu=@t  (jget bot-cfg 'mcp_url' '')
+    ?:(=('' bu) (jget global-cfg 'mcp_url' 'http://localhost:8081/mcp') bu)
+  =/  bmcp-code=@t
+    =/  bc=@t  (jget bot-cfg 'mcp_code' '')
+    ?:(=('' bc) (jget global-cfg 'mcp_code' '') bc)
   ::  check if from is an owner (for owner-only tools)
   =/  is-owner=?  =(from our)  :: TODO: check whitelist for owner role
   ::  enter LLM loop (with tool execution, max 5 rounds)
@@ -659,15 +686,19 @@
         ['messages' all-msgs]
         ['tools' tool-defs:tools]
     ==
-  %-  (slog leaf+"claw-grub: bot '{(trip bot-id)}' calling LLM round {<round>}" ~)
+  =/  sys-size=@ud  (div (met 3 sys-prompt) 4)
+  =/  hist-size=@ud  (div (met 3 (en:json:html [%a history])) 4)
+  =/  tool-size=@ud  (div (met 3 (en:json:html tool-defs:tools)) 4)
+  =/  extra-size=@ud  (div (met 3 (en:json:html [%a extra-msgs])) 4)
+  %-  (slog leaf+"claw-grub: bot '{(trip bot-id)}' calling LLM round {<round>} (~{<(div (met 3 body-cord) 4)>} tokens: sys~{<sys-size>} hist~{<hist-size>} tools~{<tool-size>} extra~{<extra-size>})" ~)
   =/  =request:http
     :^  %'POST'  'https://openrouter.ai/api/v1/chat/completions'
       :~  ['Content-Type' 'application/json']
           ['Authorization' (crip "Bearer {(trip bkey)}")]
       ==
     `(as-octs:mimes:html body-cord)
-  ;<  ~  bind:m  (send-request:io request)
-  ;<  =client-response:iris  bind:m  take-client-response:io
+  ;<  ~  bind:m  (unique-request request)
+  ;<  =client-response:iris  bind:m  unique-response
   ?.  ?=(%finished -.client-response)
     ::  request cancelled/timed out — report error and return to main loop
     %-  (slog leaf+"claw-grub: bot '{(trip bot-id)}' LLM request cancelled/timed out" ~)
@@ -731,8 +762,40 @@
       byk  [our.nbowl q.byk.nbowl [%da fresh-now]]
       eny  eny.nbowl
     ==
+  ::  login to MCP server once per LLM round (if mcp tools present and code set)
+  =/  has-mcp=?
+    %+  lien  tc-calls
+    |=([* name=@t *] |(?=(%'urbit_mcp' name) ?=(%'urbit_mcp_list' name)))
+  ?.  ?&(has-mcp !=('' bmcp-code))
+    ::  no MCP tools or no code — skip login
+    ;<  tool-results=(list json)  bind:m
+      (exec-tools tc-calls bowl bbrave bmcp-url bmcp-code is-owner bot-id bname bavatar '')
+    =.  extra-msgs
+      %+  weld  extra-msgs
+      [asst-msg (flop tool-results)]
+    $(round +(round))
+  ::  login to MCP server, then run tools with cookie
+  %-  (slog leaf+"claw-grub: logging in to MCP server..." ~)
+  =/  url-tape=tape  (trip bmcp-url)
+  =/  login-url=@t
+    =/  idx=(unit @ud)  (find "/mcp" url-tape)
+    ?~  idx  (crip (weld url-tape "/~/login"))
+    (crip (weld (scag u.idx url-tape) "/~/login"))
+  =/  login-req=request:http
+    :^  %'POST'  login-url
+      ~[['Content-Type' 'application/x-www-form-urlencoded']]
+    `(as-octs:mimes:html (crip "password={(trip bmcp-code)}"))
+  ;<  ~  bind:m  (unique-request login-req)
+  ;<  login-resp=client-response:iris  bind:m  unique-response
+  =/  mcp-cookie=@t
+    ?.  ?=(%finished -.login-resp)  ''
+    =/  set-cookie=@t
+      (fall (~(get by (malt headers.response-header.login-resp)) 'set-cookie') '')
+    =/  sc=tape  (trip set-cookie)
+    =/  idx=(unit @ud)  (find ";" sc)
+    ?~(idx set-cookie (crip (scag u.idx sc)))
   ;<  tool-results=(list json)  bind:m
-    (exec-tools tc-calls bowl bbrave is-owner bot-id bname bavatar)
+    (exec-tools tc-calls bowl bbrave bmcp-url bmcp-code is-owner bot-id bname bavatar mcp-cookie)
   =.  extra-msgs
     %+  weld  extra-msgs
     [asst-msg (flop tool-results)]
@@ -743,14 +806,17 @@
 ++  exec-tools
   |=  $:  tc-calls=(list [id=@t name=@t arguments=@t])
           =bowl:gall
-          bbrave=@t  is-owner=?  bot-id=@tas  bname=@t  bavatar=@t
+          bbrave=@t  bmcp-url=@t  bmcp-code=@t
+          is-owner=?  bot-id=@tas  bname=@t  bavatar=@t
+          cookie=@t
       ==
   =/  m  (fiber:fiber:nexus ,(list json))
   ^-  form:m
   =/  bname-u=(unit @t)  ?:(=('' bname) ~ `bname)
   =/  bavatar-u=(unit @t)  ?:(=('' bavatar) ~ `bavatar)
   ::  process tools sequentially, accumulating result messages
-  (exec-tool-list tc-calls ~ bowl bbrave is-owner bot-id bname-u bavatar-u)
+  ::  (MCP login happens in bot-loop, cookie passed through)
+  (exec-tool-list tc-calls ~ bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
 ::
 ::  +try-gall-scry: safe gall agent scry via dart system
 ::
@@ -793,12 +859,33 @@
     [%done &+q.vase.u.in]
   ==
 ::
+::  +try-build-scry: dart-based %ca scry returning (each vase tang)
+::
+++  try-build-scry
+  |=  pax=path
+  =/  m  (fiber:fiber:nexus ,(each * tang))
+  ^-  form:m
+  ::  %ca returns vase; dart wraps in !>; extract the raw compiled noun
+  ::  q.vase = inner [type noun]; +.q.vase = the compiled noun
+  ;<  ~  bind:m  (send-dart:io %scry /tool-scry `[* pax])
+  |=  input:fiber:nexus
+  :+  ~  state
+  ?+  in  [%skip ~]
+      ~  [%wait ~]
+      [~ %veto *]  [%done |+~[leaf+"build failed at {(spud pax)}"]]
+      [~ %scry * *]
+    ?.  =(/tool-scry wire.u.in)  [%skip ~]
+    [%done &++.q.vase.u.in]
+  ==
+::
 ++  exec-tool-list
   |=  $:  pending=(list [id=@t name=@t arguments=@t])
           results=(list json)
           =bowl:gall
-          bbrave=@t  is-owner=?  bot-id=@tas
+          bbrave=@t  bmcp-url=@t  bmcp-code=@t
+          is-owner=?  bot-id=@tas
           bname-u=(unit @t)  bavatar-u=(unit @t)
+          cookie=@t
       ==
   =/  m  (fiber:fiber:nexus ,(list json))
   ^-  form:m
@@ -837,182 +924,213 @@
       =/  entry  (~(get by ;;((map @p *) p.res)) u.target)
       ?~  entry  (rap 3 'no contact data for ' ship-str ~)
       (crip (scag 4.000 (trip (crip ~(ram re (sell !>(u.entry)))))))
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('list_contacts' tname)
     ;<  result=@t  bind:m  (try-gall-scry /gx/contacts/v1/all/json 4.000)
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('list_groups' tname)
     ;<  result=@t  bind:m  (try-gall-scry /gx/groups/v2/groups/json 4.000)
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('list_channels' tname)
     ;<  result=@t  bind:m  (try-gall-scry /gx/channels/v4/channels/json 4.000)
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('read_channel_history' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  ch=@t  (jget u.args-json 'channel' '')
     =/  n=@ud  (fall (rush (jget u.args-json 'count' '10') dem) 10)
     =/  parsed  (parse-nest:tools ch)
     ?~  parsed
-      (exec-tool-list rest [(mk-res 'error: bad channel format. use kind/~host/name') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: bad channel format. use kind/~host/name') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  [kind=kind:d =ship name=@tas]  u.parsed
     ;<  result=@t  bind:m  (try-gall-scry /gx/channels/v4/(scot %tas kind)/(scot %p ship)/[name]/posts/newest/(scot %ud n)/outline/json 6.000)
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('read_dm_history' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  ship-str=@t  (jget u.args-json 'ship' '')
     =/  target=(unit @p)  (slaw %p ship-str)
     ?~  target
-      (exec-tool-list rest [(mk-res 'error: invalid ship') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid ship') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  n=@ud  (fall (rush (jget u.args-json 'count' '20') dem) 20)
     ;<  result=@t  bind:m  (try-gall-scry /gx/chat/dm/(scot %p u.target)/writs/newest/(scot %ud n)/light/json 6.000)
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('search_messages' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  ch=@t  (jget u.args-json 'channel' '')
     =/  query=@t  (jget u.args-json 'query' '')
     =/  n=@ud  (fall (rush (jget u.args-json 'count' '50') dem) 50)
     =/  parsed  (parse-nest:tools ch)
     ?~  parsed
-      (exec-tool-list rest [(mk-res 'error: bad channel format') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: bad channel format') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  [kind=kind:d =ship name=@tas]  u.parsed
     ;<  result=@t  bind:m  (try-gall-scry /gx/channels/v4/(scot %tas kind)/(scot %p ship)/[name]/search/text/0/(scot %ud n)/(scot %t query)/json 6.000)
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
-  ?:  =('local_mcp_list' tname)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
+  ?:  =('urbit_mcp_list' tname)
     =/  has-mcp=?
       =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl)/desk/bill)))
       ?:(?=(%| -.r) %.n p.r)
     ?.  has-mcp
-      (exec-tool-list rest [(mk-res 'The %mcp desk is not installed.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'The %mcp desk is not installed.') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ;<  result=@t  bind:m  (try-gall-scry /gx/mcp-server/tools/json 6.000)
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
-  ?:  =('local_mcp' tname)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
+  ?:  =('urbit_mcp' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  tool-name=@t  (jget u.args-json 'name' '')
     =/  mcp-args-str=@t  (jget u.args-json 'arguments' '{}')
+    ::  install-app goes through Khan (only safe path — bail:4 from Clay
+    ::  compile errors crashes any direct scry or poke duct)
     ::  check if mcp desk exists
     =/  has-mcp=?
       =/  r=(each ? tang)  (mule |.(.^(? %cu /(scot %p our.bowl)/mcp/(scot %da now.bowl)/desk/bill)))
       ?:(?=(%| -.r) %.n p.r)
     ?.  has-mcp
-      (exec-tool-list rest [(mk-res 'The %mcp desk is not installed. Use install_local_mcp.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
-    ::  parse arguments JSON into MCP argument map
+      (exec-tool-list rest [(mk-res 'The %mcp desk is not installed. Use install_urbit_mcp.') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
+    ::  delegate to mcp-server via HTTP (crash-isolated — Eyre creates fresh duct)
     =/  mcp-args-json=(unit json)  (de:json:html mcp-args-str)
     ?~  mcp-args-json
-      (exec-tool-list rest [(mk-res 'error: invalid arguments JSON') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
-    =/  mcp-args-map=(map name:parameter:tool:mcp argument:tool:mcp)
-      =/  raw=(map @t argument:tool:mcp)
-        ?+  u.mcp-args-json  *(map @t argument:tool:mcp)
-            [%o *]
-          %-  ~(run by p.u.mcp-args-json)
-          |=  j=json
-          ^-  argument:tool:mcp
-          ?+  j  ~
-            [%s *]  [%string p.j]
-            [%n *]  [%number (rash p.j dem)]
-            [%b *]  [%boolean p.j]
+      (exec-tool-list rest [(mk-res 'error: invalid arguments JSON') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
+    ::  inject default ship if not present
+    =/  tool-args=json
+      ?.  ?=([%o *] u.mcp-args-json)  u.mcp-args-json
+      ?.  (~(has by p.u.mcp-args-json) 'ship')
+        [%o (~(put by p.u.mcp-args-json) 'ship' s+(scot %p our.bowl))]
+      u.mcp-args-json
+    ::  build JSON-RPC tools/call request
+    =/  json-body=@t
+      %-  en:json:html
+      %-  pairs:enjs:format
+      :~  ['jsonrpc' s+'2.0']
+          ['id' [%n '1']]
+          ['method' s+'tools/call']
+          :-  'params'
+          %-  pairs:enjs:format
+          :~  ['name' s+tool-name]
+              ['arguments' tool-args]
           ==
+      ==
+    ::  helper: make MCP HTTP request with optional cookie
+    =/  mcp-request
+      |=  ck=@t
+      ^-  request:http
+      :^  %'POST'  bmcp-url
+        :~  ['Content-Type' 'application/json']
+            ?:(=('' ck) ['Accept' 'application/json'] ['Cookie' ck])
         ==
-      ::  inject default ship if not provided (tools like get-file need it)
-      ?.  (~(has by raw) 'ship')
-        (~(put by raw) 'ship' [%string (scot %p our.bowl)])
+      `(as-octs:mimes:html json-body)
+    ::  helper: extract body from response (handle HTTP errors)
+    =/  get-body
+      |=  =client-response:iris
+      ^-  @t
+      ?.  ?=(%finished -.client-response)  'error: MCP request timed out'
+      =/  status=@ud  status-code.response-header.client-response
+      =/  raw=@t  ?~(full-file.client-response '' q.data.u.full-file.client-response)
+      ?.  =(200 status)
+        (rap 3 'error: MCP server returned HTTP ' (crip "{<status>}") '. Tool execution crashed — check dojo for stack trace.' ~)
       raw
-    ::  build tool: try direct file name first, then scan directory
-    ::  (tool registered name may differ from file name, e.g. scry.hoon → scry-agent)
-    =/  tools-dir=path
-      /(scot %p our.bowl)/mcp/(scot %da now.bowl)/fil/default/mcp/tools
-    =/  tool-path=path  (weld tools-dir /[tool-name]/hoon)
-    =/  build-result=(each tool:mcp tang)
-      %-  mule  |.
-      !<(tool:mcp .^(vase %ca tool-path))
-    ::  if direct build failed, scan directory for matching registered name
-    =?  build-result  ?=(%| -.build-result)
-      =/  dir=(each arch tang)  (mule |.(.^(arch %cy tools-dir)))
-      ?:  ?=(%| -.dir)  build-result
-      =/  files=(list @t)  (turn ~(tap by dir.p.dir) head)
-      |-
-      ?~  files  build-result
-      =/  fpath=path  (weld tools-dir /[i.files]/hoon)
-      =/  fb=(each tool:mcp tang)
-        (mule |.(!<(tool:mcp .^(vase %ca fpath))))
-      ?:  ?&(?=(%& -.fb) =(tool-name name.p.fb))  fb
-      $(files t.files)
-    ?:  ?=(%| -.build-result)
-      (exec-tool-list rest [(mk-res (rap 3 'error: MCP tool "' tool-name '" not found.' ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
-    =/  =tool:mcp  p.build-result
-    ::  execute thread-builder to get shed:khan
-    =/  shed-result=(each shed:khan tang)
-      %-  mule  |.
-      (thread-builder.tool mcp-args-map)
-    ?:  ?=(%| -.shed-result)
-      (exec-tool-list rest [(mk-res (rap 3 'error: MCP tool "' tool-name '" rejected arguments.' ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
-    ::  send khan %lard and wait for response
-    %-  (slog leaf+"claw-grub: local_mcp: executing '{(trip tool-name)}' via khan" ~)
+    ::  helper: check if response is auth error
+    =/  is-auth-error
+      |=  body=@t
+      ^-  ?
+      =/  j=(unit json)  (de:json:html body)
+      ?~  j  %.y
+      ?.  ?=([%o *] u.j)  %.n
+      =/  err=(unit json)  (~(get by p.u.j) 'error')
+      ?~  err  %.n
+      ?.  ?=([%o *] u.err)  %.n
+      =/  msg=(unit json)  (~(get by p.u.err) 'message')
+      ?~  msg  %.n
+      ?.  ?=([%s *] u.msg)  %.n
+      =('Authentication required' p.u.msg)
+    ::  helper: extract tool result from MCP JSON-RPC response body
+    =/  parse-mcp-body
+      |=  body=@t
+      ^-  @t
+      =/  rjson=(unit json)  (de:json:html body)
+      ?~  rjson  ?:(=('' body) 'error: empty MCP response' body)
+      ?.  ?=([%o *] u.rjson)  body
+      =/  err=(unit json)  (~(get by p.u.rjson) 'error')
+      ?^  err
+        ?.  ?=([%o *] u.err)  'error: MCP tool failed'
+        =/  msg=(unit json)  (~(get by p.u.err) 'message')
+        ?~  msg  'error: MCP tool failed'
+        ?.  ?=([%s *] u.msg)  'error: MCP tool failed'
+        (crip (scag 20.000 (trip p.u.msg)))
+      =/  res=(unit json)  (~(get by p.u.rjson) 'result')
+      ?~  res  body
+      ?.  ?=([%o *] u.res)  body
+      =/  content=(unit json)  (~(get by p.u.res) 'content')
+      ?~  content  body
+      ?.  ?=([%a [* *]] u.content)  body
+      =/  first=json  i.p.u.content
+      ?.  ?=([%o *] first)  body
+      =/  txt=(unit json)  (~(get by p.first) 'text')
+      ?~  txt  body
+      ?.  ?=([%s *] u.txt)  body
+      (crip (scag 20.000 (trip p.u.txt)))
+    ::  subscribe to dill logs to capture stack traces on crash
     ;<  ~  bind:m
-      (send-card:io [%pass /tool-http/(scot %tas bot-id)/'local-mcp'/(scot %da now.bowl) %arvo %k %lard %mcp p.shed-result])
-    ;<  =sign-arvo  bind:m
-      |=  input:fiber:nexus
-      :+  ~  state
-      ?~  in  [%wait ~]
-      ?.  ?=(%arvo -.u.in)  [%skip ~]
-      [%done sign.u.in]
-    =/  tool-body=@t
-      ?:  ?=([%khan %arow %| *] sign-arvo)
-        =/  =goof  p.p.sign-arvo
-        =/  trace=tape
-          %-  zing
-          %+  turn  (scag 10 tang.goof)
-          |=(t=tank ~(ram re t))
-        (crip (scag 4.000 (weld "error: thread failed:\0a" trace)))
-      ?:  ?=([%khan %arow %& @ ^] sign-arvo)
-        ::  khan cage is [mark vase]; strand vases may double-wrap
-        ::  try extracting json at multiple depths
-        =/  cag=*  q.p.p.sign-arvo
-        =/  extract-json
-          |=  noun=*
-          ^-  (unit @t)
-          =/  j=(unit @t)  (mole |.((en:json:html ;;(json noun))))
-          ?^  j
-            =/  jj=json  ;;(json noun)
-            ::  MCP tools return {"type":"text","text":"..."} — extract text
-            ?.  ?=([%o *] jj)  j
-            =/  txt=(unit json)  (~(get by p.jj) 'text')
-            ?:  ?&(?=(^ txt) ?=([%s *] u.txt))
-              `(crip (scag 20.000 (trip p.u.txt)))
-            j
-          ~
-        ::  try: raw noun from vase, vase itself, deeper
-        =/  r1=(unit @t)  (extract-json +.+.cag)
-        ?^  r1  (crip (scag 20.000 (trip u.r1)))
-        =/  r2=(unit @t)  (extract-json +.cag)
-        ?^  r2  (crip (scag 20.000 (trip u.r2)))
-        =/  r3=(unit @t)  (extract-json +.+.+.cag)
-        ?^  r3  (crip (scag 20.000 (trip u.r3)))
-        =/  as-cord=(unit @t)  (mole |.(;;(@t +.+.cag)))
-        ?^  as-cord  (crip (scag 20.000 (trip u.as-cord)))
-        'tool returned unrecognized result type'
-      'tool completed (unknown response type)'
-    (exec-tool-list rest [(mk-res tool-body) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (send-card:io [%pass /mcp-dill %arvo %d %logs `~])
+    ::  make MCP request with cookie (login happens once in exec-tools)
+    %-  (slog leaf+"claw-grub: urbit_mcp: executing '{(trip tool-name)}' via mcp-server" ~)
+    ;<  ~  bind:m  (unique-request (mcp-request cookie))
+    ;<  =client-response:iris  bind:m  unique-response
+    =/  body=@t  (get-body client-response)
+    ::  if HTTP error (non-200), wait for dill trace
+    ?:  ?&  ?=(%finished -.client-response)
+            (gth status-code.response-header.client-response 299)
+        ==
+      ;<  tnow=@da  bind:m  get-time:io
+      ;<  ~  bind:m
+        (send-card:io [%pass /mcp-dill-timer %arvo %b %wait (add tnow ~s3)])
+      ;<  =sign-arvo  bind:m
+        |=  input:fiber:nexus
+        :+  ~  state
+        ?~  in  [%wait ~]
+        ?.  ?=(%arvo -.u.in)  [%skip ~]
+        ?:  ?=([%dill %logs *] sign.u.in)  [%done sign.u.in]
+        ?:  ?=([%behn %wake *] sign.u.in)  [%done sign.u.in]
+        [%skip ~]
+      ;<  ~  bind:m  (send-card:io [%pass /mcp-dill %arvo %d %logs ~])
+      ;<  ~  bind:m  (send-card:io [%pass /mcp-dill-timer %arvo %b %rest (add tnow ~s3)])
+      =/  trace=@t
+        ?:  ?=([%dill %logs *] sign-arvo)
+          =/  =told:dill  +>.sign-arvo
+          ?-  -.told
+              %crud
+            =/  tr=tape  (zing (turn (scag 20 q.told) |=(t=tank ~(ram re t))))
+            (crip (scag 10.000 (weld "error ({(trip p.told)}): " tr)))
+              %talk
+            =/  tr=tape  (zing (turn `(list tank)`p.told |=(t=tank ~(ram re t))))
+            (crip (scag 10.000 tr))
+              %text
+            (crip p.told)
+          ==
+        (rap 3 'error: MCP tool crashed (HTTP ' (crip "{<status-code.response-header.client-response>}") '). Check dojo for details.' ~)
+      (exec-tool-list rest [(mk-res trace) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
+    ::  unsubscribe from dill logs (success path)
+    ;<  ~  bind:m
+      (send-card:io [%pass /mcp-dill %arvo %d %logs ~])
+    (exec-tool-list rest [(mk-res (parse-mcp-body body)) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('list_conversations' tname)
     ;<  result=@t  bind:m  (try-gall-scry /gx/lcm/conversations/json 4.000)
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ::  search_history and describe_summary do multiple LCM scries in a loop.
   ::  LCM is a controlled local agent (on this desk), so mule is sufficient.
   ?:  =('search_history' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  query=@t  (jget u.args-json 'query' '')
     ;<  convs-res=(each * tang)  bind:m  (try-gall-scry-noun /gx/lcm/conversations/json)
     ?:  ?=(%| -.convs-res)
-      (exec-tool-list rest [(mk-res 'error: could not read LCM conversations') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: could not read LCM conversations') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  convs-json=(each json tang)  (mule |.(;;(json p.convs-res)))
     ?:  ?=(%| -.convs-json)
-      (exec-tool-list rest [(mk-res 'error: bad LCM response') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: bad LCM response') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ?.  ?=([%o *] p.convs-json)
-      (exec-tool-list rest [(mk-res 'no conversations') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'no conversations') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  all-results=(list @t)
       %+  murn  ~(tap by p.p.convs-json)
       |=  [conv-key=@t *]
@@ -1023,19 +1141,19 @@
       ?:  =(txt '[]')  ~
       `(rap 3 conv-key ': ' txt ~)
     =/  result=@t  (crip (scag 20.000 (trip (join-cords all-results))))
-    (exec-tool-list rest [(mk-res ?:(=('' result) 'no results found' result)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res ?:(=('' result) 'no results found' result)) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('describe_summary' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  sid=@t  (jget u.args-json 'id' '')
     ;<  convs-res=(each * tang)  bind:m  (try-gall-scry-noun /gx/lcm/conversations/json)
     ?:  ?=(%| -.convs-res)
-      (exec-tool-list rest [(mk-res 'error: could not read LCM conversations') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: could not read LCM conversations') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  convs-json=(each json tang)  (mule |.(;;(json p.convs-res)))
     ?:  ?=(%| -.convs-json)
-      (exec-tool-list rest [(mk-res 'error: bad LCM response') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: bad LCM response') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ?.  ?=([%o *] p.convs-json)
-      (exec-tool-list rest [(mk-res 'no conversations') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'no conversations') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  all-results=(list @t)
       %+  murn  ~(tap by p.p.convs-json)
       |=  [conv-key=@t *]
@@ -1046,18 +1164,18 @@
       ?:  =(txt 'null')  ~
       `txt
     =/  result=@t  (crip (scag 20.000 (trip (join-cords all-results))))
-    (exec-tool-list rest [(mk-res ?:(=('' result) (rap 3 'summary ' sid ' not found' ~) result)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res ?:(=('' result) (rap 3 'summary ' sid ' not found' ~) result)) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ::
   ::  ── ASYNC HTTP TOOL INTERCEPTS ──────────────────────────
   ::  web_search, image_search, http_fetch use fiber I/O
   ::
   ?:  =('web_search' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  query=@t  (jget u.args-json 'query' '')
     =/  count=@t  (jget u.args-json 'count' '5')
     ?:  =('' bbrave)
-      (exec-tool-list rest [(mk-res 'error: no Brave API key configured') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: no Brave API key configured') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  body=@t
       (en:json:html (pairs:enjs:format ~[['q' s+query] ['count' s+count]]))
     =/  =request:http
@@ -1069,20 +1187,20 @@
             ['X-Subscription-Token' bbrave]
         ==
       `(as-octs:mimes:html body)
-    ;<  ~  bind:m  (send-request:io request)
-    ;<  =client-response:iris  bind:m  take-client-response:io
+    ;<  ~  bind:m  (unique-request request)
+    ;<  =client-response:iris  bind:m  unique-response
     ?.  ?=(%finished -.client-response)
-    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  result=@t
       (crip (scag 20.000 (trip ?~(full-file.client-response '' q.data.u.full-file.client-response))))
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('image_search' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  query=@t  (jget u.args-json 'query' '')
     =/  count=@t  (jget u.args-json 'count' '5')
     ?:  =('' bbrave)
-      (exec-tool-list rest [(mk-res 'error: no Brave API key configured') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: no Brave API key configured') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ::  double-encode query (Iris re-encodes, Brave decodes the double)
     =/  encoded-q=@t  (crip (en-urlt:html (en-urlt:html (trip query))))
     =/  n=@ud  (fall (rush count dem) 5)
@@ -1094,30 +1212,30 @@
             ['X-Subscription-Token' bbrave]
         ==
       ~
-    ;<  ~  bind:m  (send-request:io request)
-    ;<  =client-response:iris  bind:m  take-client-response:io
+    ;<  ~  bind:m  (unique-request request)
+    ;<  =client-response:iris  bind:m  unique-response
     ?.  ?=(%finished -.client-response)
-    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  result=@t
       (crip (scag 20.000 (trip ?~(full-file.client-response '' q.data.u.full-file.client-response))))
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('http_fetch' tname)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid args') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  url=@t  (jget u.args-json 'url' '')
     ?:  =('' url)
-      (exec-tool-list rest [(mk-res 'error: url required') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: url required') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  =request:http
       :^  %'GET'  url
         ~[['Accept-Encoding' 'gzip'] ['User-Agent' 'claw-bot/1.0 (Urbit LLM agent; +https://github.com/yapishu/claw)']]
       ~
-    ;<  ~  bind:m  (send-request:io request)
-    ;<  =client-response:iris  bind:m  take-client-response:io
+    ;<  ~  bind:m  (unique-request request)
+    ;<  =client-response:iris  bind:m  unique-response
     ?.  ?=(%finished -.client-response)
-    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  result=@t
       (crip (scag 20.000 (trip ?~(full-file.client-response '' q.data.u.full-file.client-response))))
-    (exec-tool-list rest [(mk-res result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ::
   ::  ── UPLOAD IMAGE ────────────────────────────────────────
   ::  intercept upload_image — check storage BEFORE fetching
@@ -1129,24 +1247,24 @@
     (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+c]])
     =/  args-json=(unit json)  (de:json:html targs)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid json') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  url=@t  (jget u.args-json 'url' '')
     ?:  =('' url)
-      (exec-tool-list rest [(mk-res 'error: url required') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: url required') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ::  pre-check: verify %storage desk exists via Clay (safe, no bail)
     =/  has-storage=?
       =/  r=(each ? tang)
         (mule |.(.^(? %cu /(scot %p our.bowl)/landscape/(scot %da now.bowl)/app/storage/hoon)))
       ?:(?=(%| -.r) %.n p.r)
     ?.  has-storage
-      (exec-tool-list rest [(mk-res 'error: %storage agent not available. Configure S3 in system settings.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: %storage agent not available. Configure S3 in system settings.') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ::  pre-check: read S3 creds (scry storage agent — bail:4 uncatchable without this)
     =/  cred-check=(each [cred-json=json conf-json=json] tang)
       %-  mule  |.
       :-  .^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/credentials/json)
       .^(json %gx /(scot %p our.bowl)/storage/(scot %da now.bowl)/configuration/json)
     ?:  ?=(%| -.cred-check)
-      (exec-tool-list rest [(mk-res 'error: could not read S3 credentials from %storage. Configure S3 storage first.') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: could not read S3 credentials from %storage. Configure S3 storage first.') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ::  extract S3 creds NOW (before any async ops, so we never re-scry)
     =/  s3-creds=s3-creds:s3-client
       (scry-s3-creds:s3-client cred-json.p.cred-check conf-json.p.cred-check)
@@ -1156,12 +1274,12 @@
       :^  %'GET'  url
         ~[['Accept-Encoding' 'gzip'] ['User-Agent' 'claw-bot/1.0 (Urbit LLM agent; +https://github.com/yapishu/claw)']]
       ~
-    ;<  ~  bind:m  (send-request:io request)
-    ;<  =client-response:iris  bind:m  take-client-response:io
+    ;<  ~  bind:m  (unique-request request)
+    ;<  =client-response:iris  bind:m  unique-response
     ?.  ?=(%finished -.client-response)
-    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ?~  full-file.client-response
-      (exec-tool-list rest [(mk-res 'error: empty response from image URL') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: empty response from image URL') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  img-data=octs  data.u.full-file.client-response
     =/  ct=@t
       =/  ct-header=(unit @t)
@@ -1173,20 +1291,20 @@
     =/  s3-result=(unit [=card:agent:gall url=@t])
       (s3-presigned-put:s3-client s3-creds fresh-now img-data ct)
     ?~  s3-result
-      (exec-tool-list rest [(mk-res 'error: S3 presigned PUT failed — check credentials') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: S3 presigned PUT failed — check credentials') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     %-  (slog leaf+"claw-grub: upload_image: uploading to S3 → {(trip url.u.s3-result)}" ~)
     ::  fire the S3 PUT request
     ?>  ?=([%pass * %arvo %i %request * *] card.u.s3-result)
     =/  s3-req=request:http  +>+>+<.card.u.s3-result
-    ;<  ~  bind:m  (send-request:io s3-req)
-    ;<  =client-response:iris  bind:m  take-client-response:io
+    ;<  ~  bind:m  (unique-request s3-req)
+    ;<  =client-response:iris  bind:m  unique-response
     ?.  ?=(%finished -.client-response)
-    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  s3-status=@ud  status-code.response-header.client-response
     ?.  =(200 s3-status)
-      (exec-tool-list rest [(mk-res (rap 3 'error: S3 upload returned ' (crip "{<s3-status>}") ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res (rap 3 'error: S3 upload returned ' (crip "{<s3-status>}") ~)) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     %-  (slog leaf+"claw-grub: upload_image: success → {(trip url.u.s3-result)}" ~)
-    (exec-tool-list rest [(mk-res url.u.s3-result) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res url.u.s3-result) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ::  intercept delegate — spawn a sub-agent task
   ?:  =('delegate' tname)
     =/  mk-res
@@ -1195,11 +1313,11 @@
     (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+c]])
     =/  args-json=(unit json)  (de:json:html targs)
     ?~  args-json
-      (exec-tool-list rest [(mk-res 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: invalid json') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  task-prompt=@t  (jget u.args-json 'task' '')
     =/  report-to=@t  (jget u.args-json 'report_to' '')
     ?:  =('' task-prompt)
-      (exec-tool-list rest [(mk-res 'error: task description required') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(mk-res 'error: task description required') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ::  generate task id from current time
     ;<  task-now=@da  bind:m  get-time:io
     =/  task-id=@tas  (crip (scag 12 (slag 2 (trip (scot %uv (mug task-now))))))
@@ -1217,19 +1335,19 @@
     =/  sig-make=make:nexus  [%| %.n [[/ %sig] !>(~)] ~]
     ;<  ~  bind:m  (make:io /task-sig sig-road sig-make)
     %-  (slog leaf+"claw-grub: spawned task '{(trip task-id)}' for bot '{(trip bot-id)}'" ~)
-    (exec-tool-list rest [(mk-res (rap 3 'Delegated task to sub-agent ' task-id '. It will work independently and report back when done.' ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res (rap 3 'Delegated task to sub-agent ' task-id '. It will work independently and report back when done.' ~)) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ::  intercept update_profile — write to tarball config
   ?:  =('update_profile' tname)
     =/  args-json=(unit json)  (de:json:html targs)
     ?~  args-json
-      (exec-tool-list rest ~ bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest ~ bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ;<  cfg-seen=seen:nexus  bind:m
       (peek:io /profile-peek (cord-to-road:tarball './config.json') `%json)
     =/  cfg=json
       ?.  ?=([%& %file *] cfg-seen)  [%o ~]
       !<(json q.sage.p.cfg-seen)
     ?.  ?=([%o *] cfg)
-      (exec-tool-list rest ~ bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest ~ bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  nick=@t  (jget u.args-json 'nickname' '')
     =/  avatar=@t  (jget u.args-json 'avatar' '')
     =/  new-cfg=json
@@ -1242,7 +1360,7 @@
     ?:  =('' nick)
       =/  msg=@t  ?:(=('' avatar) 'no changes' 'avatar updated')
       =/  make-result  |=(content=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+content]]))
-      (exec-tool-list rest [(make-result msg) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(make-result msg) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     ;<  reg-seen=seen:nexus  bind:m
       (peek:io /reg-peek (cord-to-road:tarball '../../bots-registry.json') `%json)
     =/  reg=json
@@ -1251,9 +1369,9 @@
     ?:  ?=([%o *] reg)
       ;<  ~  bind:m  (over:io /reg-write (cord-to-road:tarball '../../bots-registry.json') [[/ %json] !>([%o (~(put by p.reg) bot-id s+nick)])])
       =/  make-result  |=(content=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+content]]))
-      (exec-tool-list rest [(make-result (rap 3 'profile updated: name=' nick ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(make-result (rap 3 'profile updated: name=' nick ~)) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  make-result  |=(content=@t (pairs:enjs:format ~[['role' s+'tool'] ['tool_call_id' s+tid] ['content' s+content]]))
-    (exec-tool-list rest [(make-result (rap 3 'profile updated: name=' nick ~)) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(make-result (rap 3 'profile updated: name=' nick ~)) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ::  build tool result json message helper
   =/  make-result
     |=  content=@t
@@ -1279,11 +1397,11 @@
       ?.  ?=([%o *] cfg)  [%a ~]
       (fall (~(get by p.cfg) 'cron') [%a ~])
     =/  result-text=@t  (crip (scag 20.000 (trip (en:json:html cron-json))))
-    (exec-tool-list rest [(make-result result-text) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(make-result result-text) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('cron_add' tname)
     =/  args-json=(unit json)  (de:json:html targs)
     ?~  args-json
-      (exec-tool-list rest [(make-result 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(make-result 'error: invalid json') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  sched=@t  (jget u.args-json 'schedule' '')
     =/  prompt=@t  (jget u.args-json 'prompt' '')
     ;<  cfg-seen=seen:nexus  bind:m
@@ -1292,19 +1410,19 @@
       ?.  ?=([%& %file *] cfg-seen)  [%o ~]
       !<(json q.sage.p.cfg-seen)
     ?.  ?=([%o *] cfg)
-      (exec-tool-list rest [(make-result 'error: no bot config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(make-result 'error: no bot config') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  cron=json  (fall (~(get by p.cfg) 'cron') [%a ~])
     ?.  ?=([%a *] cron)
-      (exec-tool-list rest [(make-result 'error: invalid cron config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(make-result 'error: invalid cron config') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  new-job=json  (pairs:enjs:format ~[['schedule' s+sched] ['prompt' s+prompt]])
     =/  new-cfg=json  [%o (~(put by p.cfg) 'cron' [%a (snoc p.cron new-job)])]
     ;<  ~  bind:m  (over:io /cron-write (cord-to-road:tarball './config.json') [[/ %json] !>(new-cfg)])
     =/  msg=@t  (rap 3 'Scheduled cron ' sched ': ' (end 3^40 prompt) ~)
-    (exec-tool-list rest [(make-result msg) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(make-result msg) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ?:  =('cron_remove' tname)
     =/  args-json=(unit json)  (de:json:html targs)
     ?~  args-json
-      (exec-tool-list rest [(make-result 'error: invalid json') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(make-result 'error: invalid json') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  idx=@ud  (fall (rush (jget u.args-json 'id' '0') dem) 0)
     ;<  cfg-seen=seen:nexus  bind:m
       (peek:io /cron-peek (cord-to-road:tarball './config.json') `%json)
@@ -1312,10 +1430,10 @@
       ?.  ?=([%& %file *] cfg-seen)  [%o ~]
       !<(json q.sage.p.cfg-seen)
     ?.  ?=([%o *] cfg)
-      (exec-tool-list rest [(make-result 'error: no bot config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(make-result 'error: no bot config') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  cron=json  (fall (~(get by p.cfg) 'cron') [%a ~])
     ?.  ?=([%a *] cron)
-      (exec-tool-list rest [(make-result 'error: invalid cron config') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+      (exec-tool-list rest [(make-result 'error: invalid cron config') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
     =/  new-cron=(list json)
       =/  i=@ud  0
       =/  out=(list json)  ~
@@ -1325,7 +1443,7 @@
       $(p.cron t.p.cron, i +(i))
     =/  new-cfg=json  [%o (~(put by p.cfg) 'cron' [%a new-cron])]
     ;<  ~  bind:m  (over:io /cron-write (cord-to-road:tarball './config.json') [[/ %json] !>(new-cfg)])
-    (exec-tool-list rest [(make-result 'Removed cron job') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(make-result 'Removed cron job') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ::  wrap execution in mule — a crashing tool must never kill the bot
   =/  exec-result=(each tool-result:tools tang)
     (mule |.((execute-tool:tools bowl tname targs bbrave is-owner bot-id bname-u bavatar-u)))
@@ -1336,7 +1454,7 @@
       |=(t=tank ~(ram re t))
     %-  (slog leaf+"claw-grub: tool '{(trip tname)}' crashed: {(scag 200 err-trace)}" ~)
     =/  err-msg=@t  (crip (scag 500 (weld "error: tool crashed: " err-trace)))
-    (exec-tool-list rest [(make-result err-msg) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(make-result err-msg) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   =/  result=tool-result:tools  p.exec-result
   ?:  ?=([%sync *] result)
     ::  sync tool: send any gall cards, collect result text
@@ -1372,37 +1490,28 @@
           %+  turn  (scag 10 tang.goof)
           |=(t=tank ~(ram re t))
         (crip (scag 4.000 (weld "error: thread failed:\0a" trace)))
-      ?:  ?=([%khan %arow %& @ ^] sign-arvo)
-        ::  khan cage is [mark [type noun]] — extract the raw noun
-        =/  result-noun=*  +.+.q.p.p.sign-arvo
-        =/  as-json=(each json tang)  (mule |.(;;(json result-noun)))
-        ?:  ?=(%& -.as-json)
-          ::  MCP tools return {"type":"text","text":"..."} — extract text
-          =/  j=json  p.as-json
-          ?.  ?=([%o *] j)
-            (crip (scag 20.000 (trip (en:json:html j))))
-          =/  txt=(unit json)  (~(get by p.j) 'text')
-          ?:  ?&(?=(^ txt) ?=([%s *] u.txt))
-            (crip (scag 20.000 (trip p.u.txt)))
-          (crip (scag 20.000 (trip (en:json:html j))))
-        ::  try as cord
-        =/  as-cord=(unit @t)  (mole |.(;;(@t result-noun)))
-        ?^  as-cord  (crip (scag 20.000 (trip u.as-cord)))
-        'tool returned unrecognized result type'
+      ?:  ?=([%khan %arow %& %noun *] sign-arvo)
+        =/  result=json  ;;(json +>+>+.sign-arvo)
+        ?.  ?=([%o *] result)
+          (crip (scag 20.000 (trip (en:json:html result))))
+        =/  txt=(unit json)  (~(get by p.result) 'text')
+        ?:  ?&(?=(^ txt) ?=([%s *] u.txt))
+          (crip (scag 20.000 (trip p.u.txt)))
+        (crip (scag 20.000 (trip (en:json:html result))))
       ?:  ?=([%iris %http-response %finished *] sign-arvo)
         %-  crip  %-  (cury scag 6.000)  %-  trip
         ?~(full-file.client-response.sign-arvo 'no response' q.data.u.full-file.client-response.sign-arvo)
       'tool completed (unknown response type)'
-    (exec-tool-list rest [(make-result tool-body) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(make-result tool-body) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   ::  iris HTTP request
   =/  ireq=request:http  +>+>+<.async-card
-  ;<  ~  bind:m  (send-request:io ireq)
-  ;<  =client-response:iris  bind:m  take-client-response:io
+  ;<  ~  bind:m  (unique-request ireq)
+  ;<  =client-response:iris  bind:m  unique-response
   ?.  ?=(%finished -.client-response)
-    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+    (exec-tool-list rest [(mk-res 'error: HTTP request cancelled/timed out') results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
   =/  tool-body=@t
     (parse-tool-response:tools tname ?~(full-file.client-response '' q.data.u.full-file.client-response))
-  (exec-tool-list rest [(make-result tool-body) results] bowl bbrave is-owner bot-id bname-u bavatar-u)
+  (exec-tool-list rest [(make-result tool-body) results] bowl bbrave bmcp-url bmcp-code is-owner bot-id bname-u bavatar-u cookie)
 ::
 ::  +send-reply: route reply to the appropriate channel, thread, or DM
 ::
@@ -1558,8 +1667,8 @@
             ['Authorization' (crip "Bearer {(trip bkey)}")]
         ==
       `(as-octs:mimes:html body-cord)
-    ;<  ~  bind:m  (send-request:io request)
-    ;<  =client-response:iris  bind:m  take-client-response:io
+    ;<  ~  bind:m  (unique-request request)
+    ;<  =client-response:iris  bind:m  unique-response
     ?.  ?=(%finished -.client-response)
       %-  (slog leaf+"claw-grub: task '{(trip task-id)}' LLM request timed out" ~)
       (pure:m ~)
@@ -1623,6 +1732,8 @@
     %-  pairs:enjs:format
     :~  ['api_key' s+'']
         ['model' s+'anthropic/claude-sonnet-4']
+        ['mcp_url' s+'http://localhost:8081/mcp']
+        ['mcp_code' s+'']
     ==
   =/  default-bot-config=json
     %-  pairs:enjs:format
@@ -1631,6 +1742,8 @@
         ['model' s+'']
         ['api_key' s+'']
         ['brave_key' s+'']
+        ['mcp_url' s+'']
+        ['mcp_code' s+'']
     ==
   =/  default-registry=json
     (pairs:enjs:format ~[['brap' s+'brap']])

@@ -108,8 +108,17 @@
     =^  gub-cards  state  abet:sync-gub:hc
     ::  Reload root nexus (hardcoded — runs on every app reload, after code compile)
     =^  root-cards  state  abet:(reload-nexus-at:hc / root)
-    ::  Sync all changes
-    =^  load-cards  state  abet:(load-ball-changes:hc / pre-ball ball)
+    ::  Sync all changes — wrap in mule because load-ball-changes steps
+    ::  pending fibers which may do Gall scries that bail:4 and crash on-load
+    =/  load-result=(each [(list card) _state] tang)
+      %-  mule  |.
+      =^  lc  state  abet:(load-ball-changes:hc / pre-ball ball)
+      [lc state]
+    =^  load-cards  state
+      ?:  ?=(%& -.load-result)  p.load-result
+      %-  (slog leaf+"claw-grub: load-ball-changes crashed, preserving state" ~)
+      %-  (slog p.load-result)
+      [~ state]
     =/  dill-cards=(list card)  ~  ::  disabled for claw (no terminal logging)
     =^  clay-cards  state  abet:sync-clay:hc
     =^  jael-cards  state  abet:sync-jael:hc
@@ -356,6 +365,13 @@
       =/  cfg=json  (get-json [/ %'config.json'])
       ?.  ?=([%o *] cfg)  [ok this]
       =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ [/ %json] !>([%o (~(put by p.cfg) 'brave_key' s+(jg u.rj 'key'))])])
+      [ok this]
+    ?:  =('set-global-field' act)
+      =/  cfg=json  (get-json [/ %'config.json'])
+      ?.  ?=([%o *] cfg)  [ok this]
+      =/  field=@t  (jg u.rj 'field')
+      =/  value=@t  (jg u.rj 'value')
+      =.  ball  (~(put ba:tarball ball) [/ %'config.json'] [~ [/ %json] !>([%o (~(put by p.cfg) field s+value)])])
       [ok this]
     ?:  =('add-bot' act)
       =/  id=@tas  (crip (trip (jg u.rj 'id')))

@@ -585,6 +585,16 @@
           <input type="text" id="g-brave-key" placeholder="BSA..." onfocus="unmask(this)">
           <button class="btn btn-sm btn-primary" onclick="saveGlobalBrave()">Save</button>
         </div>
+        <div class="field">
+          <span class="field-label">MCP URL</span>
+          <input type="text" id="g-mcp-url" placeholder="http://localhost:8081/mcp">
+          <button class="btn btn-sm btn-primary" onclick="saveGlobalField('mcp_url','g-mcp-url')">Save</button>
+        </div>
+        <div class="field">
+          <span class="field-label">MCP Code</span>
+          <input type="text" id="g-mcp-code" placeholder="Login code from +code" onfocus="unmask(this)">
+          <button class="btn btn-sm btn-primary" onclick="saveGlobalField('mcp_code','g-mcp-code')">Save</button>
+        </div>
       </div>
 
       <div class="card">
@@ -928,8 +938,10 @@ function setDefaultBot() {
 function loadGlobalConfig() {
   return api('/config').then(function(c) {
     document.getElementById('g-model').value = c.model || '';
-    showMasked(document.getElementById('g-api-key'), c['api-key'] || '');
-    showMasked(document.getElementById('g-brave-key'), c['brave-key'] || '');
+    showMasked(document.getElementById('g-api-key'), c['api_key'] || c['api-key'] || '');
+    showMasked(document.getElementById('g-brave-key'), c['brave_key'] || c['brave-key'] || '');
+    document.getElementById('g-mcp-url').value = c['mcp_url'] || 'http://localhost:8081/mcp';
+    showMasked(document.getElementById('g-mcp-code'), c['mcp_code'] || '');
     if (c['api-key']) fetchModels(c['api-key']);
   }).catch(function() {
     toast('Failed to load global config', false);
@@ -964,6 +976,16 @@ function saveGlobalBrave() {
     showMasked(el, v);
     toast('Brave key saved', true);
   }).catch(function() { toast('Failed to save Brave key', false); });
+}
+
+function saveGlobalField(field, elId) {
+  var el = document.getElementById(elId);
+  var v = el.value;
+  if (el.dataset.hasKey === '1') return;
+  post({ action: 'set-global-field', field: field, value: v }).then(function() {
+    if (field.indexOf('code') >= 0 || field.indexOf('key') >= 0) showMasked(el, v);
+    toast(field + ' saved', true);
+  }).catch(function() { toast('Failed to save ' + field, false); });
 }
 
 // ---- Model browser ----
