@@ -30,20 +30,20 @@
   :~  ::  profile
       (tool-fn 'update_profile' 'Update bot display name and/or avatar on Urbit.' (obj ~[['nickname' (opt-str 'New display name')] ['avatar' (opt-str 'Avatar image URL')]]))
       ::  messaging - text
-      (tool-fn 'send_dm' 'Send a direct message to another Urbit ship. Can include an image.' (obj ~[['ship' (req-str 'Target ship e.g. ~sampel-palnet')] ['message' (req-str 'Message text')] ['image_url' (opt-str 'Optional image URL to attach')]]))
+      (tool-fn 'send_dm' 'Send a DM.' (obj ~[['ship' (req-str '~ship')] ['message' (req-str 'Text')] ['image_url' (opt-str 'Image URL')]]))
       ::  web search (POST - works with Iris)
-      (tool-fn 'web_search' 'Search the web using Brave Search. Returns web results with titles, URLs, and descriptions.' (obj ~[['query' (req-str 'Search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
+      (tool-fn 'web_search' 'Web search via Brave.' (obj ~[['query' (req-str 'Query')] ['count' (opt-str 'Results (default 5)')]]))
       ::  image search (GET with token in query string)
-      (tool-fn 'image_search' 'Search for images using Brave Image Search. Returns image URLs. Use send_dm with image_url to send found images.' (obj ~[['query' (req-str 'Image search query')] ['count' (opt-str 'Number of results (1-10, default 5)')]]))
+      (tool-fn 'image_search' 'Image search via Brave.' (obj ~[['query' (req-str 'Query')] ['count' (opt-str 'Results (default 5)')]]))
       ::  channel message
-      (tool-fn 'send_channel_message' 'Post a message in a group channel. Can include an image. Use the channel nest format like chat/~host/channel-name.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['message' (req-str 'Message text')] ['image_url' (opt-str 'Optional image URL')]]))
+      (tool-fn 'send_channel_message' 'Post in a channel.' (obj ~[['channel' (req-str 'Nest e.g. chat/~host/name')] ['message' (req-str 'Text')] ['image_url' (opt-str 'Image URL')]]))
       ::  s3 upload
-      (tool-fn 'upload_image' 'Download an image from a URL and upload it to S3 storage. Returns the permanent S3 URL. Use this when you want to ensure an image is permanently stored. Requires S3 credentials to be configured in the storage agent.' (obj ~[['url' (req-str 'Source image URL to download and upload')]]))
+      (tool-fn 'upload_image' 'Upload image URL to S3, returns permanent URL.' (obj ~[['url' (req-str 'Source URL')]]))
       ::  http fetch
-      (tool-fn 'http_fetch' 'Fetch a URL and return its text content. Do NOT use on image/binary URLs.' (obj ~[['url' (req-str 'URL to fetch')]]))
+      (tool-fn 'http_fetch' 'Fetch URL text content.' (obj ~[['url' (req-str 'URL')]]))
       ::  reactions
-      (tool-fn 'add_reaction' 'React to a message in a group channel with an emoji.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['msg_id' (req-str 'Message id from history (e.g. ~2026.3.27..18.00 or ~ship/170.141...)')] ['emoji' (req-str 'Emoji character')]]))
-      (tool-fn 'remove_reaction' 'Remove your reaction from a channel message.' (obj ~[['channel' (req-str 'Channel nest')] ['msg_id' (req-str 'Message id from history')]]))
+      (tool-fn 'add_reaction' 'React to a channel message.' (obj ~[['channel' (req-str 'Nest')] ['msg_id' (req-str 'Message ID')] ['emoji' (req-str 'Emoji')]]))
+      (tool-fn 'remove_reaction' 'Remove reaction.' (obj ~[['channel' (req-str 'Nest')] ['msg_id' (req-str 'ID')]]))
       ::  blocking
       (tool-fn 'block_ship' 'Block a ship from sending you direct messages.' (obj ~[['ship' (req-str 'Ship to block e.g. ~sampel-palnet')]]))
       (tool-fn 'unblock_ship' 'Unblock a previously blocked ship.' (obj ~[['ship' (req-str 'Ship to unblock')]]))
@@ -52,44 +52,20 @@
       (tool-fn 'list_groups' 'List all groups you have joined.' (obj ~))
       (tool-fn 'list_channels' 'List all channels across all groups.' (obj ~))
       ::  history
-      (tool-fn 'read_channel_history' 'Read recent messages from a channel. Returns message IDs, authors, and content.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['count' (opt-str 'Number of messages (default 10)')]]))
-      (tool-fn 'read_dm_history' 'Read recent DMs with a ship. Returns message IDs, authors, timestamps, and content.' (obj ~[['ship' (req-str 'Ship to read DM history with e.g. ~sampel-palnet')] ['count' (opt-str 'Number of messages (default 20)')]]))
+      (tool-fn 'read_channel_history' 'Read recent channel messages.' (obj ~[['channel' (req-str 'Nest')] ['count' (opt-str 'Count (default 10)')]]))
+      (tool-fn 'read_dm_history' 'Read recent DMs with a ship.' (obj ~[['ship' (req-str '~ship')] ['count' (opt-str 'Count (default 20)')]]))
       ::  MCP tools (call %mcp-server agent via Khan threads)
-      %+  tool-fn  'urbit_mcp'
-      :_  (obj ~[['name' (req-str 'Exact MCP tool name')] ['arguments' (req-str 'JSON object of tool arguments as a string')]])
-      '''
-      Execute an Urbit MCP server tool on this ship. Ship defaults to our ship.
-      WORKFLOW to create/install software:
-      1. new-desk {"desk":"myapp"} — creates empty desk
-      2. insert-file {"desk":"myapp","filepath":"/app/myapp/hoon","content":"..."} — writes to Clay directly
-      3. insert-file for /desk.bill, /desk.docket-0, /sur/, /lib/, /mar/ etc
-      4. commit-desk {"desk":"myapp"} — compiles. Returns full error trace if code is bad. Fix errors and re-insert.
-      NOTE: insert-file writes DIRECTLY to Clay. commit-desk triggers recompilation. install-app is ONLY for remote desks.
-      Tool param examples (use EXACT param names):
-      - list-files: {"desk":"base","path":"/app"}
-      - get-file: {"desk":"base","path":"/app/hood/hoon"}
-      - insert-file: {"desk":"myapp","filepath":"/app/myapp/hoon","content":":: my code"}
-      - commit-desk: {"desk":"myapp"}
-      - prod-hoon: {"hoon":"(mul 7 6)"}
-      - scry (registered name is "scry"): {"agent":"groups","path":"/groups/json"}
-      - poke-our-agent: {"agent":"hood","mark":"helm-hi","data":"hello"}
-      - nuke-agent: {"agent":"myapp"} / revive-agent: {"agent":"myapp"}
-      - new-desk: {"desk":"myapp"} / mount-desk: {"desk":"base"}
-      - install-app: {"desk":"pals","ship":"~paldev"} (REMOTE only)
-      - toggle-permissions: {"desk":"base","path":"/","permissions":true}
-      - run-tests: {"desk":"base","path":"/tests"}
-      - get-our-id: {}
-      '''
-      (tool-fn 'urbit_mcp_list' 'List all available Urbit MCP server tools. Requires %mcp desk - use install_urbit_mcp if not present.' (obj ~))
-      (tool-fn 'install_urbit_mcp' 'Install the %mcp desk from ~matwet. This enables urbit_mcp and urbit_mcp_list tools for file management, agent control, code execution, and more.' (obj ~))
+      (tool-fn 'urbit_mcp' 'Run an Urbit MCP tool. Call urbit_mcp_list for names/params. Ship auto-injected.' (obj ~[['name' (req-str 'Tool name')] ['arguments' (req-str 'JSON args string')]]))
+      (tool-fn 'urbit_mcp_list' 'List MCP tools and their params.' (obj ~))
+      (tool-fn 'install_urbit_mcp' 'Install %mcp desk from ~matwet.' (obj ~))
       ::  LCM history tools
-      (tool-fn 'search_history' 'Search compacted conversation history using text search. Searches across messages AND summaries stored by LCM. Returns matching snippets with IDs. Use to find specific content that may have been compacted away. Follow up with describe_summary for full details.' (obj ~[['query' (req-str 'Search terms or topic to find')]]))
-      (tool-fn 'describe_summary' 'Look up full metadata and content for an LCM summary by ID. Returns: kind (leaf/condensed), depth, token count, descendant count, time range, source messages, parent summaries, and full content text. Use after search_history to inspect a specific summary.' (obj ~[['id' (req-str 'Summary ID number from search_history results')]]))
-      (tool-fn 'list_conversations' 'List all LCM conversations with their message counts and summary counts. Shows which conversations have history available for searching.' (obj ~))
+      (tool-fn 'search_history' 'Search conversation history (LCM).' (obj ~[['query' (req-str 'Search text')]]))
+      (tool-fn 'describe_summary' 'Get LCM summary details by ID.' (obj ~[['id' (req-str 'Summary ID')]]))
+      (tool-fn 'list_conversations' 'List LCM conversations.' (obj ~))
       ::  message management
-      (tool-fn 'delete_message' 'Delete a message from a group channel. Use the message id from read_channel_history (the seal.id field, format: ~ship/number).' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['msg_id' (req-str 'Message id from history (e.g. ~2026.3.27..18.00 or ~ship/170.141...)')]]))
-      (tool-fn 'edit_message' 'Edit a message in a group channel. Use the message id from read_channel_history.' (obj ~[['channel' (req-str 'Channel nest')] ['msg_id' (req-str 'Message id from history (e.g. ~2026.3.27..18.00 or ~ship/170.141...)')] ['content' (req-str 'New message content')]]))
-      (tool-fn 'delete_dm' 'Delete a direct message. Pass the id field from read_dm_history results (format: ~ship/number).' (obj ~[['ship' (req-str 'DM counterpart ship')] ['id' (req-str 'Message id from read_dm_history (e.g. ~fen/170.141...)')]]))
+      (tool-fn 'delete_message' 'Delete channel message.' (obj ~[['channel' (req-str 'Nest')] ['msg_id' (req-str 'ID')]]))
+      (tool-fn 'edit_message' 'Edit channel message.' (obj ~[['channel' (req-str 'Nest')] ['msg_id' (req-str 'ID')] ['content' (req-str 'New text')]]))
+      (tool-fn 'delete_dm' 'Delete a DM.' (obj ~[['ship' (req-str '~ship')] ['id' (req-str 'ID')]]))
 
 
       ::  group management
@@ -100,8 +76,8 @@
       ::  group admin
       (tool-fn 'ban_from_group' 'Ban a ship from a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['ship' (req-str 'Ship to ban e.g. ~sampel-palnet')]]))
       (tool-fn 'unban_from_group' 'Unban a ship from a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['ship' (req-str 'Ship to unban')]]))
-      (tool-fn 'create_group' 'Create a new group. Owner only.' (obj ~[['name' (req-str 'Group name (term, no spaces, e.g. my-group)')] ['title' (req-str 'Display title')] ['description' (opt-str 'Group description')] ['privacy' (opt-str 'public, private, or secret (default public)')]]))
-      (tool-fn 'update_group' 'Update a group title and/or description. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['title' (opt-str 'New title')] ['description' (opt-str 'New description')] ['image' (opt-str 'New image URL')] ['cover' (opt-str 'New cover URL')]]))
+      (tool-fn 'create_group' 'Create group. Owner only.' (obj ~[['name' (req-str 'Name (term)')] ['title' (req-str 'Title')] ['description' (opt-str 'Desc')] ['privacy' (opt-str 'public/private/secret')]]))
+      (tool-fn 'update_group' 'Update group. Owner only.' (obj ~[['group' (req-str 'Flag')] ['title' (opt-str 'Title')] ['description' (opt-str 'Desc')] ['image' (opt-str 'Image')] ['cover' (opt-str 'Cover')]]))
       ::  channel management
       (tool-fn 'add_channel' 'Add a chat channel to a group. Owner only.' (obj ~[['group' (req-str 'Group flag e.g. ~sampel/group-name')] ['name' (req-str 'Channel name (term, no spaces)')] ['title' (req-str 'Channel display title')] ['description' (opt-str 'Channel description')]]))
       (tool-fn 'delete_channel' 'Delete a channel from a group. Owner only.' (obj ~[['group' (req-str 'Group flag')] ['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')]]))
@@ -114,7 +90,7 @@
       ::  contacts
       (tool-fn 'list_contacts' 'List all known contacts with their profile info.' (obj ~))
       ::  channel search
-      (tool-fn 'search_messages' 'Search messages in ANY channel by text. Use list_channels first to find channel nests, then search each one. Can search multiple channels by calling this tool multiple times with different channel values.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['query' (req-str 'Search text')] ['count' (opt-str 'Max results (default 50)')]]))
+      (tool-fn 'search_messages' 'Search channel messages by text.' (obj ~[['channel' (req-str 'Nest')] ['query' (req-str 'Text')] ['count' (opt-str 'Max (default 50)')]]))
       ::  DM reactions
       (tool-fn 'react_dm' 'React to a DM with an emoji. Use the seal.id field from read_dm_history results to get the msg_author and msg_time. The seal.id format is ~ship/number.with.dots — split on / to get author (before /) and time (after /).' (obj ~[['ship' (req-str 'DM counterpart ship')] ['msg_author' (req-str 'Author ship from seal.id (the part before /)')] ['msg_time' (req-str 'Message time from seal.id (the part after /, e.g. 170.141.184.507...)')] ['emoji' (req-str 'Emoji character')]]))
       (tool-fn 'unreact_dm' 'Remove reaction from a DM. Use seal.id from read_dm_history — split on / for author and time.' (obj ~[['ship' (req-str 'DM counterpart ship')] ['msg_author' (req-str 'Author from seal.id (before /)')] ['msg_time' (req-str 'Time from seal.id (after /)')]]))

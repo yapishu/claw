@@ -625,12 +625,7 @@
         'Ship: '  (scot %p our)  '\0a'
         'Time: '  (scot %da now)  '\0a'
         '\0a---\0a\0a# Tools\0a\0a'
-        'You have tools available. ALWAYS use the appropriate tool when the user asks you to do something - '
-        'do NOT pretend or hallucinate tool results. If a tool fails, report the actual error.\0a'
-        'Key tools: web_search, image_search, send_dm, send_channel_message, read_channel_history, '
-        'read_dm_history, list_groups, list_channels, get_contact, list_contacts, http_fetch, '
-        'add_reaction, urbit_mcp (for Urbit system access), urbit_mcp_list (list MCP tools).\0a'
-        'For urbit_mcp: call urbit_mcp_list first to get exact tool names, then call urbit_mcp with name and arguments.\0a'
+        'Use tools when asked. Report actual errors, never hallucinate results.\0a'
         ?:  is-cron
           '\0a---\0a\0a# Automated Cron Task\0a\0aThis is an automated scheduled task. Execute the task using tools as needed. Do NOT send any text reply or confirmation — only use tools to produce output. Your text response will be discarded.\0a'
         '\0a---\0a\0a# Current Conversation\0a\0a'
@@ -678,7 +673,20 @@
   =/  extra-msgs=(list json)  ~
   =/  round=@ud  0
   |-
-  =/  all-msgs=json  [%a (weld base-msgs extra-msgs)]
+  ::  compress prior tool results to short summaries (keep only current round full)
+  =/  compressed-extra=(list json)
+    %+  turn  extra-msgs
+    |=  msg=json
+    ?.  ?=([%o *] msg)  msg
+    =/  role=(unit json)  (~(get by p.msg) 'role')
+    ?.  ?&(?=(^ role) ?=([%s %'tool'] u.role))  msg
+    ::  truncate tool result content to ~50 chars
+    =/  content=(unit json)  (~(get by p.msg) 'content')
+    ?~  content  msg
+    ?.  ?=([%s *] u.content)  msg
+    ?:  (lte (met 3 p.u.content) 200)  msg
+    [%o (~(put by p.msg) 'content' s+(rap 3 (end 3^150 p.u.content) '... [truncated]' ~))]
+  =/  all-msgs=json  [%a (weld base-msgs compressed-extra)]
   =/  body-cord=@t
     %-  en:json:html
     %-  pairs:enjs:format
