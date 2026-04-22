@@ -1,34 +1,68 @@
 # claw
 
-A native Urbit LLM agent that runs as a Gall application. It connects to LLM providers via OpenRouter, integrates with the Groups messaging system, and provides a modular tool system for interacting with your ship and the web.
+A native Urbit LLM agent that runs as a Gall application. It talks to LLM providers (OpenRouter over HTTPS **or** a local qwen3 model via `%maroon`), integrates with the Groups messaging system, and provides a modular tool system for interacting with your ship and the web.
 
 Unlike openclaw/picoclaw which run as external processes that talk to Urbit over HTTP, claw runs directly on your ship as a first-class Urbit application. It pokes and scries agents natively, subscribes to activity events, and manages state through Gall's persistence.
 
 ## Agents
 
-The desk ships three agents:
+The desk ships nine agents:
 
 | Agent | Purpose |
 |-------|---------|
 | `%claw` | Main agent — message handling, LLM requests, tool execution, slash commands |
 | `%lcm` | Lossless Context Management — conversation storage, DAG-based summarization, context assembly |
-| `%claw-fileserver` | Static file server for the web GUI |
+| `%maroon` | On-ship LLM inference — loads quantized qwen3 weights into VRAM, serves OpenAI-compatible chat completions via HTTP or gall poke |
+| `%mcp-server` | Serves this ship's own MCP tools (list-files, scry, poke-our-agent, commit-desk, …) over JSON-RPC |
+| `%mcp-proxy` | Aggregates multiple MCP servers (local + upstream) behind a single `/apps/mcp/mcp` endpoint |
+| `%oauth` | OAuth flow helper (Gmail, Google Calendar, Google Drive) — used by MCP tool set |
+| `%claw-fileserver` | Static file server for the claw web GUI |
+| `%maroon-fileserver` | Static file server for the maroon web GUI |
+| `%mcp-fileserver` | Static file server for the mcp-proxy web GUI |
+
+## Providers
+
+`%claw` supports two LLM providers with per-conversation overrides:
+
+| Provider | Transport | API Key | Notes |
+|----------|-----------|---------|-------|
+| `%openrouter` | Outbound HTTPS via iris | required | Remote, any OpenRouter-catalog model |
+| `%maroon` | Direct gall poke (same ship) | none | Local qwen3 inference — no network, no API bill |
+
+The default can be set globally in the GUI (or `:claw &claw-action [%set-default-provider %maroon]`). Individual conversations can pin a different provider via `%set-conv-provider`. The GUI shows a color-coded banner with the active provider.
+
+### Local path (claw ↔ maroon)
+
+When a conversation uses `%maroon`, claw **skips HTTP entirely** — no Eyre, no iris, no loopback TCP. The `make-llm-request` builder emits a gall `%poke` to `%maroon` with a `%maroon-chat-req` cage carrying `[req-id meta body]`, where `body` is the same OpenAI chat JSON that would go to OpenRouter. `%maroon` generates tokens via its tick-based forward loop and pokes `%claw` back with a `%maroon-chat-resp` cage. Claw's `on-poke` dispatches the response through the normal tool/text paths.
+
+This avoids the chunked/keep-alive quirks of using iris for same-ship calls and lets the response include structured metadata (the original `source` + `dm-who`) so the reply routes correctly without any per-request state.
+
+### Tool calls with qwen3
+
+qwen3-bonsai was trained on the **Hermes tool-call format**, not OpenAI function-calls:
+
+```
+<tool_call>
+{"name":"web_search","arguments":{"query":"cats"}}
+</tool_call>
+```
+
+`+parse-llm-response` detects `<tool_call>…</tool_call>` blocks in the content string and repackages them into the standard `%tools` shape, so the existing tool loop handles multi-round correctly. `%maroon`'s chat template also renders tool-result messages as `<|im_start|>user\n<tool_response>…</tool_response><|im_end|>` so qwen sees the replies in its expected format.
 
 ## Features
 
 ### Messaging Integration
 - **DM responses**: Whitelisted ships can DM the bot and get LLM-powered responses
 - **Channel mentions**: When mentioned (@) in a group channel, responds in that channel
-- **Thread replies**: Responds to replies on its own posts in channels; routes responses back into the same thread
-- **DM thread replies**: Handles thread replies in DMs
+- **Thread replies**: Responds to replies on its own posts; routes back into the same thread
 - **Group invites**: Auto-accepts group invitations from whitelisted ships
-- **Rich content**: Sends messages with proper Tlon inline formatting (bold, italic, code, headers, mentions)
-- **Counterparty context**: Includes sender's @p and nickname (from %contacts) in the system prompt
+- **Rich content**: Sends replies with Tlon inline formatting (bold, italic, code, headers, mentions)
+- **Counterparty context**: Includes sender's @p in the system prompt
 - **Participated thread tracking**: Auto-responds in threads/channels the bot has already participated in, without requiring @mention
-- **Message deduplication**: Tracks processed message IDs (up to 1000) to prevent double-processing
+- **Message deduplication**: Tracks processed message IDs to prevent double-processing
+- **Thinking indicator**: Pokes `%presence` with a 1-minute `%computing` flag while the LLM generates, so DM counterparties see a "thinking…" badge
 
 ### Slash Commands
-Messages starting with `/` are intercepted before the LLM:
 
 | Command | Description | Access |
 |---------|-------------|--------|
@@ -36,318 +70,265 @@ Messages starting with `/` are intercepted before the LLM:
 | `/model` | Show current model and context window | All |
 | `/model <name>` | Set model (fetches context window from OpenRouter) | Owner |
 | `/clear` | Clear conversation history for this chat | All |
-| `/status` | Show model, pending state, whitelist count, last error, owner last-seen | All |
-| `/open <channel>` | Set channel to allow all users (not just whitelisted) | Owner |
+| `/status` | Show model, pending state, whitelist, last error, owner last-seen | All |
+| `/open <channel>` | Set channel to allow all users | Owner |
 | `/restrict <channel>` | Set channel back to whitelist-only | Owner |
-| `/approve ~ship` | Approve a pending ship (adds to whitelist as %allowed) | Owner |
+| `/approve ~ship` | Approve a pending ship | Owner |
 | `/deny ~ship` | Deny a pending approval request | Owner |
 | `/pending` | List ships awaiting approval | Owner |
 
-### Per-Channel Permissions
-- Each channel can be set to `%open` (anyone can interact) or `%whitelist` (only whitelisted ships, default)
-- Whitelisted ships can always interact regardless of channel setting
-- Owner always has access everywhere
-- Manage via `/open` and `/restrict` slash commands
-
-### Approval Workflow
-- When a non-whitelisted ship DMs or mentions the bot, an approval request is created
-- All owner ships are notified via DM with the requester's @p and context
-- Owners can `/approve ~ship` or `/deny ~ship` to manage access
-- `/pending` lists all outstanding approval requests
+### Per-Channel Permissions / Approval Workflow
+- Each channel can be `%open` or `%whitelist` (default)
+- Non-whitelisted ships DMing the bot trigger an approval request to all `%owner` ships
+- Owners manage with `/approve`, `/deny`, `/pending`
 
 ### Tool Calling
-The agent implements the OpenAI tool-calling protocol. When the LLM needs to take an action, it returns tool calls which the agent executes and loops back with results.
 
-**Communication tools:**
+Tool definitions live in `lib/claw-tools.hoon` and are sent to the LLM in the `tools` request field (qwen3 emits `<tool_call>` blocks; claw extracts them). Tools return either `%sync` (cards + text immediately) or `%async` (fire an iris/gall card, resume when the response arrives).
+
+**Communication**
 
 | Tool | Type | Description |
 |------|------|-------------|
 | `send_dm` | sync | Send DM with optional image to any ship |
 | `send_channel_message` | sync | Post in a group channel with optional image |
-| `add_reaction` | sync | React to a channel message with emoji |
-| `remove_reaction` | sync | Remove a reaction |
+| `add_reaction` / `remove_reaction` | sync | Channel message reactions |
 
-**Information tools:**
-
-| Tool | Type | Description |
-|------|------|-------------|
-| `get_contact` | sync | Look up a ship's profile (nickname, bio, avatar) |
-| `list_contacts` | sync | List all known contacts |
-| `list_groups` | sync | List joined groups |
-| `list_channels` | sync | List all channels |
-| `read_channel_history` | sync | Read recent messages from a channel (JSON) |
-| `read_dm_history` | sync | Read recent DMs with a ship (JSON with IDs, authors, content) |
-| `search_messages` | sync | Search messages in a channel by text |
-
-**Memory tools (LCM):**
+**Information**
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `search_history` | sync | Search ALL conversations for a keyword/topic. Returns matching snippets with summary IDs |
-| `describe_summary` | sync | Get full content and metadata for a summary ID (kind, depth, tokens, time range, source messages) |
-| `list_conversations` | sync | List all conversation keys with message/summary counts |
+| `get_contact` | sync | Look up a ship's profile |
+| `list_groups` / `list_channels` | sync | List joined groups / channels |
+| `read_channel_history` / `read_dm_history` | sync | Recent messages with ids |
 
-Escalation pattern: `search_history` first to find relevant content, then `describe_summary` for full details on specific summaries.
-
-**Web tools:**
+**Memory (LCM)**
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `web_search` | async | Brave web search (POST) |
-| `image_search` | async | Brave image search |
+| `search_history` | sync | Search all conversations for a keyword. Returns snippets + summary IDs |
+| `describe_summary` | sync | Full content and metadata for a summary ID |
+| `list_conversations` | sync | List all conversation keys with counts |
+
+Escalation: `search_history` first to find relevant content, then `describe_summary` for full details.
+
+**Web**
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `web_search` / `image_search` | async | Brave search; result parsed to top-5 title/url/description lines |
 | `http_fetch` | async | Fetch any URL |
 | `upload_image` | async | Download image, sign, upload to S3, return public URL |
 
-**Message management:**
+**Message management**
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `delete_message` | sync | Delete a channel message by timestamp ID |
-| `edit_message` | sync | Edit a channel message with new content |
-| `delete_dm` | sync | Delete a DM by its id field from `read_dm_history` |
-| `react_dm` | sync | Add emoji reaction to a DM |
-| `unreact_dm` | sync | Remove emoji reaction from a DM |
+| `delete_message` / `edit_message` | sync | Channel message edits |
+| `delete_dm` | sync | Delete a DM |
 
-**Ship & group management:**
+**Ship & group management**
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `update_profile` | sync | Change bot nickname/avatar via %contacts |
-| `block_ship` / `unblock_ship` | sync | Block/unblock ships from DMs |
-| `join_group` | sync | Join a group (owner only) |
-| `leave_group` | sync | Leave a group (owner only) |
-| `create_group` | sync | Create a new group with name, title, privacy (owner only) |
-| `update_group` | sync | Update group title/description/image/cover (owner only) |
-| `invite_to_group` | sync | Invite a ship to a group (owner only) |
-| `kick_from_group` | sync | Remove a ship from a group (owner only) |
-| `ban_from_group` | sync | Ban a ship from a group (owner only) |
-| `unban_from_group` | sync | Unban a ship from a group (owner only) |
-| `add_channel` | sync | Add a chat channel to a group (owner only) |
-| `delete_channel` | sync | Delete a channel from a group (owner only) |
-| `add_role` | sync | Create a role in a group (owner only) |
-| `delete_role` | sync | Delete a role from a group (owner only) |
-| `assign_role` | sync | Assign a role to a ship (owner only) |
-| `remove_role` | sync | Remove a role from a ship (owner only) |
+| `update_profile` | sync | Change bot nickname/avatar |
+| `block_ship` / `unblock_ship` | sync | Block/unblock DMs |
+| `join_group` / `leave_group` / `create_group` / `update_group` | sync | Group lifecycle (owner only) |
+| `invite_to_group` / `kick_from_group` / `ban_from_group` / `unban_from_group` | sync | Group membership (owner only) |
+| `add_channel` / `delete_channel` | sync | Group channel admin (owner only) |
+| `add_role` / `delete_role` / `assign_role` / `remove_role` | sync | Group role admin (owner only) |
 
-**Scheduled tasks (cron):**
+**Scheduled tasks (cron)**
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `cron_add` | sync | Schedule a recurring task with a cron expression (owner only) |
-| `cron_list` | sync | List all scheduled tasks with IDs, schedules, and prompts |
-| `cron_remove` | sync | Remove a scheduled task by ID (owner only) |
+| `cron_add` / `cron_remove` | sync | Schedule/remove recurring prompts (owner only) |
+| `cron_list` | sync | List scheduled tasks |
 
-Cron expressions use standard 5-field format: `minute hour day-of-month month day-of-week`. Examples: `*/30 * * * *` (every 30min), `0 9 * * *` (daily 9am), `0 */6 * * *` (every 6hr), `0 9 * * 1-5` (weekday mornings).
+Standard 5-field cron: `minute hour day-of-month month day-of-week`. Examples: `*/30 * * * *`, `0 9 * * *`, `0 9 * * 1-5`.
 
-**MCP tools:**
+**Ship ops (MCP)**
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `local_mcp` | async | Execute any MCP server tool via Khan threads |
-| `local_mcp_list` | sync | List available MCP tools |
-| `install_local_mcp` | sync | Install the %mcp desk from ~matwet |
+| `urbit` | async | Execute any MCP tool exposed by this ship (via `%mcp-proxy`). Pass `name` + stringified `arguments` JSON |
+| `urbit_list` | sync | List every MCP tool available through the proxy |
+
+The LLM calls `urbit_list` to discover tool schemas and then `urbit` with the exact tool name (e.g. `list-files`, `scry`, `poke-our-agent`, `commit-desk`, `mount-desk`, `install-app`, `revive-agent`). Under the hood, claw scries `%mcp-proxy` for its `client-key`, then POSTs a JSON-RPC `tools/call` to `/apps/mcp/mcp` using that key as `x-api-key`. The proxy fans the call out to every registered upstream server (local + remote) and returns the aggregated response. The LLM-facing names are `urbit` / `urbit_list` because small local models sometimes can't say `local_mcp` without inserting a space.
 
 ### Markdown Rendering
-LLM responses are parsed into proper Tlon rich text:
+LLM responses are parsed into Tlon rich text:
 - `# Header` through `###### Header` → header block elements
 - `> quoted text` → blockquote inlines
-- `**bold**` → bold inlines
-- `*italic*` → italic inlines
-- `` `inline code` `` → inline-code elements
-- `~~strikethrough~~` → strike inlines
-- `~ship-name` → clickable ship mention inlines
-- `\n` → line break inlines
-- `\n\n` → paragraph separation (separate verses)
+- `**bold**`, `*italic*`, `` `inline code` ``, `~~strike~~`, `~ship` mentions
+- `\n`/`\n\n` → line breaks / paragraph splits
 
-### Bot Safety
-- **Bot-to-bot rate limiting**: Tracks consecutive bot responses per channel (max 3), resets when a human messages. Prevents bot loop escalation.
-- **Owner heartbeat**: Tracks when the owner last sent a message, shown in `/status`
-- **Media extraction**: Extracts image blocks from incoming messages as `[Image: alt - src]` for LLM context
+### Context & sizing dials
+- **`max-response-tokens`** — sent as `max_tokens` in every LLM request (default 1024)
+- **`max-context-tokens`** — overrides the per-model heuristic when non-zero; LCM trims oldest-first to fit
+- **Dynamic tool hint** — a ~80-token `# Tools` section is appended to every system prompt, showing an example `<tool_call>` block and listing the key tool names (qwen3-specific; harmless for Claude/GPT)
+
+### Bot safety
+- **Rate limiting**: max 3 consecutive bot responses per channel; reset on human message
+- **Owner heartbeat**: `/status` shows when the owner last posted
+- **Busy gate**: `%maroon` rejects overlapping generation requests with 503 so concurrent DMs can't corrupt state
 
 ### Lossless Context Management (LCM)
 
-The `%lcm` agent implements the LCM architecture for intelligent conversation management. It stores all messages permanently and uses LLM-driven summarization to keep context within token budgets.
+The `%lcm` agent implements the LCM architecture: messages are never deleted, only summarized into a DAG of compaction nodes. Leaf summaries (depth 0) compress raw message chunks; condensed summaries (depth 1+) compress groups of summaries at the shallowest depth first. Context assembly fills the token budget with fresh messages + summaries of older content.
 
-**Architecture:**
-- Messages are never deleted — only summarized into a DAG of compaction nodes
-- Leaf summaries (depth 0) compress raw message chunks
-- Condensed summaries (depth 1+) compress groups of summaries at the shallowest depth first
-- Context assembly fills the token budget with fresh messages + summaries of older content
-
-**Depth-aware prompts** (ported from lossless-claw):
-- **Depth 0 (leaf)**: Preserves decisions, rationale, file operations, timestamps
-- **Depth 1**: Condenses leaf summaries into session-level memory — focuses on continuation context
-- **Depth 2**: Extracts narrative arcs from session summaries — goals, outcomes, trajectory
-- **Depth 3+**: High-level persistent memory — key decisions, accomplishments, constraints, lessons
-
-**Features:**
-- Dynamic context window: fetches actual `context_length` from OpenRouter per model
-- XML-style summary presentation: `<summary depth="X" range="...">content</summary>`
-- Timestamp injection: every message prefixed with `[YYYY-MM-DD HH:MM]` in leaf pass
-- Descendant tracking: each summary knows how many nodes and tokens it compressed
-- Automatic compaction triggers when token usage exceeds threshold (default 75%)
-- Cascading condensation: after leaf pass, checks for condensation opportunities at higher depths
+Depth-aware prompts preserve decisions/rationale at leaf level and extract narrative arcs / persistent memory at higher depths. Summaries use XML presentation (`<summary depth="X" range="…">…</summary>`) and track descendant counts.
 
 **Scry endpoints:**
 ```
 .^(json %gx /=lcm=/assemble/{key}/{budget}/json)    :: assembled context
-.^(json %gx /=lcm=/grep/{key}/{query}/json)          :: search messages/summaries
-.^(json %gx /=lcm=/describe/{key}/{sum-id}/json)     :: summary details
-.^(json %gx /=lcm=/stats/{key}/json)                 :: conversation stats
-.^(json %gx /=lcm=/conversations/json)               :: list conversations
+.^(json %gx /=lcm=/grep/{key}/{query}/json)         :: search
+.^(json %gx /=lcm=/describe/{key}/{sum-id}/json)    :: summary details
+.^(json %gx /=lcm=/stats/{key}/json)                :: conversation stats
+.^(json %gx /=lcm=/conversations/json)              :: list conversations
 ```
 
 ### S3 Upload
-- Scries `%storage` agent for credentials and configuration
-- Generates AWS SigV4 presigned URLs with path-style addressing
-- Uploads with `x-amz-acl: public-read` for public access
-- Full S3 client extracted as reusable `lib/s3-client.hoon`
-
-### MCP Integration
-- Builds MCP tool files directly from Clay (`/fil/default/mcp/tools/`)
-- Executes tool thread-builders via Khan `%lard`
-- No HTTP auth needed — direct agent-to-Clay-to-Khan
-- Self-bootstrapping: `install_local_mcp` installs the desk from ~matwet
+Scries `%storage` for credentials, generates AWS SigV4 presigned URLs with path-style addressing, uploads with `x-amz-acl: public-read`. Full S3 client in `lib/s3-client.hoon`.
 
 ### Web GUI
-- Served by `claw-fileserver` at `/apps/claw`
-- Configure API keys (OpenRouter, Brave), model selection
-- Manage whitelist (add/remove ships with owner/allowed roles)
-- Edit context files (identity, soul, agent, user, memory, custom)
-- **Channel permissions**: toggle channels between open/whitelist, scrollable + filterable
-- **Scheduled tasks**: add/remove cron jobs with standard cron expressions
-- Appears as a tile in Landscape
+Served by `%claw-fileserver` at `/apps/claw`. Includes:
+- Prominent **active-provider banner** (green for `%maroon`, orange for `%openrouter`) with local URL + override count
+- API keys (OpenRouter, Brave), model selection
+- Whitelist management (owner/allowed roles)
+- Context file editor (identity, soul, agent, user, memory, custom fields)
+- Per-conversation provider overrides (add/remove tags)
+- Channel permission toggles
+- Scheduled-task (cron) editor
+- Max response / max context token dials
 
 ## Installation
 
-### From ~matwet (recommended)
+### From ~matwet (if published)
 ```
 |install ~matwet %claw
 ```
 
 ### From source
 ```
-# Clone the repo
-git clone [repo-url] claw
-cd claw
-
-# Copy desk files to your ship's mounted claw desk
+git clone <repo-url> claw
 rsync -av --delete desk/ /path/to/your/pier/claw/
-
-# In the dojo
+```
+Then in dojo:
+```
 |commit %claw
 |install our %claw
 ```
 
 ## Configuration
 
-After installation, open the GUI at `/apps/claw` or configure via dojo:
+After installation, open `/apps/claw` (GUI) or use dojo:
 
 ```
-:claw &claw-action [%set-key 'sk-or-v1-your-openrouter-key']
-:claw &claw-action [%set-model 'anthropic/claude-sonnet-4']
-:claw &claw-action [%set-brave-key 'your-brave-api-key']
+:claw &claw-action [%set-default-provider %maroon]       :: or %openrouter
+:claw &claw-action [%set-local-llm-url 'http://localhost:8080']
+:claw &claw-action [%set-key 'sk-or-v1-...']            :: openrouter
+:claw &claw-action [%set-brave-key '...']
+:claw &claw-action [%set-max-response-tokens 1024]
+:claw &claw-action [%set-max-context-tokens 8192]       :: 0 = heuristic
 :claw &claw-action [%add-ship ~sampel-palnet %owner]
 ```
 
-Or via DM slash commands (from an owner ship):
+### Loading local weights (for `%maroon`)
+
+Generate and poke the weights + tokenizer from the dojo:
 ```
-/model anthropic/claude-sonnet-4
-/status
-/clear
-/open chat/~host/channel-name
-/approve ~new-ship
+=payload +claw!maroon-load-qwen3
+:maroon &maroon-load-qwen3 payload
+
+=tok +claw!maroon-load-qwen3-tokenizer
+:maroon &maroon-load-tokenizer tok
 ```
+
+`%maroon` auto-warms the weights into VRAM on every commit and on ship restart (via a generic `warm-weights` jet), so you should only need to do this once per ship.
 
 ### Whitelist roles
 - `%owner` — full access, can change model, use owner-only tools, manage permissions
 - `%allowed` — can chat with the bot
-
-### Context files
-```
-:claw &claw-action [%set-context %identity 'You are a helpful assistant on ~your-ship.']
-:claw &claw-action [%set-context %soul 'You are concise and knowledgeable.']
-:claw &claw-action [%set-context %memory 'The user prefers short responses.']
-```
 
 ## Architecture
 
 ```
 desk/
 ├── app/
-│   ├── claw.hoon              # Main agent — messaging, LLM, tools, slash commands (~1800 lines)
-│   ├── lcm.hoon               # LCM agent — conversation storage, DAG summarization (~900 lines)
-│   ├── claw-fileserver.hoon   # Static file server for GUI
-│   └── fileserver/config.hoon
+│   ├── claw.hoon              # Main agent (~2200 lines)
+│   ├── lcm.hoon               # LCM agent
+│   ├── maroon.hoon            # On-ship qwen3 inference
+│   ├── mcp-server.hoon        # Local MCP tools
+│   ├── mcp-proxy.hoon         # Aggregate MCP endpoint
+│   ├── oauth.hoon             # OAuth helper
+│   └── *-fileserver.hoon      # Static GUI servers
 ├── sur/
-│   ├── claw.hoon              # Agent types (state-11, actions, msg-source, cron-job)
-│   ├── lcm.hoon               # LCM types (state-1, conversation, summary, lcm-config)
-│   ├── mcp.hoon               # MCP tool types
-│   ├── chat.hoon              # Groups chat types
-│   ├── channels.hoon          # Groups channel types
-│   ├── activity.hoon          # Activity/notification types
-│   ├── contacts.hoon          # Contact types
-│   ├── story.hoon             # Rich text types (inline, block, verse)
-│   ├── groups-ver.hoon        # Versioned group types (for mark compatibility)
-│   └── ...
+│   ├── claw.hoon              # state-14, actions, msg-source, provider, cron-job
+│   ├── lcm.hoon               # LCM types
+│   ├── maroon.hoon            # maroon gen-state, weights, chat-req/resp
+│   ├── mcp.hoon, mcp-proxy.hoon, oauth.hoon
+│   ├── chat.hoon, channels.hoon, activity.hoon, contacts.hoon, story.hoon
+│   └── presence.hoon          # typing/thinking indicator types
 ├── lib/
-│   ├── claw-tools.hoon        # Tool dispatcher (48 tools)
-│   ├── story-parse.hoon       # Markdown ↔ Tlon story (reusable)
-│   ├── cron.hoon              # Cron expression parser (reusable)
-│   ├── s3-client.hoon         # AWS SigV4 S3 upload client (reusable)
-│   ├── test.hoon              # Unit test library
+│   ├── claw-tools.hoon        # Tool dispatcher
+│   ├── maroon.hoon            # qwen3 forward/decode primitives
+│   ├── lagoon.hoon            # Tensor operations (la:)
+│   ├── story-parse.hoon       # Markdown ↔ Tlon story
+│   ├── cron.hoon              # Cron expression parser
 │   └── ...
 ├── mar/
-│   ├── claw-action.hoon       # Poke mark
-│   ├── claw-update.hoon       # Subscription mark
-│   ├── lcm-action.hoon        # LCM poke mark
-│   ├── channel/action-1.hoon  # Channel posting mark
-│   └── group/                 # Group marks (action-4, command, join, leave)
+│   ├── claw-action.hoon, claw-update.hoon
+│   ├── maroon-chat-req.hoon, maroon-chat-resp.hoon    :: direct-poke bridge
+│   ├── maroon-load.hoon, maroon-load-qwen3.hoon, maroon-load-tokenizer.hoon
+│   ├── lcm-action.hoon
+│   ├── mcp-proxy-action.hoon, mcp-proxy-update.hoon
+│   └── ...
+├── gen/
+│   └── maroon-load-*.hoon     :: weight loading helpers
 ├── tests/
-│   ├── test-claw.hoon         # Helper function tests
-│   ├── test-lcm.hoon          # LCM engine tests
-│   └── test-pipeline.hoon     # E2E pipeline tests
 ├── web/
 │   └── index.html             # Management GUI
-├── desk.bill                  # [%claw %claw-fileserver %lcm]
-├── desk.docket-0
-└── sys.kelvin
+├── desk.bill, desk.docket-0, sys.kelvin
 ```
 
 ### Data flow
 
 ```
-DM/mention/thread-reply arrives
+incoming DM / mention / thread reply
     → %activity subscription (on-agent)
-    → message deduplication check (seen-msgs)
-    → whitelist + channel permission check
-    → slash command check (/model, /clear, /help, /status, /open, /approve, etc.)
+    → dedup check (seen-msgs) + whitelist/permission check
+    → slash-command check
     → approval workflow for non-whitelisted ships
-    → extract sender, content, channel, message ID
-    → look up sender nickname from %contacts
-    → ingest user message into %lcm
-    → build system prompt (context files + sender info + owner heartbeat)
-    → scry %lcm for assembled context (summaries + fresh tail within budget)
-    → POST to OpenRouter with tools
-    → parse response
-    ├── text response → markdown-to-story → ingest into %lcm → route to source
-    │   (DM, channel, or thread) → track participated → update bot-counts
-    └── tool_calls → execute tools → loop back to LLM
-        ├── sync tools: poke/scry, return immediately
-        └── async tools: fire Iris/Khan, wait for response, continue
+    → build sys-prompt (context + sender + tool-hint)
+    → scry %lcm for assembled context within budget
+    → make-llm-request
+        ├── provider=%openrouter: %pass %arvo %i %request (iris HTTPS)
+        └── provider=%maroon:     %pass %agent %poke %maroon-chat-req (gall poke)
+    → response arrives
+        ├── iris %http-response %finished  (handle-llm-response)
+        └── gall %poke %maroon-chat-resp  (on-poke — synthesizes sign-arvo
+                                           and re-enters the same dispatch)
+    → parse-llm-response
+        ├── OpenAI `tool_calls` field     → %tools
+        ├── qwen Hermes `<tool_call>`     → %tools  (extract-hermes-calls)
+        └── plain content                 → %text
+    → %text: sanitize (strip <think>, <|im_end|>…), ingest into %lcm,
+             route to source (DM / channel / thread), clear presence
+    → %tools: execute via execute-tool
+        ├── sync  → card(s) + text result → fire follow-up make-llm-request
+        └── async → iris/gall card → await /tool-http wire → finish-tool
+            → fire follow-up make-llm-request with tool result appended
+    (multi-round: loop until %text)
 
-Compaction (automatic):
-    → %lcm ingest triggers token check
-    → if total tokens > threshold (75% of context window):
-        → select oldest message chunk → LLM leaf summarization → store summary
-        → check for condensation opportunity (enough summaries at shallowest depth)
-        → if so: LLM condensed summarization → store higher-depth summary
-        → cascades until token budget is met
+Compaction (automatic, in %lcm):
+    → ingest → token check
+    → if > threshold: summarize oldest chunk → cascade condensation
 ```
 
 ### State
 
-**claw (state-11):**
+**`%claw` (state-14):**
 ```hoon
 api-key, brave-key, model, pending, last-error,
 context (map @tas @t), whitelist (map ship ship-role),
@@ -356,17 +337,18 @@ pending-src (map ship msg-source),
 channel-perms (map @t channel-perm),
 participated (set @t), seen-msgs (set @t),
 bot-counts (map @t @ud),
-pending-approvals (map ship @t),
-owner-last-msg @da,
-cron-jobs (map @ud cron-job), next-cron-id @ud
+pending-approvals (map ship @t), owner-last-msg @da,
+cron-jobs (map @ud cron-job), next-cron-id @ud,
+msg-queue (map ship [txt src]),
+default-provider, conv-providers (map @t provider), local-llm-url @t,
+max-response-tokens @ud, max-context-tokens @ud
 ```
-Each `cron-job` stores: schedule (5-field cron expression), prompt, active flag, version (for stale timer detection), created timestamp.
 
-**lcm (state-1):**
-```hoon
-conversations (map @t conversation), lcm-config, compact-state
-```
-Each conversation contains messages (never deleted), summaries (DAG nodes with descendant tracking), context-items (ordering), and sequence counters.
+**`%maroon` (in-memory):** `weights-qwen3`, `config-qwen3`, `tokenizer`, and per-generation `gen-state` (tokens, strategy, KV session id, api=%openai/%poke, poke-caller/req-id/meta for the direct-poke path).
+
+**`%mcp-server` (state-1):** `tools`, `prompts`, `resources`, `auth-token` (auto-generated `@uv` on fresh install; exposed via `.^(@t %gx /=mcp-server=/auth-token/noun)`).
+
+**`%mcp-proxy`:** registered upstream servers, per-server cookies, `client-key` (the `x-api-key` for `/apps/mcp/mcp`; exposed via `.^(@t %gx /=mcp-proxy=/client-key/noun)` — claw scries this).
 
 ## Running Tests
 
@@ -374,15 +356,14 @@ Each conversation contains messages (never deleted), summaries (DAG nodes with d
 -test %/tests ~
 ```
 
-Tests cover: lcm-key generation, model budget, LLM response parsing, token estimation, context assembly (ordering, budgets, fresh tail), leaf chunk selection, and full pipeline (ingest → assemble → verify).
-
 ## Adding Tools
 
 Edit `lib/claw-tools.hoon`:
 
-1. Add the tool definition to `+tool-defs`:
+1. Add a tool def to `+tool-defs`:
 ```hoon
-(tool-fn 'my_tool' 'Description for the LLM.' (obj ~[['param1' (req-str 'What this param does')]]))
+(tool-fn 'my_tool' 'Description for the LLM.'
+  (obj ~[['param1' (req-str 'What this param does')]]))
 ```
 
 2. Add execution logic to `+execute-tool`:
@@ -390,51 +371,27 @@ Edit `lib/claw-tools.hoon`:
 ?:  =('my_tool' name)
   =,  dejs:format
   =/  p1=@t  ((ot ~[param1+so]) u.args)
-  ::  sync: return cards + result text
   [%sync :~([%pass /tool/my %agent [our.bowl %some-agent] %poke %mark !>(data)]) 'done']
-  ::  OR async: return an Iris/Khan card
-  [%async [%pass /tool-http/'my_tool' %arvo %i %request ...]]
 ```
 
-For owner-only tools, check `?.  owner  [%sync ~ 'error: only the owner can use this tool']`.
+Owner-only tools: `?.  owner  [%sync ~ 'error: only the owner can use this tool']`.
 
 ## Reusable Libraries
 
-Three libraries are extracted as standalone modules with no agent dependencies. Other desks can copy and import them directly:
+Three libraries in `lib/` are standalone with no agent dependencies:
 
-**`lib/story-parse.hoon`** — Markdown to Tlon rich text conversion
-```hoon
-/+  *story-parse
-(text-to-story 'Hello **world**, check ~zod')  :: → story with bold + mention
-(story-to-text some-story)                      :: → plain text extraction
-```
-Handles: headers (`#`), blockquotes (`>`), bold, italic, strikethrough, inline code, ship mentions, line breaks, paragraph splitting.
-
-**`lib/cron.hoon`** — Cron expression parser
-```hoon
-/+  *cron
-(next-cron-fire '*/30 * * * *' now)  :: → (unit @da) next 30-min mark
-(next-cron-fire '0 9 * * 1-5' now)  :: → (unit @da) next weekday 9am
-(parse-cron-field '*/15' 0 59)      :: → (set @ud) {0 15 30 45}
-```
-Standard 5-field format (min hour dom month dow). Supports `*`, `*/N`, `N`, `N,M,O`.
-
-**`lib/s3-client.hoon`** — S3 upload with AWS SigV4 signing
-```hoon
-/+  *s3-client
-=/  creds  (scry-s3-creds cred-json conf-json)  :: extract from %storage
-(s3-presigned-put creds now image-data 'image/png')  :: → (unit [card url])
-```
-Includes: HMAC-SHA256, signing key derivation, hex encoding, URI encoding, presigned PUT URL generation, credential extraction from `%storage` agent JSON.
+- **`story-parse.hoon`** — Markdown ↔ Tlon story (headers, blockquotes, bold, italic, code, mentions, line breaks, paragraph splits)
+- **`cron.hoon`** — Cron expression parser (standard 5-field `min hour dom month dow`; supports `*`, `*/N`, `N,M`, ranges)
+- **`s3-client.hoon`** — AWS SigV4 S3 upload (HMAC-SHA256, signing key derivation, presigned PUT URLs, credential extraction from `%storage`)
 
 ## Dependencies
 
-- **OpenRouter API key** — for LLM access
-- **Brave Search API key** — optional, for web/image search
+- **OpenRouter API key** — required for `%openrouter` provider
+- **Local qwen3 weights + CUDA-equipped runtime** — required for `%maroon` provider
+- **Brave Search API key** — optional, for `web_search` / `image_search`
 - **S3 credentials** — optional, configured in system `%storage` agent
-- **%mcp desk** — optional, for MCP tools (auto-installable via `install_local_mcp`)
-- **%groups desk** — required, for chat/channel/activity types
+- **%groups desk** — required (chat/channel/activity/contacts/presence types)
 
 ## Credits
 
-Vibecoded with Opus 4.6 and [%mcp](https://github.com/gwbtc/urbit-mcp) by the GroundWire crew. Inspired by [picoclaw](https://github.com/user/picoclaw) and [openclaw-tlon](https://github.com/user/openclaw-tlon). LCM compaction prompts ported from [lossless-claw](https://github.com/user/lossless-claw). Built as a native Urbit alternative that doesn't require external infrastructure.
+Vibecoded with Opus 4.x. MCP integration via [%mcp](https://github.com/gwbtc/urbit-mcp). Inspired by picoclaw and openclaw-tlon. LCM compaction prompts ported from lossless-claw. On-ship inference via `%maroon` running jetted qwen3 on CUDA. Built as a native Urbit alternative that doesn't require external infrastructure.
