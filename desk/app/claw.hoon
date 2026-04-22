@@ -10,11 +10,41 @@
 /-  a=activity
 /-  lcm
 /-  ct=contacts
+/-  pr=presence
 /+  dbug, default-agent, server, tools=claw-tools
 /+  *story-parse, *cron
 |%
 +$  card  card:agent:gall
-+$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw state-12:claw)
++$  versioned-state  $%(state-0:claw state-1:claw state-2:claw state-3:claw state-4:claw state-5:claw state-6:claw state-7:claw state-8:claw state-9:claw state-10:claw state-11:claw state-12:claw state-13:claw state-14:claw)
+::
+::  +tool-hint: compact summary of how to use tools, injected into
+::  every sys-prompt.  ~80 tokens.  Keeps qwen-bonsai aware that the
+::  OpenAI-style `tools` param exists and how to invoke calls.
+::
+::  example tool-call text.  We assemble from bytes so the literal
+::  curly braces don't trigger Hoon interpolation in the template.
+++  tool-example
+  ^-  @t
+  =/  lb=@t  (crip `tape`~[`@tD`123])   ::  ASCII '{'
+  =/  rb=@t  (crip `tape`~[`@tD`125])   ::  ASCII '}'
+  %+  rap  3
+  :~  '<tool_call>\0a'  lb  '"name":"web_search","arguments":'
+      lb  '"query":"cats"'  rb  rb  '\0a</tool_call>\0a'
+  ==
+::
+++  tool-hint
+  ^-  @t
+  %+  rap  3
+  :~  '# Tools\0a\0a'
+      'To call a tool, emit exactly:\0a\0a'
+      tool-example
+      '\0aStop after the closing tag; the result will be fed back '
+      'and you can continue (including calling another tool). '
+      'Full schemas are in the `tools` request field. Key tools: '
+      'send_dm, send_channel_message, read_dm_history, '
+      'read_channel_history, web_search, image_search, http_fetch, '
+      'local_mcp_list/local_mcp (ship ops).'
+  ==
 ::
 ++  build-prompt
   |=  [=bowl:gall context=(map @tas @t) owner-ts=@da]
@@ -57,6 +87,7 @@
         "Owner last seen: never"
       "Owner last seen: {(scow %da owner-ts)}"
     ==
+  =.  parts  (snoc parts tool-hint)
   ?~  parts  ''
   =/  out=@t  i.parts
   =/  rem=(list @t)  t.parts
@@ -77,15 +108,42 @@
 ::
 ::  +assemble-context: build message list from summaries + fresh tail
 ::
+::  +pick-provider: global default, with per-conversation override.
+::
+++  pick-provider
+  |=  $:  conv-key=@t
+          default-provider=provider:claw
+          conv-providers=(map @t provider:claw)
+      ==
+  ^-  provider:claw
+  =/  o  (~(get by conv-providers) conv-key)
+  ?~  o  default-provider
+  u.o
+::
+::  +make-llm-request: build a card that POSTs an OpenAI-format
+::  chat.completions body to the provider's endpoint.
+::
+::    %openrouter: remote host, Bearer auth from api-key.
+::    %maroon    : local ship's own Eyre at local-llm-url — the URL
+::                 should include scheme + host + port, no trailing path.
+::
 ++  make-llm-request
-  |=  $:  =bowl:gall  api-key=@t  model=@t  sys-prompt=@t
+  |=  $:  =bowl:gall  =provider:claw  api-key=@t
+          local-llm-url=@t  model=@t  sys-prompt=@t
           key=@t  =wire
           extra-msgs=(list json)
           pending-msg=(unit msg:claw)
+          max-response-tokens=@ud
+          max-context-tokens=@ud
+          source=msg-source:claw
+          dm-who=(unit ship)
       ==
   ^-  card
-  ::  scry lcm for assembled context
-  =/  budget=@ud  (model-budget model)
+  ::  scry lcm for assembled context.  User dial `max-context-tokens`
+  ::  overrides the per-model heuristic when non-zero; LCM trims
+  ::  oldest-first to fit.
+  =/  budget=@ud
+    ?:(=(0 max-context-tokens) (model-budget model) max-context-tokens)
   =/  trimmed=(list msg:claw)
     =/  ctx  (lcm-context bowl key budget)
     ::  append pending msg if set (not yet ingested into lcm)
@@ -106,14 +164,30 @@
     :~  ['model' s+model]
         ['messages' api-msgs]
         ['tools' tool-defs:tools]
+        ['max_tokens' (numb:enjs:format max-response-tokens)]
     ==
   =/  body-cord=@t  (en:json:html body)
+  ::  For %maroon (same-ship) we bypass Eyre/iris entirely and poke
+  ::  the agent directly.  The iris loopback path was unreliable and
+  ::  HTTP adds no value for a call that never leaves the ship.  The
+  ::  req-id threads the wire for debuggability; opaque meta carries
+  ::  `[source dm-who]` so the response handler can route the reply
+  ::  without any new state.
+  ?:  ?=(%maroon provider)
+    =/  req-id=@t  (spat wire)
+    =/  meta=*  [source dm-who]
+    :*  %pass  wire  %agent  [our.bowl %maroon]  %poke
+        %maroon-chat-req  !>([req-id meta body-cord])
+    ==
   =/  hed=(list [key=@t value=@t])
     :~  ['Content-Type' 'application/json']
         ['Authorization' (crip "Bearer {(trip api-key)}")]
     ==
   =/  req=request:http
-    [%'POST' 'https://openrouter.ai/api/v1/chat/completions' hed `(as-octs:mimes:html body-cord)]
+    :*  %'POST'
+        'https://openrouter.ai/api/v1/chat/completions'
+        hed  `(as-octs:mimes:html body-cord)
+    ==
   [%pass wire %arvo %i %request req *outbound-config:iris]
 ::
 ::  +parse-llm-response: parse openrouter response, detecting tool calls
@@ -208,15 +282,10 @@
 ++  get-nickname
   |=  [=bowl:gall who=ship]
   ^-  @t
-  =/  result=(each @t tang)
-    %-  mule  |.
-    =/  con=contact:ct
-      .^(contact:ct %gx /(scot %p our.bowl)/contacts/(scot %da now.bowl)/v1/contact/(scot %p who)/contact-1)
-    =/  nick=(unit value:ct)  (~(get by con) %nickname)
-    ?~  nick  ''
-    ?.  ?=([%text *] u.nick)  ''
-    p.u.nick
-  ?:(?=(%| -.result) '' p.result)
+  ::  disabled: the contacts scry bails: 4 on some ships (happens at
+  ::  the jet layer, escaping +mule).  Returning empty is harmless —
+  ::  nick is only a cosmetic system-prompt hint.
+  ''
 ::
 ::  +has-own-nickname: check if text contains bot's own nickname
 ::    case-insensitive word check
@@ -257,6 +326,159 @@
     [%pass /ch-send %agent [our.bowl %channels] %poke %channel-action-1 !>(act)]
   ==
 ::
+::  +sanitize-llm: strip ChatML / qwen3-thinking control tokens and the
+::  entire <think>…</think> scratchpad before sending the reply to the
+::  user.  Local-provider (%maroon) leaks these because its tokenizer
+::  emits them as literal text when it hits max_tokens mid-turn.
+::
+::  +sanitize-llm: strip ChatML control tags and <think>…</think>
+::  scratchpads from an LLM reply.  Walks the input tape once.
+::
+++  sanitize-llm
+  |=  t=@t
+  ^-  @t
+  =/  in=tape  (trip t)
+  =/  think-open=tape   "<think>"
+  =/  think-close=tape  "</think>"
+  =/  im-end=tape       "<|im_end|>"
+  =/  im-start=tape     "<|im_start|>"
+  =/  eof=tape          "<|endoftext|>"
+  =|  out=tape
+  =|  skipping=?
+  |-  ^-  @t
+  ?~  in  (crip (trim-ws (flop (trim-ws out))))
+  ?:  skipping
+    ?:  (starts-with think-close `tape`in)
+      $(in `tape`(slag (lent think-close) `tape`in), skipping %.n)
+    $(in `tape`t.in)
+  ?:  (starts-with think-open `tape`in)
+    $(in `tape`(slag (lent think-open) `tape`in), skipping %.y)
+  ?:  (starts-with im-end `tape`in)
+    $(in `tape`(slag (lent im-end) `tape`in))
+  ?:  (starts-with im-start `tape`in)
+    $(in `tape`(slag (lent im-start) `tape`in))
+  ?:  (starts-with eof `tape`in)
+    $(in `tape`(slag (lent eof) `tape`in))
+  $(in `tape`t.in, out [i.in out])
+::
+::  +starts-with: does tape `hay` start with `pat`?  Purely positional.
+::
+++  starts-with
+  |=  [pat=tape hay=tape]
+  ^-  ?
+  ?~  pat  %.y
+  ?~  hay  %.n
+  ?.  =(i.pat i.hay)  %.n
+  $(pat t.pat, hay t.hay)
+::
+::  +trim-ws: strip leading whitespace (space, tab, CR, LF) from a tape.
+::
+++  trim-ws
+  |=  x=tape
+  ^-  tape
+  ?~  x  x
+  ?.  ?|(=(i.x ' ') =(i.x 10) =(i.x 13) =(i.x 9))  x
+  $(x `tape`t.x)
+::
+::  +presence-context: derive a /apps/groups %presence context path
+::  from claw's internal msg-source.  Returns ~ for sources with no
+::  audience (direct, unsupported thread types).
+::
+++  presence-context
+  |=  src=msg-source:claw
+  ^-  (unit path)
+  ?-  -.src
+      %direct  ~
+      %dm  `/dm/(scot %p ship.src)
+      %dm-thread  `/dm/(scot %p ship.src)
+      %channel
+    `/channel/(scot %tas kind.src)/(scot %p host.src)/(scot %tas name.src)
+      %thread
+    `/channel/(scot %tas kind.src)/(scot %p host.src)/(scot %tas name.src)
+  ==
+::
+::  +presence-card: build a poke to our own %presence agent.
+::  kind=%start sets a "computing" flag visible to the appropriate
+::  audience (DM counterparty for DMs, channel subscribers for
+::  channels).  kind=%stop clears it.  No-ops for contexts with no
+::  audience.
+::
+++  presence-card
+  |=  [=bowl:gall src=msg-source:claw kind=?(%start %stop)]
+  ^-  (list card)
+  =/  ctx=(unit path)  (presence-context src)
+  ?~  ctx  ~
+  =/  disclose=(set ship)
+    ?-  -.src
+      %dm         (silt ~[ship.src])
+      %dm-thread  (silt ~[ship.src])
+      ::  channels: empty disclose = broadcast to all subscribers
+      %channel    ~
+      %thread     ~
+      %direct     ~
+    ==
+  =/  key=key:pr  [u.ctx our.bowl %computing]
+  =/  =action-1:pr
+    ?-  kind
+        %start
+      [%set disclose key `~m1 [icon=~ text=`'thinking...' blob=~]]
+        %stop
+      [%clear key]
+    ==
+  :~  [%pass /presence %agent [our.bowl %presence] %poke %presence-action-1 !>(action-1)]
+  ==
+::
+::  +extract-hermes-calls: scan a plain-text assistant reply for
+::  <tool_call>…</tool_call> blocks (qwen3's native Hermes format).
+::  Each block's contents must be a JSON object with `name` and
+::  `arguments` fields.  We return the ORIGINAL text unchanged so the
+::  follow-up prompt preserves the tool_call blocks — qwen3 expects
+::  its own tool_call in the conversation history when it sees the
+::  <tool_response> come back.
+::
+++  extract-hermes-calls
+  |=  text=@t
+  ^-  [cleaned=@t calls=(list [id=@t name=@t arguments=@t])]
+  =/  open=tape   "<tool_call>"
+  =/  close=tape  "</tool_call>"
+  =/  in=tape     (trip text)
+  =|  calls=(list [id=@t name=@t arguments=@t])
+  =|  idx=@ud
+  |-  ^-  [cleaned=@t calls=(list [id=@t name=@t arguments=@t])]
+  ?~  in
+    [text (flop calls)]
+  ?.  (starts-with open `tape`in)
+    $(in `tape`t.in)
+  ::  consume <tool_call> … </tool_call>, extract JSON body
+  =/  after-open=tape  (slag (lent open) `tape`in)
+  =|  blob=tape
+  |-  ^-  [cleaned=@t calls=(list [id=@t name=@t arguments=@t])]
+  ?~  after-open
+    [text (flop calls)]
+  ?:  (starts-with close `tape`after-open)
+    =/  remaining=tape  (slag (lent close) `tape`after-open)
+    =/  json-text=@t  (crip (flop blob))
+    =/  parsed-call=(unit [name=@t arguments=@t])
+      =/  r=(each [name=@t arguments=@t] tang)
+        %-  mule  |.
+        =/  jon=(unit json)  (de:json:html json-text)
+        ?~  jon  !!
+        =/  m  (need (me u.jon))
+        =/  nm  (need (~(get by m) 'name'))
+        ?.  ?=([%s *] nm)  !!
+        =/  args  (need (~(get by m) 'arguments'))
+        =/  arg-str=@t
+          ?:  ?=([%s *] args)  p.args
+          (en:json:html args)
+        [name=p.nm arguments=arg-str]
+      ?:(?=(%| -.r) ~ `p.r)
+    =/  updated-calls=(list [id=@t name=@t arguments=@t])
+      ?~  parsed-call  calls
+      =/  sid=@t  (rap 3 'hermes_' (scot %ud idx) ~)
+      (snoc calls [sid name.u.parsed-call arguments.u.parsed-call])
+    ^$(in `tape`remaining, calls updated-calls, idx +(idx))
+  $(after-open `tape`t.after-open, blob [i.after-open blob])
+::
 ++  parse-llm-response
   |=  body=@t
   ^-  (unit ?([%text content=@t] [%tools content=@t calls=(list [id=@t name=@t arguments=@t])]))
@@ -271,10 +493,13 @@
   ::  check for tool_calls
   =/  tc=(unit json)  (~(get by msg-map) 'tool_calls')
   ?~  tc
-    ::  normal text response
+    ::  no structured tool_calls field — check for qwen3 Hermes-style
+    ::  <tool_call>…</tool_call> blocks in the content text.
     =/  content=json  (need (~(get by msg-map) 'content'))
     ?.  ?=([%s *] content)  !!
-    [%text p.content]
+    =/  extracted  (extract-hermes-calls p.content)
+    ?~  calls.extracted  [%text cleaned.extracted]
+    [%tools cleaned.extracted calls.extracted]
   ::  tool call response - also grab content text if present
   ?.  ?=([%a *] u.tc)  !!
   =/  tc-content=@t
@@ -467,7 +692,7 @@
 --
 ::
 %-  agent:dbug
-=|  state-12:claw
+=|  state-14:claw
 =*  state  -
 ^-  agent:gall
 |_  =bowl:gall
@@ -545,7 +770,14 @@
           "4. Respond confirming what you sent."
         ==
     ==
-  :_  this(model 'anthropic/claude-sonnet-4', pending %.n, context default-ctx)
+  :_  %=  this
+        model            'anthropic/claude-sonnet-4'
+        pending          %.n
+        context          default-ctx
+        default-provider  %maroon
+        local-llm-url    'http://localhost:8080'
+        max-response-tokens  1.024
+      ==
   :~  [%pass /eyre/connect %arvo %e %connect [`/apps/claw/api dap.bowl]]
       ::  subscribe to activity for mentions and group invites
       [%pass /activity %agent [our.bowl %activity] %watch /v4]
@@ -557,36 +789,94 @@
   |=  =vase
   ^-  (quip card _this)
   =/  old  !<(versioned-state vase)
-  =/  new=state-12:claw
-    ?-  -.old
-        %12  old
-        %11
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old cron-jobs.old next-cron-id.old ~]
-        %10
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~]
-        %9
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~]
-        %8
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da ~ 0 ~]
-        %7
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da ~ 0 ~]
-        %6
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da ~ 0 ~]
-        %5
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
-        %4
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
-        %3
-      [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
-        %2
-      [%12 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
-        %1
-      [%12 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
-        %0
-      =/  ctx=(map @tas @t)  *(map @tas @t)
-      =?  ctx  !=('' system-prompt.old)
-        (~(put by ctx) %agent system-prompt.old)
-      [%12 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+  ?:  ?=(%14 -.old)
+    ::  already-current state; nothing to migrate, but still re-arm subs/cron below.
+    =/  new  `state-14:claw`old
+    =/  rebind-cards=(list card)
+      :~  [%pass /eyre/connect %arvo %e %connect [`/apps/claw/api dap.bowl]]
+      ==
+    =/  sub-cards=(list card)
+      :~  [%pass /activity %agent [our.bowl %activity] %leave ~]
+          [%pass /activity %agent [our.bowl %activity] %watch /v4]
+      ==
+    =/  dm-cards=(list card)
+      %+  turn  ~(tap by whitelist.new)
+      |=  [s=ship r=ship-role:claw]
+      [%pass /dm-watch/(scot %p s) %agent [our.bowl %chat] %watch /dm/(scot %p s)]
+    =/  cron-cards=(list card)
+      %+  murn  ~(tap by cron-jobs.new)
+      |=  [cid=@ud job=cron-job:claw]
+      ?.  active.job  ~
+      =/  nxt=(unit @da)  (next-cron-fire schedule.job now.bowl)
+      ?~  nxt  ~
+      `[%pass /cron/(scot %ud cid)/(scot %ud version.job) %arvo %b %wait u.nxt]
+    :_  this(state new)
+    :(weld rebind-cards sub-cards dm-cards cron-cards)
+  ::  Cascade: %0..%12 → state-12 → state-13 → state-14.
+  ::  %13 short-circuits the state-12 cascade (goes straight to 13→14).
+  ::  %14 was early-returned above.
+  =/  new-13=state-13:claw
+    ?:  ?=(%13 -.old)  old
+    =/  new-12=state-12:claw
+      ?-  -.old
+          %12  old
+          %11
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old cron-jobs.old next-cron-id.old ~]
+          %10
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~]
+          %9
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old bot-counts.old pending-approvals.old owner-last-msg.old ~ 0 ~]
+          %8
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old participated.old seen-msgs.old ~ ~ *@da ~ 0 ~]
+          %7
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old channel-perms.old ~ ~ ~ ~ *@da ~ 0 ~]
+          %6
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old tool-loop.old pending-src.old ~ ~ ~ ~ ~ *@da ~ 0 ~]
+          %5
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+          %4
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+          %3
+        [%12 api-key.old brave-key.old model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+          %2
+        [%12 api-key.old '' model.old pending.old last-error.old context.old whitelist.old dm-pending.old ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+          %1
+        [%12 api-key.old '' model.old pending.old last-error.old context.old ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+          %0
+        =/  ctx=(map @tas @t)  *(map @tas @t)
+        =?  ctx  !=('' system-prompt.old)
+          (~(put by ctx) %agent system-prompt.old)
+        [%12 api-key.old '' model.old pending.old last-error.old ctx ~ ~ ~ ~ ~ ~ ~ ~ ~ *@da ~ 0 ~]
+      ==
+    :*  %13
+        api-key.new-12  brave-key.new-12  model.new-12  pending.new-12
+        last-error.new-12  context.new-12  whitelist.new-12
+        dm-pending.new-12  tool-loop.new-12  pending-src.new-12
+        channel-perms.new-12  participated.new-12  seen-msgs.new-12
+        bot-counts.new-12  pending-approvals.new-12
+        owner-last-msg.new-12  cron-jobs.new-12  next-cron-id.new-12
+        msg-queue.new-12
+        %maroon                         ::  default-provider: local first
+        *(map @t provider:claw)         ::  conv-providers
+        'http://localhost:8080'         ::  local-llm-url
+    ==
+  =/  new=state-14:claw
+    :*  %14
+        api-key.new-13  brave-key.new-13  model.new-13  pending.new-13
+        last-error.new-13  context.new-13  whitelist.new-13
+        dm-pending.new-13  tool-loop.new-13  pending-src.new-13
+        channel-perms.new-13  participated.new-13  seen-msgs.new-13
+        bot-counts.new-13  pending-approvals.new-13
+        owner-last-msg.new-13  cron-jobs.new-13  next-cron-id.new-13
+        msg-queue.new-13
+        default-provider.new-13  conv-providers.new-13  local-llm-url.new-13
+        1.024    ::  max-response-tokens
+        0        ::  max-context-tokens (0 = use per-model heuristic)
+    ==
+  ::  rebind Eyre on every load so /apps/claw/api keeps mapping to us
+  ::  across agent revives and vere restarts.
+  =/  rebind-cards=(list card)
+    :~  [%pass /eyre/connect %arvo %e %connect [`/apps/claw/api dap.bowl]]
     ==
   ::  re-establish subscriptions on every load
   =/  sub-cards=(list card)
@@ -618,13 +908,38 @@
     ?~  nxt  ~
     `[%pass /cron/(scot %ud cid)/(scot %ud version.job) %arvo %b %wait u.nxt]
   :_  this(state new)
-  :(weld sub-cards dm-cards migrate-cards cron-cards)
+  :(weld rebind-cards sub-cards dm-cards migrate-cards cron-cards)
 ::
 ++  on-poke
   |=  [=mark =vase]
   ^-  (quip card _this)
   ?+  mark
     (on-poke:def mark vase)
+  ::
+  ::  Direct response from %maroon (same-ship), no iris involved.
+  ::  `meta` carries the original `[source dm-who]` so we can route
+  ::  the reply without any per-request state.  We handle the reply
+  ::  inline here rather than going through on-arvo so the path is
+  ::  explicit and doesn't look like HTTP handling.
+  ::
+      %maroon-chat-resp
+    =+  !<([req-id=@t meta=* status=@ud body=@t] vase)
+    =+  ;;([source=msg-source:claw dm-who=(unit ship)] meta)
+    ::  Hand the decoded body off to on-arvo via a synthetic sign.  The
+    ::  on-arvo/handle-llm-body path already owns text-vs-tool-call
+    ::  dispatch, multi-round tool loops, sanitize, presence clears,
+    ::  and per-source routing.  This keeps a single code path for
+    ::  both openrouter (iris) and maroon (poke) responses.
+    =/  =response-header:http  [status ~]
+    =/  full=(unit mime-data:iris)
+      ?:  =('' body)  ~
+      `[type='application/json' data=(as-octs:mimes:html body)]
+    =/  synthetic-sign=sign-arvo
+      [%iris %http-response [%finished response-header full]]
+    =/  fake-wire=wire
+      ?:  =(-.source %direct)  /query
+      /dm-query/(scot %p (src-ship source))/(scot %da now.bowl)
+    (on-arvo fake-wire synthetic-sign)
   ::
       %handle-http-request
     =+  !<([rid=@ta =inbound-request:eyre] vase)
@@ -693,6 +1008,22 @@
           [%cron-add s p]
             %'cron-remove'
           ^-  action:claw  [%cron-remove `@ud`((ot ~[['cron-id' ni]]) u.jon)]
+            %'set-default-provider'
+          ^-  action:claw
+          =/  p=@t  ((ot ~[provider+so]) u.jon)
+          [%set-default-provider ?:(=('maroon' p) %maroon %openrouter)]
+            %'set-conv-provider'
+          ^-  action:claw
+          =/  [k=@t p=@t]  ((ot ~[['conv-key' so] provider+so]) u.jon)
+          [%set-conv-provider k ?:(=('maroon' p) %maroon %openrouter)]
+            %'clear-conv-provider'
+          ^-  action:claw  [%clear-conv-provider `@t`((ot ~[['conv-key' so]]) u.jon)]
+            %'set-local-llm-url'
+          ^-  action:claw  [%set-local-llm-url `@t`((ot ~[url+so]) u.jon)]
+            %'set-max-response-tokens'
+          ^-  action:claw  [%set-max-response-tokens `@ud`((ot ~[tokens+ni]) u.jon)]
+            %'set-max-context-tokens'
+          ^-  action:claw  [%set-max-context-tokens `@ud`((ot ~[tokens+ni]) u.jon)]
         ==
       ?~  act
         :_  this
@@ -731,6 +1062,15 @@
             %+  turn  ~(tap by pending-approvals)
             |=  [s=ship reason=@t]
             [(scot %p s) s+reason]
+            ['default-provider' s+?:(=(default-provider %maroon) 'maroon' 'openrouter')]
+            ['local-llm-url' s+local-llm-url]
+            ['max-response-tokens' (numb:enjs:format max-response-tokens)]
+            ['max-context-tokens' (numb:enjs:format max-context-tokens)]
+            :-  'conv-providers'
+            %-  pairs:enjs:format
+            %+  turn  ~(tap by conv-providers)
+            |=  [k=@t p=provider:claw]
+            [k s+?:(=(p %maroon) 'maroon' 'openrouter')]
         ==
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::
@@ -898,16 +1238,43 @@
     =.  cron-jobs  (~(del by cron-jobs) cron-id.act)
     `this
   ::
+      %set-default-provider
+    %-  (slog leaf+"claw: default provider set to {<provider.act>}" ~)
+    `this(default-provider provider.act)
+  ::
+      %set-conv-provider
+    %-  (slog leaf+"claw: conv '{(trip conv-key.act)}' provider set to {<provider.act>}" ~)
+    `this(conv-providers (~(put by conv-providers) conv-key.act provider.act))
+  ::
+      %clear-conv-provider
+    %-  (slog leaf+"claw: conv '{(trip conv-key.act)}' provider cleared" ~)
+    `this(conv-providers (~(del by conv-providers) conv-key.act))
+  ::
+      %set-local-llm-url
+    %-  (slog leaf+"claw: local-llm-url set to '{(trip url.act)}'" ~)
+    `this(local-llm-url url.act)
+  ::
+      %set-max-response-tokens
+    %-  (slog leaf+"claw: max-response-tokens = {<tokens.act>}" ~)
+    `this(max-response-tokens tokens.act)
+  ::
+      %set-max-context-tokens
+    %-  (slog leaf+"claw: max-context-tokens = {<tokens.act>}" ~)
+    `this(max-context-tokens tokens.act)
+  ::
       %prompt
     ?:  pending  ~|(%claw-busy !!)
-    ?:  =('' api-key)  ~|(%claw-no-api-key !!)
+    ?:  ?&  =(%openrouter (pick-provider 'direct' default-provider conv-providers))
+            =('' api-key)
+        ==
+      ~|(%claw-no-api-key !!)
     =/  new-msg=msg:claw  ['user' content.act]
     =.  pending  %.y
     =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
     %-  (slog leaf+"claw: sending prompt..." ~)
     :_  this
     :~  (lcm-ingest bowl 'direct' 'user' content.act)
-        (make-llm-request bowl api-key model sys-prompt 'direct' /query ~ `new-msg)
+        (make-llm-request bowl (pick-provider 'direct' default-provider conv-providers) api-key local-llm-url model sys-prompt 'direct' /query ~ `new-msg max-response-tokens max-context-tokens [%direct ~] ~)
     ==
   ==
   ==
@@ -1014,44 +1381,19 @@
       ?.  (~(has by whitelist) from)
         %-  (slog leaf+"claw: ignoring dm from {(scow %p from)}" ~)
         `this
-      ::  extract text from story content
+      ::  /dm-watch (chat writ-response) is kept subscribed for owner
+      ::  heartbeat + rate-limit bookkeeping only.  LLM dispatch is
+      ::  owned by the /activity %dm-post branch so every DM lands
+      ::  with the activity msg-id for dedup.  Running both paths
+      ::  caused duplicate LLM calls and iris duct collisions.
       =/  text=@t  (story-to-text ;;(story:d content-noun))
       ?:  =('' text)  `this
-      ::  dedup: use ship+text-hash
-      =/  evt-id=@t  (rap 3 'dmw/' (scot %p from) '/' (scot %uv (mug text)) ~)
-      ?:  (~(has in seen-msgs) evt-id)  `this
-      =.  seen-msgs  (~(put in seen-msgs) evt-id)
-      =?  seen-msgs  (gth ~(wyt in seen-msgs) 1.000)  ~
-      ::  owner heartbeat tracking
       =/  dmw-role=(unit ship-role:claw)  (~(get by whitelist) from)
       =?  owner-last-msg  &(?=(^ dmw-role) =(u.dmw-role %owner))
         now.bowl
-      ::  bot rate limiting: reset count (human DM received)
       =/  dmw-rl-key=@t  (rap 3 'dm/' (scot %p from) ~)
       =.  bot-counts  (~(put by bot-counts) dmw-rl-key 0)
-      %-  (slog leaf+"claw: dm from {(scow %p from)}: {(trip text)}" ~)
-      ::  check for slash commands
-      =/  src=msg-source:claw  [%dm from]
-      =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
-      ?^  slash-result  [u.slash-result this]
-      ::  send to llm, history managed by lcm
-      =.  dm-pending  (~(put in dm-pending) from)
-      ?:  =('' api-key)
-        =.  dm-pending  (~(del in dm-pending) from)
-        :_  this
-        :~  (send-dm-card bowl from 'Sorry, I don\'t have an API key configured yet. My owner needs to set one up.')
-        ==
-      =/  base-prompt=@t  (build-prompt bowl context owner-last-msg)
-      ::  inject sender context so LLM knows who it's talking to
-      =/  nick=@t  (get-nickname bowl from)
-      =/  nick-str=@t
-        ?:(=('' nick) '' (rap 3 ' (nickname: ' nick ')' ~))
-      =/  sys-prompt=@t
-        (rap 3 base-prompt '\0a\0a---\0a\0a# Current Conversation\0a\0aYou are in a DM conversation with ' (scot %p from) nick-str '. When they ask you to send them something, use ship=' (scot %p from) ' in the send_dm tool.' ~)
-      :_  this
-      :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-          (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
-      ==
+      `this
     ==
   ::
       [%dm-rsvp @ ~]
@@ -1161,7 +1503,9 @@
           `this
         =.  pending-src  (~(put by pending-src) from src)
         =.  dm-pending  (~(put in dm-pending) from)
-        ?:  =('' api-key)
+        ?:  ?&  =(%openrouter (pick-provider (lcm-key src) default-provider conv-providers))
+                =('' api-key)
+            ==
           =.  dm-pending  (~(del in dm-pending) from)
           :_  this
           :~  (send-reply-card bowl src 'Sorry, no API key configured.')
@@ -1192,8 +1536,9 @@
               msg-id
           ==
         :_  this
+        %+  weld  (presence-card bowl src %start)
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
+            (make-llm-request bowl (pick-provider (lcm-key src) default-provider conv-providers) api-key local-llm-url model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text] max-response-tokens max-context-tokens src `from)
         ==
       ::
           %dm-post
@@ -1215,7 +1560,9 @@
           [owner-cards this]
         =/  text=@t  (story-to-text content.incoming)
         ?:  =('' text)  `this
-        ::  dedup
+        ::  dedup by activity msg-id (unique per DM) so repeat identical
+        ::  text does not collide.  /dm-watch is a no-op for dispatch so
+        ::  we no longer need a cross-path shared key.
         =/  evt-id=@t  (rap 3 'dmp/' (scot %p from) '/' (scot %da q.id.key.incoming) ~)
         ?:  (~(has in seen-msgs) evt-id)  `this
         =.  seen-msgs  (~(put in seen-msgs) evt-id)
@@ -1233,7 +1580,9 @@
         =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
         ?^  slash-result  [u.slash-result this]
         =.  dm-pending  (~(put in dm-pending) from)
-        ?:  =('' api-key)
+        ?:  ?&  =(%openrouter (pick-provider (lcm-key src) default-provider conv-providers))
+                =('' api-key)
+            ==
           =.  dm-pending  (~(del in dm-pending) from)
           :_  this
           :~  (send-dm-card bowl from 'Sorry, no API key configured.')
@@ -1254,8 +1603,9 @@
               '\0aYour text response is automatically sent as a DM reply.'
           ==
         :_  this
+        %+  weld  (presence-card bowl src %start)
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
+            (make-llm-request bowl (pick-provider (lcm-key src) default-provider conv-providers) api-key local-llm-url model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text] max-response-tokens max-context-tokens src `from)
         ==
       ::
           %dm-reply
@@ -1280,7 +1630,9 @@
         =/  slash-result  (handle-slash bowl text from src model pending api-key last-error whitelist context pending-approvals owner-last-msg)
         ?^  slash-result  [u.slash-result this]
         =.  dm-pending  (~(put in dm-pending) from)
-        ?:  =('' api-key)
+        ?:  ?&  =(%openrouter (pick-provider (lcm-key src) default-provider conv-providers))
+                =('' api-key)
+            ==
           =.  dm-pending  (~(del in dm-pending) from)
           :_  this
           :~  (send-dm-card bowl from 'Sorry, no API key configured.')
@@ -1299,8 +1651,9 @@
           ==
         =.  pending-src  (~(put by pending-src) from src)
         :_  this
+        %+  weld  (presence-card bowl src %start)
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
+            (make-llm-request bowl (pick-provider (lcm-key src) default-provider conv-providers) api-key local-llm-url model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text] max-response-tokens max-context-tokens src `from)
         ==
       ::
           %reply
@@ -1352,7 +1705,9 @@
           `this
         =.  pending-src  (~(put by pending-src) from src)
         =.  dm-pending  (~(put in dm-pending) from)
-        ?:  =('' api-key)
+        ?:  ?&  =(%openrouter (pick-provider (lcm-key src) default-provider conv-providers))
+                =('' api-key)
+            ==
           =.  dm-pending  (~(del in dm-pending) from)
           :_  this
           :~  (send-reply-card bowl src 'Sorry, no API key configured.')
@@ -1372,8 +1727,9 @@
               '.\0aYour response will be posted in the same thread.'
           ==
         :_  this
+        %+  weld  (presence-card bowl src %start)
         :~  (lcm-ingest bowl (lcm-key src) 'user' text)
-            (make-llm-request bowl api-key model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text])
+            (make-llm-request bowl (pick-provider (lcm-key src) default-provider conv-providers) api-key local-llm-url model sys-prompt (lcm-key src) /dm-query/(scot %p from)/(scot %da now.bowl) ~ `['user' text] max-response-tokens max-context-tokens src `from)
         ==
       ==
       ?~  result
@@ -1443,8 +1799,12 @@
     ::  ignore stale fires
     ?.  &(active.u.job =(u.ver version.u.job))  `this
     %-  (slog leaf+"claw: cron fire schedule='{(trip schedule.u.job)}'" ~)
-    ::  process the prompt through the LLM
-    ?:  =('' api-key)  `this
+    ::  process the prompt through the LLM (skip openrouter with no key;
+    ::  %maroon is fine without)
+    ?:  ?&  =(%openrouter (pick-provider 'direct' default-provider conv-providers))
+            =('' api-key)
+        ==
+      `this
     =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
     ::  bump version and reschedule
     =/  next-ver=@ud  +(version.u.job)
@@ -1455,7 +1815,7 @@
     :_  this
     =/  cards=(list card)
       :~  (lcm-ingest bowl 'direct' 'system' (rap 3 '[Scheduled: ' schedule.u.job '] ' prompt.u.job ~))
-          (make-llm-request bowl api-key model sys-prompt 'direct' /cron-query ~ `['system' prompt.u.job])
+          (make-llm-request bowl (pick-provider 'direct' default-provider conv-providers) api-key local-llm-url model sys-prompt 'direct' /cron-query ~ `['system' prompt.u.job] max-response-tokens max-context-tokens [%direct ~] ~)
       ==
     ?~  nxt  cards
     :_  cards
@@ -1503,33 +1863,10 @@
   ::  compaction response
   ::
   ::
-      [%tool-http %local-mcp ~]
-    ?.  ?=([%khan %arow *] sign)  `this
-    ?~  tool-loop
-      %-  (slog leaf+"claw: khan response but no pending loop" ~)
-      `this
-    =/  tl=tool-pending:claw  u.tool-loop
-    =/  tc-id=@t
-      =/  found  (skim pending.tl |=([id=@t n=@t a=@t] =(n 'local_mcp')))
-      ?~(found 'unknown' id.i.found)
-    =/  result=@t
-      ?:  ?=(%| -.p.sign)
-        'error: MCP tool execution failed'
-      ::  extract text from the result vase
-      =/  res-noun  q.p.p.sign
-      ::  try JSON first, then cord, then just describe it
-      =/  as-json=(unit @t)  (mole |.((en:json:html ;;(json res-noun))))
-      ?^  as-json  (crip (scag 6.000 (trip u.as-json)))
-      =/  as-cord=(unit @t)  (mole |.(;;(@t res-noun)))
-      ?^  as-cord  (crip (scag 4.000 (trip u.as-cord)))
-      'MCP tool returned a result (non-text)'
-    %-  (slog leaf+"claw: mcp tool done" ~)
-    (finish-tool tl tc-id result)
-  ::
       [%query ~]
     (handle-llm-response sign [%direct ~] ~)
   ::
-      [%query-tools ~]
+      [%query-tools *]
     (handle-llm-response sign [%direct ~] ~)
   ::
       [%dm-query @ *]
@@ -1636,7 +1973,7 @@
         &(?=(^ r) =(u.r %owner))
       =/  res=tool-result:tools
         =/  r=(each tool-result:tools tang)
-          (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner)))
+          (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner local-llm-url)))
         ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
       ?.  ?=(%async -.res)
         =.  tool-loop  `[msg-source.tl conv-key.tl (snoc new-fmsgs (tool-result-json id.next 'done')) t.rest]
@@ -1646,10 +1983,10 @@
     ::  all done - fire llm follow-up
     =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
     =/  follow-wire=path
-      ?:  =(-.msg-source.tl %direct)  /query-tools
-      /dm-query-tools/(scot %p (src-ship msg-source.tl))
+      ?:  =(-.msg-source.tl %direct)  /query-tools/(scot %da now.bowl)
+      /dm-query-tools/(scot %p (src-ship msg-source.tl))/(scot %da now.bowl)
     :_  this(tool-loop ~)
-    :~  (make-llm-request bowl api-key model sys-prompt conv-key.tl follow-wire new-fmsgs ~)
+    :~  (make-llm-request bowl (pick-provider conv-key.tl default-provider conv-providers) api-key local-llm-url model sys-prompt conv-key.tl follow-wire new-fmsgs ~ max-response-tokens max-context-tokens msg-source.tl ?:(=(-.msg-source.tl %direct) ~ `(src-ship msg-source.tl)))
     ==
   ==
 ::
@@ -1673,7 +2010,7 @@
       &(?=(^ r) =(u.r %owner))
     =/  res=tool-result:tools
       =/  r=(each tool-result:tools tang)
-        (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner)))
+        (mule |.((execute-tool:tools bowl name.next arguments.next brave-key tl-owner local-llm-url)))
       ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
     ?.  ?=(%async -.res)
       ::  sync - add result and recurse
@@ -1684,10 +2021,10 @@
   ::  all done - fire LLM follow-up
   =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
   =/  follow-wire=path
-    ?:  =(-.msg-source.tl %direct)  /query-tools
-    /dm-query-tools/(scot %p (src-ship msg-source.tl))
+    ?:  =(-.msg-source.tl %direct)  /query-tools/(scot %da now.bowl)
+    /dm-query-tools/(scot %p (src-ship msg-source.tl))/(scot %da now.bowl)
   :_  this(tool-loop ~)
-  :~  (make-llm-request bowl api-key model sys-prompt conv-key.tl follow-wire new-fmsgs ~)
+  :~  (make-llm-request bowl (pick-provider conv-key.tl default-provider conv-providers) api-key local-llm-url model sys-prompt conv-key.tl follow-wire new-fmsgs ~ max-response-tokens max-context-tokens msg-source.tl ?:(=(-.msg-source.tl %direct) ~ `(src-ship msg-source.tl)))
   ==
 ::
 ++  tool-result-json
@@ -1707,38 +2044,68 @@
           dm-who=(unit ship)
       ==
   ^-  (quip card _this)
-  ?.  ?=([%iris %http-response *] sign)  `this
+  ~&  >  [%hlr-enter sign-tag=-.sign source-tag=-.source]
+  ?.  ?=([%iris %http-response *] sign)
+    ~&  >  [%hlr-bail-not-iris]
+    `this
   =/  resp=client-response:iris  client-response.sign
-  ?.  ?=(%finished -.resp)  `this
+  ?.  ?=(%finished -.resp)
+    ~&  >  [%hlr-bail-not-finished -.resp]
+    `this
   =/  code=@ud  status-code.response-header.resp
+  =/  body=@t
+    ?~  full-file.resp  ''
+    q.data.u.full-file.resp
+  ~&  >  [%hlr-calling-body code=code body-len=(met 3 body)]
+  (handle-llm-body code body source dm-who)
+::
+::  +handle-llm-body: shared post-parse logic for both the iris HTTP
+::  path and the direct-poke (%maroon-chat-resp) path.  Takes a status
+::  code and the raw response body; everything else is identical.
+::
+++  handle-llm-body
+  |=  $:  code=@ud
+          body=@t
+          source=msg-source:claw
+          dm-who=(unit ship)
+      ==
+  ^-  (quip card _this)
+  ~&  >  [%hlb-enter code=code body-len=(met 3 body) source-tag=-.source]
   ::  error handling
   ?.  =(200 code)
-    =/  err=@t  ?~(full-file.resp 'http error' q.data.u.full-file.resp)
-    %-  (slog leaf+"claw error [{(a-co:co code)}]" ~)
+    =/  err=@t  ?:(=('' body) 'http error' body)
+    %-  (slog leaf+"claw error [{(a-co:co code)}]: {(trip err)}" ~)
     =.  last-error  err
     =?  pending  =(-.source %direct)  %.n
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
+    ::  surface the provider's error body so the user can see *why*
+    ::  (e.g. "no model loaded", "busy", quota exceeded, etc.).
+    =/  short-err=@t  (crip (scag 240 (trip err)))
+    =/  reply=@t
+      (rap 3 'LLM error [' (scot %ud code) ']: ' short-err ~)
     :_  this
+    %+  weld  (presence-card bowl source %stop)
     ?:  =(-.source %direct)
       :~  [%give %fact ~[/updates] %claw-update !>(`update:claw`[%error err])]  ==
-    :~  (send-reply-card bowl source 'Sorry, I hit an error talking to the LLM provider.')  ==
-  ?~  full-file.resp
+    :~  (send-reply-card bowl source reply)  ==
+  ?:  =('' body)
     =?  pending  =(-.source %direct)  %.n
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
     `this
-  =/  body=@t  q.data.u.full-file.resp
   =/  is-owner=?
     ?:  =(-.source %direct)  %.y
     =/  who=ship  (src-ship source)
     =/  role=(unit ship-role:claw)  (~(get by whitelist) who)
     &(?=(^ role) =(u.role %owner))
   =/  parsed  (parse-llm-response body)
+  ~&  >  [%hlb-parsed ?~(parsed 'NONE' -.u.parsed)]
   ?~  parsed
     %-  (slog leaf+"claw error: parse failed" ~)
     =.  last-error  body
     =?  pending  =(-.source %direct)  %.n
     =?  dm-pending  !=(-.source %direct)  (~(del in dm-pending) (src-ship source))
     :_  this
+    %+  weld  (presence-card bowl source %stop)
     ?:  =(-.source %direct)  ~
     :~  (send-reply-card bowl source 'Sorry, I had trouble understanding the response from my LLM provider.')  ==
   ::
@@ -1747,7 +2114,7 @@
   ::  text response - deliver to user
   ::
       %text
-    =/  content=@t  content.u.parsed
+    =/  content=@t  (sanitize-llm content.u.parsed)
     =.  last-error  ''
     ?:  =(-.source %direct)
       =.  pending  %.n
@@ -1786,7 +2153,7 @@
           (lcm-ingest bowl (lcm-key source) 'assistant' content)
       ==
     :_  this
-    response-cards
+    (weld response-cards (presence-card bowl source %stop))
   ::
   ::  tool call response - execute tools and loop back
   ::
@@ -1824,7 +2191,7 @@
         %-  (slog leaf+"claw: async tool {(trip name.first)}" ~)
         =/  res=tool-result:tools
           =/  r=(each tool-result:tools tang)
-            (mule |.((execute-tool:tools bowl name.first arguments.first brave-key is-owner)))
+            (mule |.((execute-tool:tools bowl name.first arguments.first brave-key is-owner local-llm-url)))
           ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
         ?.  ?=(%async -.res)
           ::  shouldn't happen, but handle gracefully
@@ -1836,18 +2203,18 @@
       ::  all sync - fire llm follow-up immediately
       =/  sys-prompt=@t  (build-prompt bowl context owner-last-msg)
       =/  follow-wire=path
-        ?:  =(-.source %direct)  /query-tools
-        /dm-query-tools/(scot %p (src-ship source))
+        ?:  =(-.source %direct)  /query-tools/(scot %da now.bowl)
+        /dm-query-tools/(scot %p (src-ship source))/(scot %da now.bowl)
       :_  this
       %+  weld  (flop tool-cards)
-      :~  (make-llm-request bowl api-key model sys-prompt (lcm-key source) follow-wire follow-msgs ~)
+      :~  (make-llm-request bowl (pick-provider (lcm-key source) default-provider conv-providers) api-key local-llm-url model sys-prompt (lcm-key source) follow-wire follow-msgs ~ max-response-tokens max-context-tokens source ?:(=(-.source %direct) ~ `(src-ship source)))
       ==
     ::  execute this tool
     =/  tc  i.remaining
     %-  (slog leaf+"claw: tool {(trip name.tc)}" ~)
     =/  res=tool-result:tools
       =/  r=(each tool-result:tools tang)
-        (mule |.((execute-tool:tools bowl name.tc arguments.tc brave-key is-owner)))
+        (mule |.((execute-tool:tools bowl name.tc arguments.tc brave-key is-owner local-llm-url)))
       ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
     ?:  ?=(%async -.res)
       ::  queue async tool for later

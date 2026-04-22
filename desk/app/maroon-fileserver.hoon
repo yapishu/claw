@@ -1,4 +1,4 @@
-::  cast-fileserver: generic from-clay file-serving agent
+::  maroon-fileserver: generic from-clay file-serving agent
 ::
 ::    for copying into desks as a standalone %deskname-fileserver agent.
 ::
@@ -9,7 +9,7 @@
 ::    default configuration (see below) are optional.
 ::
 /+  dbug
-/=  config  /app/claw-fileserver/config
+/=  config  /app/maroon-fileserver/config
 ::
 ::TODO  restructure so config can take a byk.bowl argument?
 |%
@@ -88,41 +88,48 @@
 ++  on-load
   |=  ole=vase
   ^-  (quip card _this)
-  =/  old  !<(state-0 ole)
+  ::  Forgiving state load: typed extract → structural cast → reset.
+  ::  Like the main maroon agent, this lets routine lib rebuilds not
+  ::  wipe the cache.
+  =/  old=state-0
+    =/  t  (mule |.(!<(state-0 ole)))
+    ?:  ?=(%& -.t)  p.t
+    =/  r  (mule |.(;;(state-0 q.ole)))
+    ?:  ?=(%& -.r)  p.r
+    *state-0
   :_  this(foot file-root, woot web-root, cash ~)
   %-  zing
   ^-  (list (list card))
   :~  ::  if the file root changed, set the new root up for tombstoning.
-      ::  we do this ahead of the %pick, to do clean-up on new root right away.
       ::
       ?:  =(foot.old file-root)  ~
       [(set-norm [our q.byk]:bowl file-root |)]~
     ::
       ::  always await next change on our file root
-      ::  (don't care if we double-request (though clay probably dedupes?), since
-      ::  all we do on-notify rn is wipe the cache)
       ::
       :-  (read-next [our q.byk now]:bowl file-root)
       ::  always trigger clay tombstoning, for both old and new file roots.
       ::
       :-  [%pass /clay/tomb %arvo %c %tomb %pick ~]
-      ::  always clear old cache entries, in case we changed something about
-      ::  the way we serve
+      ::  always clear old cache entries.
       ::
       (turn ~(tap in cash.old) (curr store ~))
     ::
       ::  if the file root changed, remove tombstoning from the old root.
-      ::  we do this after the %pick, so that the old root gets left "clean".
       ::
       ?:  =(foot.old file-root)  ~
       [(set-norm [our q.byk]:bowl foot.old &)]~
     ::
-      ::  if the web root changed, we must re-set our binding
+      ::  Always rebind the web root on every on-load, like the api agent
+      ::  does for /apps/maroon/chat.  Survives vere restarts and agent
+      ::  revives even when web-root is unchanged.
       ::
       ^-  (list card)
-      ?:  =(woot.old web-root)  ~
+      ?:  =(woot.old web-root)
+        ::  same root: unconditional rebind
+        [[%pass /eyre/connect %arvo %e %connect [~ web-root] dap.bowl] ~]
+      ::  web-root changed: disconnect the old, bind the new
       ::NOTE  re-bind first to avoid duct shenanigans.
-      ::      remove this when eyre stops restricting %disconnect to the og duct.
       :~  [%pass /eyre/connect %arvo %e %connect [~ woot.old] dap.bowl]
           [%pass /eyre/connect %arvo %e %disconnect [~ woot.old]]
           [%pass /eyre/connect %arvo %e %connect [~ web-root] dap.bowl]
@@ -150,11 +157,11 @@
   ::
   =/  pwa-paths=(set @t)
     %-  ~(gas in *(set @t))
-    :~  '/apps/cast/manifest.json'
-        '/apps/cast/sw.js'
-        '/apps/cast/icon.svg'
-        '/apps/cast/icon-192.png'
-        '/apps/cast/icon-512.png'
+    :~  '/apps/maroon/manifest.json'
+        '/apps/maroon/sw.js'
+        '/apps/maroon/icon.svg'
+        '/apps/maroon/icon-192.png'
+        '/apps/maroon/icon-512.png'
     ==
   ?.  ?|  authenticated
           (~(has in pwa-paths) url.request)

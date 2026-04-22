@@ -4,6 +4,13 @@
 +$  msg  [role=@t content=@t]
 +$  ship-role  ?(%owner %allowed)
 ::
+::  provider: which chat.completions backend to route a request through.
+::  %openrouter — the original hosted path (needs api-key).
+::  %maroon     — the local qwen3 inference agent on this ship, reached
+::                over HTTP at `{local-llm-url}/apps/maroon/v1/chat/completions`.
+::
++$  provider  ?(%openrouter %maroon)
+::
 +$  action
   $%  [%set-key key=@t]
       [%set-model model=@t]
@@ -20,6 +27,12 @@
       [%deny =ship]
       [%cron-add schedule=@t prompt=@t]
       [%cron-remove cron-id=@ud]
+      [%set-default-provider =provider]
+      [%set-conv-provider conv-key=@t =provider]
+      [%clear-conv-provider conv-key=@t]
+      [%set-local-llm-url url=@t]
+      [%set-max-response-tokens tokens=@ud]
+      [%set-max-context-tokens tokens=@ud]
   ==
 ::
 +$  update
@@ -305,6 +318,72 @@
       msg-queue=(map ship [txt=@t src=msg-source])
   ==
 ::
+::  state-13: adds provider abstraction.  default-provider picks the
+::  backend for every conversation unless a per-conv override is set in
+::  conv-providers.  local-llm-url is the base URL claw POSTs to when
+::  the picked provider is %maroon — typically the ship's own Eyre at
+::  http://localhost:<PORT>, but overridable for remote qwen3 hosts.
+::
++$  state-13
+  $:  %13
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+      participated=(set @t)
+      seen-msgs=(set @t)
+      bot-counts=(map @t @ud)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+      cron-jobs=(map @ud cron-job)
+      next-cron-id=@ud
+      msg-queue=(map ship [txt=@t src=msg-source])
+      default-provider=provider
+      conv-providers=(map @t provider)
+      local-llm-url=@t
+  ==
+::
+::  state-14 adds two generation-size dials:
+::    max-response-tokens: sent as `max_tokens` in every LLM request.
+::    max-context-tokens : overrides the per-model heuristic budget used
+::                         by LCM when assembling history.  0 = fall
+::                         back to the heuristic (model-budget arm).
+::
++$  state-14
+  $:  %14
+      api-key=@t
+      brave-key=@t
+      model=@t
+      pending=?
+      last-error=@t
+      context=(map @tas @t)
+      whitelist=(map ship ship-role)
+      dm-pending=(set ship)
+      tool-loop=(unit tool-pending)
+      pending-src=(map ship msg-source)
+      channel-perms=(map @t channel-perm)
+      participated=(set @t)
+      seen-msgs=(set @t)
+      bot-counts=(map @t @ud)
+      pending-approvals=(map ship @t)
+      owner-last-msg=@da
+      cron-jobs=(map @ud cron-job)
+      next-cron-id=@ud
+      msg-queue=(map ship [txt=@t src=msg-source])
+      default-provider=provider
+      conv-providers=(map @t provider)
+      local-llm-url=@t
+      max-response-tokens=@ud
+      max-context-tokens=@ud
+  ==
+::
 +$  versioned-state
   $%  state-0
       state-1
@@ -319,5 +398,7 @@
       state-10
       state-11
       state-12
+      state-13
+      state-14
   ==
 --

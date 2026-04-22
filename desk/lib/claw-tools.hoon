@@ -54,10 +54,9 @@
       ::  history
       (tool-fn 'read_channel_history' 'Read recent messages from a channel. Returns message IDs, authors, and content.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['count' (opt-str 'Number of messages (default 10)')]]))
       (tool-fn 'read_dm_history' 'Read recent DMs with a ship. Returns message IDs, authors, timestamps, and content.' (obj ~[['ship' (req-str 'Ship to read DM history with e.g. ~sampel-palnet')] ['count' (opt-str 'Number of messages (default 20)')]]))
-      ::  MCP tools (call %mcp-server agent via Khan threads)
-      (tool-fn 'local_mcp' 'Execute a local MCP server tool. ALWAYS call local_mcp_list first to get exact names. Requires the %mcp desk to be installed - use install_local_mcp if not present. Key tools: list-files, get-file, insert-file, build-file, scry (for agent scries), poke-our-agent, prod-hoon, commit-desk, mount-desk, install-app, nuke-agent, revive-agent.' (obj ~[['name' (req-str 'Exact MCP tool name from local_mcp_list')] ['arguments' (req-str 'JSON object of arguments as a string')]]))
-      (tool-fn 'local_mcp_list' 'List all available local MCP server tools. Requires %mcp desk - use install_local_mcp if not present.' (obj ~))
-      (tool-fn 'install_local_mcp' 'Install the %mcp desk from ~matwet. This enables local_mcp and local_mcp_list tools for file management, agent control, code execution, and more.' (obj ~))
+      ::  MCP tools (call the in-ship %mcp-server over JSON-RPC HTTP)
+      (tool-fn 'local_mcp' 'Execute a tool exposed by this ship’s %mcp-server via MCP JSON-RPC. ALWAYS call local_mcp_list first to discover exact names and schemas. Key tools include: list-files, get-file, insert-file, build-file, scry (agent scries), poke-our-agent, prod-hoon, commit-desk, mount-desk, install-app, nuke-agent, revive-agent.' (obj ~[['name' (req-str 'Exact MCP tool name from local_mcp_list')] ['arguments' (req-str 'JSON object of arguments as a string')]]))
+      (tool-fn 'local_mcp_list' 'List every tool exposed by this ship’s %mcp-server (via JSON-RPC tools/list).' (obj ~))
       ::  LCM history tools
       (tool-fn 'search_history' 'Search compacted conversation history using text search. Searches across messages AND summaries stored by LCM. Returns matching snippets with IDs. Use to find specific content that may have been compacted away. Follow up with describe_summary for full details.' (obj ~[['query' (req-str 'Search terms or topic to find')]]))
       (tool-fn 'describe_summary' 'Look up full metadata and content for an LCM summary by ID. Returns: kind (leaf/condensed), depth, token count, descendant count, time range, source messages, parent summaries, and full content text. Use after search_history to inspect a specific summary.' (obj ~[['id' (req-str 'Summary ID number from search_history results')]]))
@@ -103,7 +102,13 @@
 ::  +execute-tool: run a tool, returns sync result or async card
 ::
 ++  execute-tool
-  |=  [=bowl:gall name=@t arguments=@t brave-key=@t owner=?]
+  |=  $:  =bowl:gall
+          name=@t
+          arguments=@t
+          brave-key=@t
+          owner=?
+          local-base-url=@t
+      ==
   ^-  tool-result
   =/  args=(unit json)  (de:json:html arguments)
   ?~  args  [%sync ~ 'error: invalid json arguments']
@@ -384,64 +389,67 @@
     ?:  ?=(%| -.result)  [%sync ~ 'error: could not read DM history']
     [%sync ~ ?:(=('' p.result) 'no messages found' p.result)]
   ::
-  ::  install_local_mcp: install %mcp desk from ~matwet
-  ::
-  ?:  =('install_local_mcp' name)
-    [%sync :~([%pass /tool/install-mcp %agent [our.bowl %hood] %poke %kiln-install !>([%mcp ~matwet %mcp])]) 'Installing %mcp desk from ~matwet. This may take a minute. Once installed, local_mcp and local_mcp_list tools will be available.']
-  ::
-  ::  mcp_list_tools: scry %mcp-server for available tools
+  ::  local_mcp_list: POST JSON-RPC tools/list to the in-ship mcp-server.
+  ::  auth-token is read live via scry on every call — it's generated
+  ::  once at mcp-server on-init and persists.
   ::
   ?:  =('local_mcp_list' name)
-    =/  result=(each @t tang)
+    =/  tok=(each @t tang)
       %-  mule  |.
-      =/  tools-json=json
-        .^(json %gx /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/tools/json)
-      (crip (scag 6.000 (trip (en:json:html tools-json))))
-    ?:  ?=(%| -.result)  [%sync ~ 'error: MCP server not available. Install the %mcp desk to enable MCP tools.']
-    [%sync ~ p.result]
+      .^(@t %gx /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/auth-token/noun)
+    ?:  ?=(%| -.tok)
+      [%sync ~ 'error: mcp-server auth-token unavailable']
+    =/  body=json
+      %-  pairs:enjs:format
+      :~  ['jsonrpc' s+'2.0']
+          ['id' (numb:enjs:format 1)]
+          ['method' s+'tools/list']
+          ['params' (pairs:enjs:format ~)]
+      ==
+    =/  body-cord=@t  (en:json:html body)
+    =/  hed=(list [key=@t value=@t])
+      :~  ['content-type' 'application/json']
+          ['accept' 'application/json']
+          ['x-api-key' p.tok]
+      ==
+    =/  url=@t  (cat 3 local-base-url '/mcp')
+    =/  req=request:http  [%'POST' url hed `(as-octs:mimes:html body-cord)]
+    [%async [%pass /tool-http/'local-mcp-list' %arvo %i %request req *outbound-config:iris]]
   ::
-  ::  mcp_tool: build and execute an MCP tool via Khan
+  ::  local_mcp: POST JSON-RPC tools/call to the in-ship mcp-server.
+  ::  `arguments` is a stringified JSON object of tool args.
   ::
   ?:  =('local_mcp' name)
     =,  dejs:format
     =/  tool-name=@t  ((ot ~[name+so]) u.args)
     =/  args-str=@t  ((ot ~[arguments+so]) u.args)
-    ::  parse arguments JSON into MCP argument map
     =/  args-json=(unit json)  (de:json:html args-str)
     ?~  args-json  [%sync ~ 'error: invalid arguments JSON']
-    =/  args-map=(map name:parameter:tool:mcp argument:tool:mcp)
-      ?+  u.args-json  *(map @t argument:tool:mcp)
-          [%o *]
-        %-  ~(run by p.u.args-json)
-        |=  j=json
-        ^-  argument:tool:mcp
-        ?+  j  ~
-          [%s *]  [%string p.j]
-          [%n *]  [%number (rash p.j dem)]
-          [%b *]  [%boolean p.j]
-        ==
+    =/  tok=(each @t tang)
+      %-  mule  |.
+      .^(@t %gx /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/auth-token/noun)
+    ?:  ?=(%| -.tok)
+      [%sync ~ 'error: mcp-server auth-token unavailable']
+    =/  body=json
+      %-  pairs:enjs:format
+      :~  ['jsonrpc' s+'2.0']
+          ['id' (numb:enjs:format 1)]
+          ['method' s+'tools/call']
+          :-  'params'
+          %-  pairs:enjs:format
+          :~  ['name' s+tool-name]
+              ['arguments' u.args-json]
+          ==
       ==
-    ::  check if MCP desk and tool file exist before building
-    =/  tool-path=path
-      /(scot %p our.bowl)/mcp/(scot %da now.bowl)/fil/default/mcp/tools/[tool-name]/hoon
-    =/  exists=?
-      =/  check=(each ? tang)  (mule |.(.^(? %cu tool-path)))
-      ?:(?=(%| -.check) %.n p.check)
-    ?.  exists
-      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" not found. Use local_mcp_list to see available tools. Install %mcp desk if not present.' ~)]
-    =/  build-result=(each tool:mcp tang)
-      %-  mule  |.
-      !<(tool:mcp .^(vase %ca tool-path))
-    ?:  ?=(%| -.build-result)
-      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" failed to build.' ~)]
-    =/  =tool:mcp  p.build-result
-    ::  execute via Khan thread - wrap in mule to catch arg type mismatches
-    =/  thread-result=(each shed:khan tang)
-      %-  mule  |.
-      (thread-builder.tool args-map)
-    ?:  ?=(%| -.thread-result)
-      [%sync ~ (rap 3 'error: MCP tool "' tool-name '" rejected arguments. Check argument types and names.' ~)]
-    [%async [%pass /tool-http/'local-mcp' %arvo %k %lard %mcp p.thread-result]]
+    =/  body-cord=@t  (en:json:html body)
+    =/  hed=(list [key=@t value=@t])
+      :~  ['content-type' 'application/json']
+          ['accept' 'application/json']
+          ['x-api-key' p.tok]
+      ==
+    =/  url=@t  (cat 3 local-base-url '/mcp')
+    =/  req=request:http  [%'POST' url hed `(as-octs:mimes:html body-cord)]
+    [%async [%pass /tool-http/'local-mcp' %arvo %i %request req *outbound-config:iris]]
   ::
 ::
   ::  join_group: join an Urbit group (owner only)
@@ -931,7 +939,18 @@
 ++  parse-tool-response
   |=  [name=@t body=@t]
   ^-  @t
-  ::  return raw json/text truncated - llm extracts what it needs
+  ::  MCP responses are JSON-RPC envelopes; strip to `result` (or
+  ::  surface `error`) so the LLM doesn't waste tokens on the wrapper.
+  ?:  |(=('local-mcp' name) =('local-mcp-list' name))
+    =/  j=(unit json)  (de:json:html body)
+    ?~  j  (crip (scag 6.000 (trip body)))
+    ?.  ?=([%o *] u.j)  (crip (scag 6.000 (trip body)))
+    =/  err  (~(get by p.u.j) 'error')
+    ?^  err  (crip (scag 2.000 (trip (en:json:html u.err))))
+    =/  res  (~(get by p.u.j) 'result')
+    ?~  res  (crip (scag 6.000 (trip body)))
+    (crip (scag 6.000 (trip (en:json:html u.res))))
+  ::  other async tools: return raw body truncated
   (crip (scag 6.000 (trip body)))
 ::
 ::  +make-s3-put: build signed S3 PUT request

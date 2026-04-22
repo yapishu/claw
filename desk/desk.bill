@@ -1,4 +1,10 @@
 :~  %claw
     %claw-fileserver
     %lcm
+    %maroon
+    %maroon-fileserver
+    %mcp-server
+    %mcp-proxy
+    %mcp-fileserver
+    %oauth
 ==

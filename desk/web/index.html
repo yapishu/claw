@@ -55,6 +55,12 @@
 <div class="container">
   <h1>%claw <span>llm agent harness</span></h1>
 
+  <div id="active-provider-banner" style="margin:12px 0;padding:12px 16px;border-radius:6px;background:#0a2a1a;border:1px solid #2a6a4a;font-size:14px;font-family:monospace">
+    <span style="color:#888">active provider:</span>
+    <strong id="active-provider-label" style="color:#6dd39c;font-size:16px">—</strong>
+    <span id="active-provider-detail" style="color:#555;margin-left:10px"></span>
+  </div>
+
   <h2>Config</h2>
   <div class="card">
     <div class="row">
@@ -73,6 +79,48 @@
       <button onclick="setBraveKey()">Set</button>
     </div>
     <div class="status" id="config-status"></div>
+  </div>
+
+  <h2>Provider</h2>
+  <div class="card">
+    <div class="row">
+      <label>Default</label>
+      <select id="default-provider" onchange="setDefaultProvider()" style="background:#0a0a0a;border:1px solid #333;border-radius:4px;padding:6px 10px;color:#e0e0e0;font-size:13px;font-family:monospace;min-width:140px">
+        <option value="openrouter">openrouter</option>
+        <option value="maroon">maroon (local)</option>
+      </select>
+      <span style="font-size:11px;color:#555">applies to every conversation unless overridden</span>
+    </div>
+    <div class="row">
+      <label>Local URL</label>
+      <input type="text" id="local-llm-url" placeholder="http://localhost:8080">
+      <button onclick="setLocalUrl()">Set</button>
+    </div>
+    <div class="row">
+      <label>Max reply</label>
+      <input type="number" id="max-response-tokens" min="16" max="32768" step="64" style="flex:0 0 120px">
+      <span style="font-size:11px;color:#555">tokens per response (<code>max_tokens</code> in the API body)</span>
+      <button onclick="setMaxResponseTokens()">Set</button>
+    </div>
+    <div class="row">
+      <label>Max context</label>
+      <input type="number" id="max-context-tokens" min="0" max="200000" step="512" style="flex:0 0 120px">
+      <span style="font-size:11px;color:#555">0 = per-model heuristic; otherwise LCM trims oldest-first to fit</span>
+      <button onclick="setMaxContextTokens()">Set</button>
+    </div>
+    <div class="status" style="color:#777;margin-top:6px">
+      Per-conversation overrides
+    </div>
+    <div id="conv-providers" style="margin-top:4px"></div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="new-conv-key" placeholder="dm/~sampel-palnet or channel/chat/..." style="flex:2">
+      <select id="new-conv-provider" style="background:#0a0a0a;border:1px solid #333;border-radius:4px;padding:6px;color:#e0e0e0;font-size:13px">
+        <option value="openrouter">openrouter</option>
+        <option value="maroon">maroon</option>
+      </select>
+      <button class="primary" onclick="addConvProvider()">Add</button>
+    </div>
+    <div class="status" id="provider-status"></div>
   </div>
 
   <h2>Whitelist</h2>
@@ -156,7 +204,96 @@ function status(id, msg, ok) {
 async function loadConfig() {
   const c = await api('/config');
   document.getElementById('model').value = c.model || '';
+  const dp = c['default-provider'] || 'openrouter';
+  document.getElementById('default-provider').value = dp;
+  document.getElementById('local-llm-url').value = c['local-llm-url'] || '';
+  document.getElementById('max-response-tokens').value = c['max-response-tokens'] ?? 1024;
+  document.getElementById('max-context-tokens').value = c['max-context-tokens'] ?? 0;
   renderWhitelist(c.whitelist || {});
+  renderConvProviders(c['conv-providers'] || {});
+  renderActiveProvider(dp, c['local-llm-url'] || '', c['conv-providers'] || {});
+}
+
+function renderActiveProvider(defaultProvider, localUrl, convProviders) {
+  const banner = document.getElementById('active-provider-banner');
+  const label = document.getElementById('active-provider-label');
+  const detail = document.getElementById('active-provider-detail');
+  label.textContent = defaultProvider;
+  if (defaultProvider === 'maroon') {
+    banner.style.background = '#0a2a1a';
+    banner.style.borderColor = '#2a6a4a';
+    label.style.color = '#6dd39c';
+    detail.textContent = `local at ${localUrl || 'http://localhost:8080'} — no API key needed`;
+  } else {
+    banner.style.background = '#2a1a0a';
+    banner.style.borderColor = '#6a4a2a';
+    label.style.color = '#d39c6d';
+    detail.textContent = 'remote OpenRouter — requires API key';
+  }
+  const overrides = Object.keys(convProviders).length;
+  if (overrides > 0) {
+    detail.textContent += ` · ${overrides} conversation override${overrides === 1 ? '' : 's'}`;
+  }
+}
+
+function renderConvProviders(cp) {
+  const el = document.getElementById('conv-providers');
+  const entries = Object.entries(cp);
+  if (entries.length === 0) {
+    el.innerHTML = '<span style="color:#555;font-size:13px">(none — all conversations use default)</span>';
+    return;
+  }
+  el.innerHTML = entries.map(([k, p]) =>
+    `<span class="tag">${escapeHtml(k)} → ${p} <span class="x" onclick="clearConvProvider('${k.replace(/'/g, "\\'")}')">&times;</span></span>`
+  ).join('');
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function setDefaultProvider() {
+  const provider = document.getElementById('default-provider').value;
+  await post({action: 'set-default-provider', provider});
+  status('provider-status', 'default = ' + provider, true);
+  loadConfig();
+}
+
+async function setLocalUrl() {
+  const url = document.getElementById('local-llm-url').value.trim();
+  if (!url) return;
+  await post({action: 'set-local-llm-url', url});
+  status('provider-status', 'local url set', true);
+}
+
+async function setMaxResponseTokens() {
+  const v = parseInt(document.getElementById('max-response-tokens').value, 10);
+  if (!(v > 0)) return;
+  await post({action: 'set-max-response-tokens', tokens: v});
+  status('provider-status', `max reply = ${v}`, true);
+}
+
+async function setMaxContextTokens() {
+  const v = parseInt(document.getElementById('max-context-tokens').value, 10);
+  if (!(v >= 0)) return;
+  await post({action: 'set-max-context-tokens', tokens: v});
+  status('provider-status', v === 0 ? 'max context = heuristic' : `max context = ${v}`, true);
+}
+
+async function addConvProvider() {
+  const convKey = document.getElementById('new-conv-key').value.trim();
+  const provider = document.getElementById('new-conv-provider').value;
+  if (!convKey) return;
+  await post({action: 'set-conv-provider', 'conv-key': convKey, provider});
+  document.getElementById('new-conv-key').value = '';
+  status('provider-status', 'override set', true);
+  loadConfig();
+}
+
+async function clearConvProvider(convKey) {
+  await post({action: 'clear-conv-provider', 'conv-key': convKey});
+  status('provider-status', 'override cleared', true);
+  loadConfig();
 }
 
 function renderWhitelist(wl) {
