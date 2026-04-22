@@ -1,3 +1,7 @@
+::  %mcp-fileserver was folded into %claw-fileserver; the claw GUI
+::  at /apps/claw now also hosts the MCP management UI.  %mcp-proxy
+::  still owns the /apps/mcp/api and /apps/mcp/mcp eyre bindings.
+::
 :~  %claw
     %claw-fileserver
     %lcm
@@ -5,6 +9,5 @@
     %maroon-fileserver
     %mcp-server
     %mcp-proxy
-    %mcp-fileserver
     %oauth
 ==

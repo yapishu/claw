@@ -1215,3 +1215,100 @@ button {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* =================================================================
+   claw-specific additions (providers / access / context sections)
+   ================================================================= */
+
+.kv-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-2);
+}
+.kv-row:first-child { border-top: 1px solid var(--line); }
+.kv-row:last-child  { border-bottom: 1px solid var(--line); }
+.kv-row:hover { background: var(--ink-3); }
+
+.kv-key {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+  border-radius: 3px;
+}
+
+.kv-arrow { color: var(--dim-2); font-size: 14px; }
+
+.kv-title-wrap { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kv-title { font-size: 13px; color: var(--paper); }
+.kv-sub   { font-size: 11px; color: var(--dim-2); }
+.kv-mono  { font-family: var(--font-mono); }
+.kv-saffron { color: var(--saffron); }
+
+.status-provider.is-local  { color: var(--mint); }
+.status-provider.is-remote { color: var(--saffron); }
+
+.ctx-pill {
+  display: inline-block;
+  padding: 6px 12px;
+  margin-right: 6px;
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--dim-2);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.ctx-pill:hover { color: var(--paper); border-color: var(--line-2); }
+.ctx-pill.is-active {
+  color: var(--saffron);
+  border-color: var(--saffron);
+  background: color-mix(in srgb, var(--saffron) 10%, transparent);
+}
+
+.filter-input {
+  width: 100%;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 8px 12px;
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.filter-input:focus { outline: none; border-color: var(--line-hi); }
+
+.scroll-box {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.scroll-box .kv-row:first-child { border-top: 0; }
+
+.ctx-editor {
+  width: 100%;
+  min-height: 200px;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 12px;
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.ctx-editor:focus { outline: none; border-color: var(--line-hi); }

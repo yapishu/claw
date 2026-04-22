@@ -5,7 +5,7 @@ var App = {
   editingProvider: null,
   openTools: null,
   ship: '',
-  activeSection: 'endpoint',
+  activeSection: 'providers',
 
   init: function() {
     this.bindEvents();
@@ -15,7 +15,8 @@ var App = {
 
   initSectionFromHash: function() {
     var hash = (window.location.hash || '').replace('#', '');
-    if (hash === 'upstreams' || hash === 'oauth' || hash === 'endpoint') {
+    var valid = ['providers', 'endpoint', 'upstreams', 'oauth', 'access', 'context'];
+    if (valid.indexOf(hash) >= 0) {
       this.activateSection(hash);
     }
   },
