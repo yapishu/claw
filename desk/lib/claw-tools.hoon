@@ -54,9 +54,11 @@
       ::  history
       (tool-fn 'read_channel_history' 'Read recent messages from a channel. Returns message IDs, authors, and content.' (obj ~[['channel' (req-str 'Channel nest e.g. chat/~host/channel-name')] ['count' (opt-str 'Number of messages (default 10)')]]))
       (tool-fn 'read_dm_history' 'Read recent DMs with a ship. Returns message IDs, authors, timestamps, and content.' (obj ~[['ship' (req-str 'Ship to read DM history with e.g. ~sampel-palnet')] ['count' (opt-str 'Number of messages (default 20)')]]))
-      ::  MCP tools (call the in-ship %mcp-server over JSON-RPC HTTP)
-      (tool-fn 'local_mcp' 'Execute a tool exposed by this ship’s %mcp-server via MCP JSON-RPC. ALWAYS call local_mcp_list first to discover exact names and schemas. Key tools include: list-files, get-file, insert-file, build-file, scry (agent scries), poke-our-agent, prod-hoon, commit-desk, mount-desk, install-app, nuke-agent, revive-agent.' (obj ~[['name' (req-str 'Exact MCP tool name from local_mcp_list')] ['arguments' (req-str 'JSON object of arguments as a string')]]))
-      (tool-fn 'local_mcp_list' 'List every tool exposed by this ship’s %mcp-server (via JSON-RPC tools/list).' (obj ~))
+      ::  MCP tools (call the in-ship %mcp-server over JSON-RPC HTTP).
+      ::  Named `urbit` / `urbit_list` for the LLM because qwen-bonsai
+      ::  can't say `local_mcp` without inserting a space.
+      (tool-fn 'urbit' 'Execute an Urbit ship-ops tool (MCP JSON-RPC). ALWAYS call urbit_list first to discover exact names and schemas. Key tools include: list-files, get-file, insert-file, build-file, scry (agent scries), poke-our-agent, prod-hoon, commit-desk, mount-desk, install-app, nuke-agent, revive-agent.' (obj ~[['name' (req-str 'Exact MCP tool name from urbit_list')] ['arguments' (req-str 'JSON object of arguments as a string')]]))
+      (tool-fn 'urbit_list' 'List every Urbit ship-ops tool available (MCP tools/list).' (obj ~))
       ::  LCM history tools
       (tool-fn 'search_history' 'Search compacted conversation history using text search. Searches across messages AND summaries stored by LCM. Returns matching snippets with IDs. Use to find specific content that may have been compacted away. Follow up with describe_summary for full details.' (obj ~[['query' (req-str 'Search terms or topic to find')]]))
       (tool-fn 'describe_summary' 'Look up full metadata and content for an LCM summary by ID. Returns: kind (leaf/condensed), depth, token count, descendant count, time range, source messages, parent summaries, and full content text. Use after search_history to inspect a specific summary.' (obj ~[['id' (req-str 'Summary ID number from search_history results')]]))
@@ -393,12 +395,14 @@
   ::  auth-token is read live via scry on every call — it's generated
   ::  once at mcp-server on-init and persists.
   ::
-  ?:  =('local_mcp_list' name)
+  ?:  =('urbit_list' name)
     =/  tok=(each @t tang)
       %-  mule  |.
-      .^(@t %gx /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/auth-token/noun)
+      .^(@t %gx /(scot %p our.bowl)/mcp-proxy/(scot %da now.bowl)/client-key/noun)
     ?:  ?=(%| -.tok)
-      [%sync ~ 'error: mcp-server auth-token unavailable']
+      [%sync ~ 'error: mcp-proxy client-key unavailable']
+    ?:  =('' p.tok)
+      [%sync ~ 'error: mcp-proxy client-key not set']
     =/  body=json
       %-  pairs:enjs:format
       :~  ['jsonrpc' s+'2.0']
@@ -412,24 +416,33 @@
           ['accept' 'application/json']
           ['x-api-key' p.tok]
       ==
-    =/  url=@t  (cat 3 local-base-url '/mcp')
+    =/  url=@t  (cat 3 local-base-url '/apps/mcp/mcp')
     =/  req=request:http  [%'POST' url hed `(as-octs:mimes:html body-cord)]
     [%async [%pass /tool-http/'local-mcp-list' %arvo %i %request req *outbound-config:iris]]
   ::
   ::  local_mcp: POST JSON-RPC tools/call to the in-ship mcp-server.
   ::  `arguments` is a stringified JSON object of tool args.
   ::
-  ?:  =('local_mcp' name)
+  ?:  =('urbit' name)
     =,  dejs:format
     =/  tool-name=@t  ((ot ~[name+so]) u.args)
-    =/  args-str=@t  ((ot ~[arguments+so]) u.args)
-    =/  args-json=(unit json)  (de:json:html args-str)
+    ::  the nested `arguments` may arrive as either a JSON string (per
+    ::  OpenAI spec) or a JSON object (what qwen3 typically emits).
+    ::  Accept both so we don't crash on the object case.
+    =/  nested=json
+      ?.  ?=([%o *] u.args)  `json`~
+      (~(got by p.u.args) 'arguments')
+    =/  args-json=(unit json)
+      ?:  ?=([%s *] nested)  (de:json:html p.nested)
+      `nested
     ?~  args-json  [%sync ~ 'error: invalid arguments JSON']
     =/  tok=(each @t tang)
       %-  mule  |.
-      .^(@t %gx /(scot %p our.bowl)/mcp-server/(scot %da now.bowl)/auth-token/noun)
+      .^(@t %gx /(scot %p our.bowl)/mcp-proxy/(scot %da now.bowl)/client-key/noun)
     ?:  ?=(%| -.tok)
-      [%sync ~ 'error: mcp-server auth-token unavailable']
+      [%sync ~ 'error: mcp-proxy client-key unavailable']
+    ?:  =('' p.tok)
+      [%sync ~ 'error: mcp-proxy client-key not set']
     =/  body=json
       %-  pairs:enjs:format
       :~  ['jsonrpc' s+'2.0']
@@ -447,7 +460,7 @@
           ['accept' 'application/json']
           ['x-api-key' p.tok]
       ==
-    =/  url=@t  (cat 3 local-base-url '/mcp')
+    =/  url=@t  (cat 3 local-base-url '/apps/mcp/mcp')
     =/  req=request:http  [%'POST' url hed `(as-octs:mimes:html body-cord)]
     [%async [%pass /tool-http/'local-mcp' %arvo %i %request req *outbound-config:iris]]
   ::
@@ -950,8 +963,49 @@
     =/  res  (~(get by p.u.j) 'result')
     ?~  res  (crip (scag 6.000 (trip body)))
     (crip (scag 6.000 (trip (en:json:html u.res))))
-  ::  other async tools: return raw body truncated
-  (crip (scag 6.000 (trip body)))
+  ::  Brave search returns a huge JSON envelope; extract just
+  ::  title+url+description per result so the LLM isn't flooded.
+  ?:  |(=('web_search' name) =('image_search' name))
+    =/  extracted=(each @t tang)
+      %-  mule  |.
+      =/  j=(unit json)  (de:json:html body)
+      ?~  j  !!
+      ?.  ?=([%o *] u.j)  !!
+      =/  web=(unit json)  (~(get by p.u.j) 'web')
+      =/  results=json
+        ?~  web
+          =/  imgs=(unit json)  (~(get by p.u.j) 'results')
+          ?~  imgs  !!
+          u.imgs
+        =/  wm  (need (me u.web))
+        =/  r  (~(get by wm) 'results')
+        ?~  r  !!
+        u.r
+      ?.  ?=([%a *] results)  !!
+      =/  items=(list json)  `(list json)`p.results
+      =/  fall-str
+        |=  [v=(unit json) fb=@t]
+        ^-  @t
+        ?~  v  fb
+        ?.  ?=([%s *] u.v)  fb
+        p.u.v
+      =/  as-map
+        |=  j=json
+        ^-  (unit (map @t json))
+        ?.  ?=([%o *] j)  ~
+        `p.j
+      =/  lines=(list @t)
+        %+  turn  (scag 5 items)
+        |=  item=json
+        =/  im  (need (as-map item))
+        =/  title  (fall-str (~(get by im) 'title') '')
+        =/  url    (fall-str (~(get by im) 'url') '')
+        =/  descr  (fall-str (~(get by im) 'description') '')
+        (rap 3 '- ' title ' — ' url '\0a  ' descr ~)
+      (roll lines |=([l=@t acc=@t] (rap 3 acc l '\0a' ~)))
+    ?:(?=(%| -.extracted) (crip (scag 2.000 (trip body))) p.extracted)
+  ::  other async tools: return raw body truncated (smaller than before)
+  (crip (scag 2.000 (trip body)))
 ::
 ::  +make-s3-put: build signed S3 PUT request
 ::    scries %storage for creds, delegates to s3-client library

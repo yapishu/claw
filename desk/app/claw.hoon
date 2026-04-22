@@ -43,7 +43,7 @@
       'Full schemas are in the `tools` request field. Key tools: '
       'send_dm, send_channel_message, read_dm_history, '
       'read_channel_history, web_search, image_search, http_fetch, '
-      'local_mcp_list/local_mcp (ship ops).'
+      'urbit_list then urbit (ship ops).'
   ==
 ::
 ++  build-prompt
@@ -544,7 +544,7 @@
     "send_channel_message, add_reaction, remove_reaction,\0a"
     "get_contact, list_groups, list_channels,\0a"
     "read_channel_history, http_fetch, update_profile,\0a"
-    "join_group, leave_group, local_mcp, local_mcp_list,\0a"
+    "join_group, leave_group, urbit, urbit_list,\0a"
     "cron_add, cron_list, cron_remove"
   ==
 ::
@@ -2044,19 +2044,13 @@
           dm-who=(unit ship)
       ==
   ^-  (quip card _this)
-  ~&  >  [%hlr-enter sign-tag=-.sign source-tag=-.source]
-  ?.  ?=([%iris %http-response *] sign)
-    ~&  >  [%hlr-bail-not-iris]
-    `this
+  ?.  ?=([%iris %http-response *] sign)  `this
   =/  resp=client-response:iris  client-response.sign
-  ?.  ?=(%finished -.resp)
-    ~&  >  [%hlr-bail-not-finished -.resp]
-    `this
+  ?.  ?=(%finished -.resp)  `this
   =/  code=@ud  status-code.response-header.resp
   =/  body=@t
     ?~  full-file.resp  ''
     q.data.u.full-file.resp
-  ~&  >  [%hlr-calling-body code=code body-len=(met 3 body)]
   (handle-llm-body code body source dm-who)
 ::
 ::  +handle-llm-body: shared post-parse logic for both the iris HTTP
@@ -2070,7 +2064,6 @@
           dm-who=(unit ship)
       ==
   ^-  (quip card _this)
-  ~&  >  [%hlb-enter code=code body-len=(met 3 body) source-tag=-.source]
   ::  error handling
   ?.  =(200 code)
     =/  err=@t  ?:(=('' body) 'http error' body)
@@ -2098,7 +2091,6 @@
     =/  role=(unit ship-role:claw)  (~(get by whitelist) who)
     &(?=(^ role) =(u.role %owner))
   =/  parsed  (parse-llm-response body)
-  ~&  >  [%hlb-parsed ?~(parsed 'NONE' -.u.parsed)]
   ?~  parsed
     %-  (slog leaf+"claw error: parse failed" ~)
     =.  last-error  body
@@ -2158,7 +2150,14 @@
   ::  tool call response - execute tools and loop back
   ::
       %tools
-    %-  (slog leaf+"claw: executing {<(lent calls.u.parsed)>} tool call(s)" ~)
+    ::  log each parsed tool call as `name(arg-preview)` so we can
+    ::  see what the LLM is trying to invoke before we execute.
+    =/  calls-preview=@t
+      %+  roll  calls.u.parsed
+      |=  [[id=@t name=@t arguments=@t] acc=@t]
+      =/  preview=@t  (crip (scag 60 (trip arguments)))
+      (rap 3 acc ?:(=('' acc) '' ', ') name '(' preview ')' ~)
+    %-  (slog leaf+"claw: {<(lent calls.u.parsed)>} tool call(s): {(trip calls-preview)}" ~)
     ::  process tool calls: sync ones immediately, async ones queued
     =/  tool-cards=(list card)  ~
     ::  rebuild assistant message from parsed calls for clean round-trip
@@ -2211,11 +2210,15 @@
       ==
     ::  execute this tool
     =/  tc  i.remaining
-    %-  (slog leaf+"claw: tool {(trip name.tc)}" ~)
+    =/  args-preview=@t  (crip (scag 60 (trip arguments.tc)))
+    %-  (slog leaf+"claw: tool {(trip name.tc)} args={(trip args-preview)}" ~)
     =/  res=tool-result:tools
       =/  r=(each tool-result:tools tang)
         (mule |.((execute-tool:tools bowl name.tc arguments.tc brave-key is-owner local-llm-url)))
-      ?:(?=(%| -.r) [%sync ~ 'error: tool crashed'] p.r)
+      ?:  ?=(%| -.r)
+        %-  (slog leaf+"claw: tool crashed — {(trip name.tc)}" p.r)
+        [%sync ~ 'error: tool crashed']
+      p.r
     ?:  ?=(%async -.res)
       ::  queue async tool for later
       %=  $

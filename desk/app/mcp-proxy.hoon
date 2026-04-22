@@ -1113,6 +1113,14 @@
   ^-  (unit (unit cage))
   ?+  path  ~
       [%x %dbug %state ~]  ``noun+!>(state)
+      ::
+      ::  .^(@t %gx /=mcp-proxy=/client-key/noun)
+      ::  expose the proxy's client-key so same-ship callers (claw)
+      ::  can hit /apps/mcp/mcp without any out-of-band auth sharing.
+      ::  wildcard tail so we match with or without the trailing mark.
+      [%x %client-key *]
+    =/  k=@t  ?~(client-key '' u.client-key)
+    ``noun+!>(k)
   ==
 ::
 ++  on-fail  on-fail:def

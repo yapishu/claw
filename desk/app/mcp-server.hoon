@@ -62,6 +62,14 @@
   ?~  headers  ~
   ?:  =((cass (trip key.i.headers)) "x-api-key")  `value.i.headers
   $(headers t.headers)
+::
+::  +gen-auth-token: deterministic 128-bit token derived from eny.
+::  Formatted as a `@uv` cord so it's URL-safe and human-readable.
+::
+++  gen-auth-token
+  |=  seed=@
+  ^-  @t
+  (scot %uv (end [0 128] seed))
 --
 %-  agent:dbug
 ^-  agent:gall
@@ -91,14 +99,19 @@
           tools.old
           prompts.old
           resources.old
-          ''                          ::  await mcp-proxy poke
+          ''
       ==
     ==
+  ::  auto-generate an auth-token if one hasn't been minted yet
+  ::  (claw scries it to call /mcp internally; external callers pass
+  ::  it via the `x-api-key` header).
+  =?  auth-token.new  =('' auth-token.new)  (gen-auth-token eny.bowl)
   :-  ~
   this(state new)
 ::
 ++  on-init
   ^-  (quip card _this)
+  =.  auth-token  (gen-auth-token eny.bowl)
   :_  this
   :~  :*  %pass  /eyre/connect
           %arvo  %e  %connect
@@ -492,26 +505,11 @@
   |=  =(pole knot)
   ^-  (unit (unit cage))
   ?+  pole  (on-peek:def `path`pole)
-    ::
-    ::  .^(json %gx /=mcp-server=/tools/json)
-    ::  read tool definitions
-    [%x %tools ~]
-      ``json+!>((mcp-tools-to-json:ml tools))
-    ::
-    ::  .^(json %gx /=mcp-server=/resources/json)
-    ::  read resource definitions
-    [%x %resources ~]
-      ``json+!>((mcp-resources-to-json:ml resources))
-    ::
-    ::  .^(json %gx /=mcp-server=/prompts/json)
-    ::  read prompt definitions
-    [%x %prompts ~]
-      ``json+!>((mcp-prompts-to-json:ml prompts))
-    ::
-    ::  .^(@t %gx /=mcp-server=/auth-token/noun)
-    ::  read the auto-generated auth token (for internal use)
-    [%x %auth-token ~]
-      ``noun+!>(auth-token)
+    ::  wildcard tails accept both /tools/json and /tools forms.
+    [%x %tools *]       ``json+!>((mcp-tools-to-json:ml tools))
+    [%x %resources *]   ``json+!>((mcp-resources-to-json:ml resources))
+    [%x %prompts *]     ``json+!>((mcp-prompts-to-json:ml prompts))
+    [%x %auth-token *]  ``noun+!>(auth-token)
   ==
 ++  on-arvo
   |=  [=(pole knot) =sign-arvo]

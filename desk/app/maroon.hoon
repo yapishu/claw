@@ -1394,7 +1394,6 @@
                 full-text  finish-reason
                 n-prompt.g  (lent gen-so-far)
               ==
-            ~&  >  [%maroon-poke-back caller=poke-caller.g req-id=poke-req-id.g body-len=(met 3 completion-body)]
             :~  :*  %pass  /maroon-resp/[poke-req-id.g]
                     %agent  [poke-caller.g %claw]  %poke
                     %maroon-chat-resp
