@@ -149,6 +149,15 @@
     ::  append pending msg if set (not yet ingested into lcm)
     ?~  pending-msg  ctx
     (snoc ctx u.pending-msg)
+  ::  Tool-loop runaway guard: every round tacks the assistant message
+  ::  and its tool results onto `extra-msgs`, so the list grows by ~2
+  ::  entries per round.  If we've already taken 8+ rounds we strip the
+  ::  `tools` field entirely, forcing the LLM to answer in plain text.
+  ::  An OpenAI-style `tool_choice: "none"` hint is added so compliant
+  ::  providers respect the cap even if they ignore the missing tools.
+  =/  tool-depth=@ud  (div (lent extra-msgs) 2)
+  =/  tools-allowed=?  (lth tool-depth 8)
+  ~?  !tools-allowed  "claw: tool-loop cap hit ({<tool-depth>}) — forcing text reply"
   =/  api-msgs=json
     :-  %a
     %+  weld
@@ -158,14 +167,18 @@
       :~  ['role' s+role.msg]
           ['content' s+content.msg]
       ==
+    ?.  tools-allowed  extra-msgs
     extra-msgs
-  =/  body=json
-    %-  pairs:enjs:format
+  =/  base-pairs=(list [@t json])
     :~  ['model' s+model]
         ['messages' api-msgs]
-        ['tools' tool-defs:tools]
         ['max_tokens' (numb:enjs:format max-response-tokens)]
     ==
+  =/  body=json
+    %-  pairs:enjs:format
+    ?.  tools-allowed
+      (snoc base-pairs ['tool_choice' s+'none'])
+    (weld base-pairs ~[['tools' tool-defs:tools]])
   =/  body-cord=@t  (en:json:html body)
   ::  For %maroon (same-ship) we bypass Eyre/iris entirely and poke
   ::  the agent directly.  The iris loopback path was unreliable and
@@ -1047,9 +1060,12 @@
         [%config ~]
       =/  j=json
         %-  pairs:enjs:format
-        :~  ['model' s+model]
+        :~  ['ship' s+(scot %p our.bowl)]
+            ['model' s+model]
             ['pending' b+pending]
             ['last-error' s+last-error]
+            ['has-api-key' b+!=('' api-key)]
+            ['has-brave-key' b+!=('' brave-key)]
             :-  'whitelist'
             %-  pairs:enjs:format
             %+  turn  ~(tap by whitelist)
@@ -1071,6 +1087,11 @@
             %+  turn  ~(tap by conv-providers)
             |=  [k=@t p=provider:claw]
             [k s+?:(=(p %maroon) 'maroon' 'openrouter')]
+            :-  'conversations'
+            =/  r=(each json tang)
+              %-  mule
+              |.(.^(json %gx /(scot %p our.bowl)/lcm/(scot %da now.bowl)/conversations/json))
+            ?:(?=(%& -.r) p.r a+~)
         ==
       [[200 cors-headers] `(as-octs:mimes:html (en:json:html j))]
     ::

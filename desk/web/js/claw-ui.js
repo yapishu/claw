@@ -1,5 +1,5 @@
-// claw-ui.js: renders the Providers, Access, and Context sections.
-// MCP (Endpoint / Upstreams) and OAuth are owned by mcp-ui.js.
+// claw-ui.js: owns the Providers, Access, Context sections.
+// mcp-ui.js owns MCP Endpoint / Upstreams / OAuth.
 
 (function () {
   'use strict';
@@ -9,11 +9,11 @@
     channels: [],
     cron: [],
     context: {},
-    activeCtxField: null
+    activeCtxField: null,
+    models: []
   };
 
   // ---------------------------------------------------------------
-  // helpers
 
   function $(id) { return document.getElementById(id); }
 
@@ -32,44 +32,66 @@
     toast._t = setTimeout(function () { el.className = 'toast'; }, 2500);
   }
 
+  function setBadge(id, isSet) {
+    var el = $(id);
+    if (!el) return;
+    if (isSet) {
+      el.textContent = 'set';
+      el.classList.add('is-set');
+    } else {
+      el.textContent = 'not set';
+      el.classList.remove('is-set');
+    }
+  }
+
   // ---------------------------------------------------------------
   // providers tab
 
-  function renderActiveProvider() {
+  function renderProviderSummary() {
     var c = state.config || {};
     var dp = c['default-provider'] || 'openrouter';
     var local = c['local-llm-url'] || 'http://localhost:8080';
     var overrides = Object.keys(c['conv-providers'] || {}).length;
 
-    var strip = $('masthead-provider');
-    if (strip) {
-      strip.textContent = dp;
-      strip.className = 'status-value status-provider ' + (dp === 'maroon' ? 'is-local' : 'is-remote');
+    var p = $('masthead-provider');
+    if (p) {
+      p.textContent = dp;
+      p.className = 'status-value ' + (dp === 'maroon' ? 'is-local' : 'is-remote');
     }
-    var detail = $('masthead-provider-detail');
-    if (detail) {
-      detail.textContent = dp === 'maroon'
+    var det = $('masthead-provider-detail');
+    if (det) {
+      det.textContent = dp === 'maroon'
         ? 'local · ' + local
         : 'remote · openrouter';
-      if (overrides > 0) detail.textContent += ' · ' + overrides + ' override' + (overrides === 1 ? '' : 's');
+      if (overrides > 0) det.textContent += ' · ' + overrides + ' override' + (overrides === 1 ? '' : 's');
     }
+  }
+
+  function renderConvDropdown() {
+    var sel = $('new-conv-key');
+    if (!sel) return;
+    var conversations = ((state.config || {}).conversations) || [];
+    var current = sel.value;
+    var opts = ['<option value="">— pick a conversation —</option>'];
+    conversations.forEach(function (k) {
+      opts.push('<option value="' + esc(k) + '">' + esc(k) + '</option>');
+    });
+    sel.innerHTML = opts.join('');
+    sel.value = current || '';
   }
 
   function renderConvProviders() {
     var el = $('conv-providers-list');
     if (!el) return;
     var entries = Object.entries((state.config || {})['conv-providers'] || {});
-    if (!entries.length) {
-      el.innerHTML = '<div class="empty"><span class="empty-glyph">◇</span><span>No per-conversation overrides. All conversations use the default.</span></div>';
-      return;
-    }
+    if (!entries.length) { el.innerHTML = ''; return; }
     el.innerHTML = entries.map(function (kv) {
       var k = kv[0], p = kv[1];
       return (
         '<div class="kv-row">' +
           '<code class="kv-key">' + esc(k) + '</code>' +
           '<span class="kv-arrow">→</span>' +
-          '<span class="badge ' + (p === 'maroon' ? 'enabled' : 'openapi') + '">' + esc(p) + '</span>' +
+          '<span class="badge is-set">' + esc(p) + '</span>' +
           '<button type="button" class="row-btn danger" data-conv-key="' + esc(k) + '">×</button>' +
         '</div>'
       );
@@ -82,23 +104,47 @@
     });
   }
 
+  function renderModelOptions(list) {
+    var dl = $('model-options');
+    if (!dl) return;
+    dl.innerHTML = (list || []).map(function (m) {
+      return '<option value="' + esc(m.id) + '">' + esc(m.id) + (m.name ? ' — ' + esc(m.name) : '') + '</option>';
+    }).join('');
+  }
+
+  function loadModels(force) {
+    if (!force && state.models.length) { renderModelOptions(state.models); return Promise.resolve(); }
+    return fetch('https://openrouter.ai/api/v1/models', { credentials: 'omit' })
+      .then(function (r) { return r.ok ? r.json() : { data: [] }; })
+      .then(function (data) {
+        var list = (data && data.data) || [];
+        state.models = list.map(function (m) { return { id: m.id, name: m.name || '' }; });
+        renderModelOptions(state.models);
+      })
+      .catch(function () { /* offline */ });
+  }
+
   function loadConfig() {
     return ClawAPI.getConfig().then(function (c) {
       state.config = c;
       // masthead
-      var ship = $('stat-ship'); if (ship) ship.textContent = c.ship || '—';
+      var shipLabel = $('masthead-ship'); if (shipLabel) shipLabel.textContent = c.ship || '—';
       var foot = $('foot-ship'); if (foot) foot.textContent = c.ship || '—';
+      var legacyShip = $('stat-ship'); if (legacyShip) legacyShip.textContent = c.ship || '—';
       var model = $('masthead-model'); if (model) model.textContent = c.model || '—';
       // form fields
-      $('cfg-openrouter-key') && ($('cfg-openrouter-key').value = '');
-      $('cfg-model').value = c.model || '';
+      $('cfg-openrouter-key').value = '';
       $('cfg-brave-key').value = '';
+      $('cfg-model').value = c.model || '';
       $('cfg-default-provider').value = c['default-provider'] || 'openrouter';
       $('cfg-local-url').value = c['local-llm-url'] || '';
       $('cfg-max-response').value = (c['max-response-tokens'] == null ? 1024 : c['max-response-tokens']);
       $('cfg-max-context').value = (c['max-context-tokens'] == null ? 0 : c['max-context-tokens']);
-      renderActiveProvider();
+      setBadge('badge-openrouter', !!c['has-api-key']);
+      setBadge('badge-brave', !!c['has-brave-key']);
+      renderProviderSummary();
       renderConvProviders();
+      renderConvDropdown();
       renderWhitelist();
     });
   }
@@ -108,25 +154,43 @@
       var k = $('cfg-openrouter-key').value.trim();
       if (!k) return;
       ClawAPI.setKey(k).then(function () {
-        $('cfg-openrouter-key').value = '';
         toast('openrouter key set');
+        $('cfg-openrouter-key').value = '';
+        loadConfig();
+        loadModels(true);
       });
+    });
+    $('btn-clear-openrouter').addEventListener('click', function () {
+      if (!confirm('Clear OpenRouter API key?')) return;
+      ClawAPI.setKey('').then(function () { toast('openrouter key cleared'); loadConfig(); });
     });
     $('btn-set-model').addEventListener('click', function () {
       var m = $('cfg-model').value.trim();
       if (!m) return;
       ClawAPI.setModel(m).then(function () { toast('model: ' + m); loadConfig(); });
     });
+    $('btn-refresh-models').addEventListener('click', function () {
+      toast('fetching models…');
+      loadModels(true).then(function () { toast('models loaded (' + state.models.length + ')'); });
+    });
     $('btn-set-brave').addEventListener('click', function () {
       var k = $('cfg-brave-key').value.trim();
       if (!k) return;
       ClawAPI.setBraveKey(k).then(function () {
-        $('cfg-brave-key').value = '';
         toast('brave key set');
+        $('cfg-brave-key').value = '';
+        loadConfig();
       });
     });
+    $('btn-clear-brave').addEventListener('click', function () {
+      if (!confirm('Clear Brave API key?')) return;
+      ClawAPI.setBraveKey('').then(function () { toast('brave key cleared'); loadConfig(); });
+    });
     $('cfg-default-provider').addEventListener('change', function () {
-      ClawAPI.setDefaultProvider(this.value).then(function () { toast('default: ' + $('cfg-default-provider').value); loadConfig(); });
+      ClawAPI.setDefaultProvider(this.value).then(function () {
+        toast('default: ' + $('cfg-default-provider').value);
+        loadConfig();
+      });
     });
     $('btn-set-local-url').addEventListener('click', function () {
       var u = $('cfg-local-url').value.trim();
@@ -148,9 +212,8 @@
     $('btn-add-conv-provider').addEventListener('click', function () {
       var k = $('new-conv-key').value.trim();
       var p = $('new-conv-provider').value;
-      if (!k) return;
+      if (!k) { toast('pick a conversation', 'err'); return; }
       ClawAPI.setConvProvider(k, p).then(function () {
-        $('new-conv-key').value = '';
         toast('override added');
         loadConfig();
       });
@@ -158,23 +221,43 @@
   }
 
   // ---------------------------------------------------------------
-  // access tab (whitelist + channel perms)
+  // MCP tab — add-form / oauth-form toggles
+
+  function bindMcpToggles() {
+    var t1 = $('btn-toggle-add-upstream');
+    var form1 = $('add-form');
+    if (t1 && form1) {
+      t1.addEventListener('click', function () {
+        form1.hidden = !form1.hidden;
+        t1.textContent = form1.hidden ? '+ add upstream' : '× cancel';
+      });
+    }
+    var t2 = $('btn-toggle-add-oauth');
+    var form2 = $('oauth-add-form');
+    if (t2 && form2) {
+      t2.addEventListener('click', function () {
+        form2.hidden = !form2.hidden;
+        t2.textContent = form2.hidden ? '+ add provider' : '× cancel';
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // access tab
 
   function renderWhitelist() {
     var el = $('whitelist-list');
     if (!el) return;
     var wl = (state.config || {}).whitelist || {};
     var entries = Object.entries(wl);
-    if (!entries.length) {
-      el.innerHTML = '<div class="empty"><span class="empty-glyph">◇</span><span>No ships whitelisted.</span></div>';
-      return;
-    }
+    if (!entries.length) { el.innerHTML = ''; return; }
     el.innerHTML = entries.map(function (kv) {
       var ship = kv[0], role = kv[1];
       return (
         '<div class="kv-row">' +
           '<code class="kv-key">' + esc(ship) + '</code>' +
-          '<span class="badge ' + (role === 'owner' ? 'enabled' : 'openapi') + '">' + esc(role) + '</span>' +
+          '<span class="badge' + (role === 'owner' ? ' is-set' : '') + '">' + esc(role) + '</span>' +
+          '<div style="flex:1"></div>' +
           '<button type="button" class="row-btn danger" data-ship="' + esc(ship) + '">×</button>' +
         '</div>'
       );
@@ -208,7 +291,7 @@
             '<div class="kv-title">' + esc(c.title || c.nest) + (c.gtitle ? ' <span class="kv-sub">in ' + esc(c.gtitle) + '</span>' : '') + '</div>' +
             '<code class="kv-sub kv-mono">' + esc(c.nest) + '</code>' +
           '</div>' +
-          '<button type="button" class="badge ' + (open ? 'enabled' : 'disabled') + '" data-chan="' + esc(c.nest) + '" data-next="' + (open ? 'whitelist' : 'open') + '">' + (open ? 'open' : 'whitelist') + '</button>' +
+          '<button type="button" class="badge ' + (open ? 'is-set' : '') + '" data-chan="' + esc(c.nest) + '" data-next="' + (open ? 'whitelist' : 'open') + '">' + (open ? 'open' : 'whitelist') + '</button>' +
         '</div>'
       );
     }).join('');
@@ -271,9 +354,9 @@
   }
 
   // ---------------------------------------------------------------
-  // context tab (context files + cron)
+  // context tab
 
-  function renderContext() {
+  function renderContextTabs() {
     var el = $('ctx-tabs');
     if (!el) return;
     var keys = Object.keys(state.context);
@@ -284,7 +367,7 @@
     el.querySelectorAll('[data-field]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         state.activeCtxField = btn.getAttribute('data-field');
-        renderContext();
+        renderContextTabs();
       });
     });
     var ed = $('ctx-editor');
@@ -294,24 +377,19 @@
   function loadContext() {
     return ClawAPI.getContext().then(function (c) {
       state.context = c || {};
-      renderContext();
+      renderContextTabs();
     });
   }
 
   function renderCron() {
     var el = $('cron-list');
     if (!el) return;
-    if (!state.cron.length) {
-      el.innerHTML = '<div class="empty"><span class="empty-glyph">◇</span><span>No scheduled tasks.</span></div>';
-      return;
-    }
+    if (!state.cron.length) { el.innerHTML = ''; return; }
     el.innerHTML = state.cron.map(function (j) {
       return (
         '<div class="kv-row">' +
-          '<div class="kv-title-wrap">' +
-            '<code class="kv-sub kv-mono kv-saffron">' + esc(j.schedule || '?') + '</code>' +
-            '<div class="kv-title">' + esc(j.prompt || '') + '</div>' +
-          '</div>' +
+          '<code class="kv-sub kv-mono kv-saffron">' + esc(j.schedule || '?') + '</code>' +
+          '<div class="kv-title-wrap"><div class="kv-title">' + esc(j.prompt || '') + '</div></div>' +
           '<button type="button" class="row-btn danger" data-cron="' + esc(j.id) + '">×</button>' +
         '</div>'
       );
@@ -345,7 +423,7 @@
       ClawAPI.delContext(state.activeCtxField).then(function () {
         delete state.context[state.activeCtxField];
         state.activeCtxField = Object.keys(state.context)[0] || null;
-        renderContext();
+        renderContextTabs();
         toast('field deleted');
       });
     });
@@ -356,7 +434,7 @@
         state.context[k] = '';
         state.activeCtxField = k;
         $('new-ctx-key').value = '';
-        renderContext();
+        renderContextTabs();
       });
     });
     $('btn-add-cron').addEventListener('click', function () {
@@ -374,13 +452,15 @@
   }
 
   // ---------------------------------------------------------------
-  // init
 
   document.addEventListener('DOMContentLoaded', function () {
     bindProvidersTab();
+    bindMcpToggles();
     bindAccessTab();
     bindContextTab();
-    loadConfig();
+    loadConfig().then(function () {
+      if ((state.config || {})['has-api-key']) loadModels(false);
+    });
     loadChannels();
     loadCron();
     loadContext();

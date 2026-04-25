@@ -15,13 +15,13 @@
 
   <main class="console">
 
-    <!-- MASTHEAD -->
     <header class="masthead">
       <div class="masthead-rail">
         <div class="brand">
           <span class="brand-mark">◢</span>
           <span class="brand-text">URBIT&nbsp;CLAW</span>
         </div>
+        <div class="masthead-ship" id="masthead-ship">—</div>
       </div>
 
       <h1 class="display-title">
@@ -30,17 +30,14 @@
       </h1>
 
       <p class="masthead-blurb">
-        Local or remote LLM inference, MCP tool connectors, and Tlon Messenger toolkit
+        Local or remote LLM inference, MCP tool connectors, and Tlon messenger toolkit.
       </p>
 
       <div class="status-strip">
         <div class="status-cell">
-          <span class="status-label">SHIP</span>
-          <span class="status-value" id="stat-ship">—</span>
-        </div>
-        <div class="status-cell">
           <span class="status-label">PROVIDER</span>
           <span class="status-value" id="masthead-provider">—</span>
+          <span class="status-sub" id="masthead-provider-detail">—</span>
         </div>
         <div class="status-cell">
           <span class="status-label">MODEL</span>
@@ -48,181 +45,149 @@
         </div>
         <div class="status-cell">
           <span class="status-label">UPSTREAMS</span>
-          <span class="status-value" id="stat-upstreams">—</span>
+          <span class="status-value" id="stat-upstreams">0</span>
         </div>
         <div class="status-cell">
           <span class="status-label">OAUTH</span>
-          <span class="status-value" id="stat-oauth">—</span>
+          <span class="status-value" id="stat-oauth">0</span>
         </div>
+        <!-- legacy id kept so mcp-ui.js can still write; hidden visually -->
+        <span id="stat-ship" hidden></span>
       </div>
     </header>
 
-    <!-- SECTION TABS -->
     <nav class="section-tabs" role="tablist" aria-label="Sections">
       <button type="button" class="section-tab is-active" data-section="providers" role="tab">
         <span class="section-tab-num">01</span>
         <span class="section-tab-label">Providers</span>
       </button>
-      <button type="button" class="section-tab" data-section="endpoint" role="tab">
+      <button type="button" class="section-tab" data-section="mcp" role="tab">
         <span class="section-tab-num">02</span>
-        <span class="section-tab-label">MCP Endpoint</span>
-      </button>
-      <button type="button" class="section-tab" data-section="upstreams" role="tab">
-        <span class="section-tab-num">03</span>
-        <span class="section-tab-label">Upstreams</span>
-        <span class="section-tab-count" id="tab-count-upstreams">0</span>
-      </button>
-      <button type="button" class="section-tab" data-section="oauth" role="tab">
-        <span class="section-tab-num">04</span>
-        <span class="section-tab-label">OAuth</span>
-        <span class="section-tab-count" id="tab-count-oauth">0</span>
+        <span class="section-tab-label">MCP</span>
       </button>
       <button type="button" class="section-tab" data-section="access" role="tab">
-        <span class="section-tab-num">05</span>
+        <span class="section-tab-num">03</span>
         <span class="section-tab-label">Access</span>
       </button>
       <button type="button" class="section-tab" data-section="context" role="tab">
-        <span class="section-tab-num">06</span>
+        <span class="section-tab-num">04</span>
         <span class="section-tab-label">Context</span>
       </button>
     </nav>
 
-    <!-- ==================================================================
-         01 PROVIDERS  -- claw's LLM config + provider switcher
-         ================================================================== -->
+    <!-- ============================================================
+         01 PROVIDERS
+         ============================================================ -->
     <section class="panel section-pane is-active" id="section-providers" data-pane="providers" role="tabpanel">
-      <p class="section-intro">
-        Pick a backend for conversations. <strong>openrouter</strong> uses a remote API key;
-        <strong>maroon</strong> runs qwen3 locally on this ship with no network calls.
-      </p>
 
-      <!-- default provider -->
+      <h3 class="subsection-title">Backend</h3>
       <div class="endpoint-sheet">
         <div class="sheet-row">
           <div class="sheet-label">DEFAULT</div>
           <div class="sheet-value">
-            <select id="cfg-default-provider" class="field-input">
-              <option value="openrouter">openrouter</option>
+            <select id="cfg-default-provider" class="field-input field-select">
+              <option value="openrouter">openrouter (remote)</option>
               <option value="maroon">maroon (local)</option>
             </select>
-            <span class="field-hint" id="masthead-provider-detail">—</span>
           </div>
         </div>
         <div class="sheet-row">
           <div class="sheet-label">MODEL</div>
           <div class="sheet-value">
-            <input type="text" id="cfg-model" class="field-input" placeholder="anthropic/claude-sonnet-4 or qwen3">
+            <input list="model-options" id="cfg-model" class="field-input" placeholder="anthropic/claude-sonnet-4 or qwen3" autocomplete="off">
+            <datalist id="model-options"></datalist>
             <button type="button" class="copy-btn" id="btn-set-model"><span class="copy-btn-label">SET</span></button>
-          </div>
-        </div>
-        <div class="sheet-row">
-          <div class="sheet-label">OPENROUTER KEY</div>
-          <div class="sheet-value">
-            <input type="password" id="cfg-openrouter-key" class="field-input" placeholder="sk-or-v1-…">
-            <button type="button" class="copy-btn" id="btn-set-openrouter"><span class="copy-btn-label">SET</span></button>
-          </div>
-        </div>
-        <div class="sheet-row">
-          <div class="sheet-label">BRAVE KEY</div>
-          <div class="sheet-value">
-            <input type="password" id="cfg-brave-key" class="field-input" placeholder="BSA…">
-            <button type="button" class="copy-btn" id="btn-set-brave"><span class="copy-btn-label">SET</span></button>
+            <button type="button" class="copy-btn" id="btn-refresh-models" title="Fetch model list from OpenRouter"><span class="copy-btn-label">LOAD</span></button>
           </div>
         </div>
       </div>
 
-      <!-- maroon local config -->
-      <details class="drawer" open>
-        <summary class="drawer-summary">
-          <span class="drawer-plus">+</span>
-          <span class="drawer-label">Local (maroon) settings</span>
-        </summary>
-        <div class="drawer-body">
-          <div class="field">
-            <label class="field-label">LOCAL LLM URL</label>
-            <div class="field-inline">
-              <input type="text" id="cfg-local-url" class="field-input" placeholder="http://localhost:8080">
-              <button type="button" class="copy-btn" id="btn-set-local-url"><span class="copy-btn-label">SET</span></button>
-            </div>
-            <p class="field-hint">Host &amp; port of the ship's Eyre; only used for the <code class="inline-code">%maroon</code> provider.</p>
-          </div>
-          <div class="field">
-            <label class="field-label">MAX REPLY TOKENS</label>
-            <div class="field-inline">
-              <input type="number" id="cfg-max-response" class="field-input" min="16" max="32768" step="64" style="max-width:180px">
-              <button type="button" class="copy-btn" id="btn-set-max-response"><span class="copy-btn-label">SET</span></button>
-            </div>
-            <p class="field-hint">Sent as <code class="inline-code">max_tokens</code> in every LLM request.</p>
-          </div>
-          <div class="field">
-            <label class="field-label">MAX CONTEXT TOKENS</label>
-            <div class="field-inline">
-              <input type="number" id="cfg-max-context" class="field-input" min="0" max="200000" step="512" style="max-width:180px">
-              <button type="button" class="copy-btn" id="btn-set-max-context"><span class="copy-btn-label">SET</span></button>
-            </div>
-            <p class="field-hint">0 = per-model heuristic; otherwise LCM trims oldest-first to fit.</p>
+      <h3 class="subsection-title">Keys</h3>
+      <div class="endpoint-sheet">
+        <div class="sheet-row">
+          <div class="sheet-label">OPENROUTER</div>
+          <div class="sheet-value">
+            <input type="password" id="cfg-openrouter-key" class="field-input" placeholder="sk-or-v1-…">
+            <span class="badge" id="badge-openrouter">not set</span>
+            <button type="button" class="copy-btn" id="btn-set-openrouter"><span class="copy-btn-label">SET</span></button>
+            <button type="button" class="copy-btn danger-btn" id="btn-clear-openrouter"><span class="copy-btn-label">CLR</span></button>
           </div>
         </div>
-      </details>
+        <div class="sheet-row">
+          <div class="sheet-label">BRAVE</div>
+          <div class="sheet-value">
+            <input type="password" id="cfg-brave-key" class="field-input" placeholder="BSA…">
+            <span class="badge" id="badge-brave">not set</span>
+            <button type="button" class="copy-btn" id="btn-set-brave"><span class="copy-btn-label">SET</span></button>
+            <button type="button" class="copy-btn danger-btn" id="btn-clear-brave"><span class="copy-btn-label">CLR</span></button>
+          </div>
+        </div>
+      </div>
 
-      <!-- per-conversation overrides -->
-      <details class="drawer">
-        <summary class="drawer-summary">
-          <span class="drawer-plus">+</span>
-          <span class="drawer-label">Per-conversation overrides</span>
-        </summary>
-        <div class="drawer-body">
-          <div id="conv-providers-list"></div>
-          <div class="field">
-            <div class="field-inline">
-              <input type="text" id="new-conv-key" class="field-input" placeholder="dm/~sampel-palnet or channel/chat/…" style="flex:2">
-              <select id="new-conv-provider" class="field-input" style="max-width:140px">
-                <option value="openrouter">openrouter</option>
-                <option value="maroon">maroon</option>
-              </select>
-              <button type="button" class="primary-btn" id="btn-add-conv-provider">Add override</button>
-            </div>
+      <h3 class="subsection-title">Local (maroon) settings</h3>
+      <div class="endpoint-sheet">
+        <div class="sheet-row">
+          <div class="sheet-label">LOCAL URL</div>
+          <div class="sheet-value">
+            <input type="text" id="cfg-local-url" class="field-input" placeholder="http://localhost:8080">
+            <button type="button" class="copy-btn" id="btn-set-local-url"><span class="copy-btn-label">SET</span></button>
           </div>
         </div>
-      </details>
+        <div class="sheet-row">
+          <div class="sheet-label">MAX REPLY</div>
+          <div class="sheet-value">
+            <input type="number" id="cfg-max-response" class="field-input field-narrow" min="16" max="32768" step="64">
+            <span class="sheet-hint">tokens / response</span>
+            <button type="button" class="copy-btn" id="btn-set-max-response"><span class="copy-btn-label">SET</span></button>
+          </div>
+        </div>
+        <div class="sheet-row">
+          <div class="sheet-label">MAX CTX</div>
+          <div class="sheet-value">
+            <input type="number" id="cfg-max-context" class="field-input field-narrow" min="0" max="200000" step="512">
+            <span class="sheet-hint">0 = auto (per-model heuristic)</span>
+            <button type="button" class="copy-btn" id="btn-set-max-context"><span class="copy-btn-label">SET</span></button>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="subsection-title">Per-conversation overrides</h3>
+      <div class="flat-list" id="conv-providers-list"></div>
+      <div class="inline-form">
+        <select id="new-conv-key" class="field-input">
+          <option value="">— pick a conversation —</option>
+        </select>
+        <select id="new-conv-provider" class="field-input field-narrow">
+          <option value="openrouter">openrouter</option>
+          <option value="maroon">maroon</option>
+        </select>
+        <button type="button" class="primary-btn" id="btn-add-conv-provider">Override</button>
+      </div>
+
     </section>
 
-    <!-- ==================================================================
-         02 MCP ENDPOINT  -- mcp-proxy's aggregate URL + api key
-         ================================================================== -->
-    <section class="panel section-pane" id="section-endpoint" data-pane="endpoint" role="tabpanel">
-      <p class="section-intro">
-        One URL for every MCP-compatible client. All configured upstreams are aggregated here.
-        Requests authenticate with an <code class="inline-code">X-Api-Key</code> header.
-      </p>
+    <!-- ============================================================
+         02 MCP (endpoint + upstreams + oauth all on one pane)
+         ============================================================ -->
+    <section class="panel section-pane" id="section-mcp" data-pane="mcp" role="tabpanel">
+
+      <h3 class="subsection-title">Aggregate endpoint</h3>
       <div class="endpoint-sheet">
         <div class="sheet-row">
           <div class="sheet-label">URL</div>
           <div class="sheet-value">
             <code id="agg-url">—</code>
-            <button type="button" class="copy-btn" data-copy="agg-url" aria-label="Copy URL">
-              <span class="copy-btn-label">COPY</span>
-            </button>
+            <button type="button" class="copy-btn" data-copy="agg-url"><span class="copy-btn-label">COPY</span></button>
           </div>
         </div>
         <div class="sheet-row" id="agg-key-row">
           <div class="sheet-label">API KEY</div>
           <div class="sheet-value">
             <code id="agg-key">— not set —</code>
-            <div class="key-btns">
-              <button type="button" class="copy-btn" id="btn-regen-key" title="Generate random key">
-                <span class="copy-btn-label">GEN</span>
-              </button>
-              <button type="button" class="copy-btn" id="btn-set-key" title="Set a custom key">
-                <span class="copy-btn-label">SET</span>
-              </button>
-              <button type="button" class="copy-btn" data-copy="agg-key" aria-label="Copy key">
-                <span class="copy-btn-label">COPY</span>
-              </button>
-              <button type="button" class="copy-btn danger-btn" id="btn-clear-key" title="Clear key (disables endpoint)">
-                <span class="copy-btn-label">CLR</span>
-              </button>
-            </div>
+            <button type="button" class="copy-btn" id="btn-regen-key"><span class="copy-btn-label">GEN</span></button>
+            <button type="button" class="copy-btn" id="btn-set-key"><span class="copy-btn-label">SET</span></button>
+            <button type="button" class="copy-btn" data-copy="agg-key"><span class="copy-btn-label">COPY</span></button>
+            <button type="button" class="copy-btn danger-btn" id="btn-clear-key"><span class="copy-btn-label">CLR</span></button>
           </div>
         </div>
         <div class="sheet-divider"></div>
@@ -230,188 +195,104 @@
           <div class="sheet-label">CLAUDE CLI</div>
           <div class="cmd-wrap">
             <pre id="endpoint-example" class="cmd-block"></pre>
-            <button type="button" class="copy-btn cmd-copy" data-copy="endpoint-example">
-              <span class="copy-btn-label">COPY</span>
-            </button>
+            <button type="button" class="copy-btn cmd-copy" data-copy="endpoint-example"><span class="copy-btn-label">COPY</span></button>
           </div>
         </div>
       </div>
-    </section>
 
-    <!-- ==================================================================
-         03 UPSTREAMS  (mcp-proxy upstream servers)
-         ================================================================== -->
-    <section class="panel section-pane" id="section-upstreams" data-pane="upstreams" role="tabpanel">
-      <p class="section-intro">
-        Register MCP servers (or OpenAPI specs) to aggregate under the endpoint above.
-      </p>
-      <details class="drawer" id="add-form">
-        <summary class="drawer-summary">
-          <span class="drawer-plus">+</span>
-          <span class="drawer-label">Add upstream</span>
-        </summary>
-        <div class="drawer-body">
-          <div class="field">
-            <label class="field-label">MODE</label>
-            <div class="field-inline">
-              <label class="radio-label"><input type="radio" name="add-mode" value="mcp" checked> MCP JSON-RPC</label>
-              <label class="radio-label"><input type="radio" name="add-mode" value="openapi"> OpenAPI spec</label>
-            </div>
-          </div>
-          <div class="field">
-            <label class="field-label">ID</label>
-            <input type="text" id="add-id" class="field-input" placeholder="my-server">
-          </div>
-          <div class="field">
-            <label class="field-label">NAME</label>
-            <input type="text" id="add-name" class="field-input" placeholder="Display name">
-          </div>
-          <div class="field">
-            <label class="field-label">URL</label>
-            <input type="text" id="add-url" class="field-input" placeholder="https://host/mcp">
-          </div>
-          <div class="field" id="add-schema-row" style="display:none">
-            <label class="field-label">SCHEMA URL</label>
-            <input type="text" id="add-schema-url" class="field-input" placeholder="https://host/openapi.json">
-          </div>
-          <div class="field">
-            <label class="field-label">OAUTH PROVIDER</label>
-            <select id="add-oauth" class="field-input"><option value="">(none)</option></select>
-          </div>
-          <div class="field">
-            <label class="field-label">CUSTOM HEADERS</label>
-            <div id="add-headers"></div>
-            <button type="button" class="ghost-btn" id="add-header-btn">+ header</button>
-          </div>
-          <div class="field">
-            <button type="button" class="primary-btn" id="add-submit">Add upstream</button>
+      <h3 class="subsection-title">Upstream servers <span class="muted" id="tab-count-upstreams">0</span></h3>
+      <div class="inline-actions">
+        <button type="button" class="ghost-btn" id="btn-toggle-add-upstream">+ add upstream</button>
+      </div>
+      <div id="add-form" class="add-panel" hidden>
+        <div class="field">
+          <label class="field-label">MODE</label>
+          <div class="field-inline">
+            <label class="radio-label"><input type="radio" name="add-mode" value="mcp" checked> MCP JSON-RPC</label>
+            <label class="radio-label"><input type="radio" name="add-mode" value="openapi"> OpenAPI spec</label>
           </div>
         </div>
-      </details>
+        <div class="field"><label class="field-label">ID</label><input type="text" id="add-id" class="field-input" placeholder="my-server"></div>
+        <div class="field"><label class="field-label">NAME</label><input type="text" id="add-name" class="field-input" placeholder="Display name"></div>
+        <div class="field"><label class="field-label">URL</label><input type="text" id="add-url" class="field-input" placeholder="https://host/mcp"></div>
+        <div class="field" id="add-schema-row" hidden><label class="field-label">SCHEMA URL</label><input type="text" id="add-schema-url" class="field-input"></div>
+        <div class="field"><label class="field-label">OAUTH</label><select id="add-oauth" class="field-input"><option value="">(none)</option></select></div>
+        <div class="field">
+          <label class="field-label">HEADERS</label>
+          <div id="add-headers"></div>
+          <button type="button" class="ghost-btn" id="add-header-btn">+ header</button>
+        </div>
+        <div class="field"><button type="button" class="primary-btn" id="add-submit">Add upstream</button></div>
+      </div>
       <div id="servers"></div>
-    </section>
 
-    <!-- ==================================================================
-         04 OAUTH (mcp-proxy oauth providers)
-         ================================================================== -->
-    <section class="panel section-pane" id="section-oauth" data-pane="oauth" role="tabpanel">
-      <p class="section-intro">
-        OAuth providers for upstream MCP servers that need authenticated access.
-      </p>
-      <details class="drawer" id="oauth-add-form">
-        <summary class="drawer-summary">
-          <span class="drawer-plus">+</span>
-          <span class="drawer-label">Add OAuth provider</span>
-        </summary>
-        <div class="drawer-body">
-          <div class="field">
-            <label class="field-label">ID</label>
-            <input type="text" id="oauth-id" class="field-input" placeholder="gmail">
-          </div>
-          <div class="field">
-            <label class="field-label">NAME</label>
-            <input type="text" id="oauth-name" class="field-input" placeholder="Gmail">
-          </div>
-          <div class="field">
-            <label class="field-label">CLIENT ID</label>
-            <input type="text" id="oauth-client-id" class="field-input">
-          </div>
-          <div class="field">
-            <label class="field-label">CLIENT SECRET</label>
-            <input type="password" id="oauth-client-secret" class="field-input">
-          </div>
-          <div class="field">
-            <label class="field-label">AUTH URL</label>
-            <input type="text" id="oauth-auth-url" class="field-input">
-          </div>
-          <div class="field">
-            <label class="field-label">TOKEN URL</label>
-            <input type="text" id="oauth-token-url" class="field-input">
-          </div>
-          <div class="field">
-            <label class="field-label">REDIRECT URL</label>
-            <input type="text" id="oauth-redirect-url" class="field-input">
-          </div>
-          <div class="field">
-            <label class="field-label">REVOKE URL</label>
-            <input type="text" id="oauth-revoke-url" class="field-input">
-          </div>
-          <div class="field">
-            <label class="field-label">SCOPES</label>
-            <input type="text" id="oauth-scopes" class="field-input" placeholder="space separated">
-          </div>
-          <div class="field">
-            <button type="button" class="primary-btn" id="oauth-submit">Add provider</button>
-          </div>
-        </div>
-      </details>
+      <h3 class="subsection-title">OAuth providers <span class="muted" id="tab-count-oauth">0</span></h3>
+      <div class="inline-actions">
+        <button type="button" class="ghost-btn" id="btn-toggle-add-oauth">+ add provider</button>
+      </div>
+      <div id="oauth-add-form" class="add-panel" hidden>
+        <div class="field"><label class="field-label">ID</label><input type="text" id="oauth-id" class="field-input" placeholder="gmail"></div>
+        <div class="field"><label class="field-label">NAME</label><input type="text" id="oauth-name" class="field-input"></div>
+        <div class="field"><label class="field-label">CLIENT ID</label><input type="text" id="oauth-client-id" class="field-input"></div>
+        <div class="field"><label class="field-label">CLIENT SECRET</label><input type="password" id="oauth-client-secret" class="field-input"></div>
+        <div class="field"><label class="field-label">AUTH URL</label><input type="text" id="oauth-auth-url" class="field-input"></div>
+        <div class="field"><label class="field-label">TOKEN URL</label><input type="text" id="oauth-token-url" class="field-input"></div>
+        <div class="field"><label class="field-label">REDIRECT URL</label><input type="text" id="oauth-redirect-url" class="field-input"></div>
+        <div class="field"><label class="field-label">REVOKE URL</label><input type="text" id="oauth-revoke-url" class="field-input"></div>
+        <div class="field"><label class="field-label">SCOPES</label><input type="text" id="oauth-scopes" class="field-input" placeholder="space separated"></div>
+        <div class="field"><button type="button" class="primary-btn" id="oauth-submit">Add provider</button></div>
+      </div>
       <div id="oauth-providers"></div>
+
     </section>
 
-    <!-- ==================================================================
-         05 ACCESS  -- whitelist + channel perms
-         ================================================================== -->
+    <!-- ============================================================
+         03 ACCESS
+         ============================================================ -->
     <section class="panel section-pane" id="section-access" data-pane="access" role="tabpanel">
-      <p class="section-intro">
-        Who can talk to the bot, and which channels are open vs. whitelist-gated.
-      </p>
-      <div class="subsection">
-        <h3 class="subsection-title">Whitelist</h3>
-        <div id="whitelist-list" class="scroll-box" style="max-height:240px"></div>
-        <div class="field" style="margin-top:12px">
-          <div class="field-inline">
-            <input type="text" id="new-ship" class="field-input" placeholder="~sampel-palnet">
-            <select id="new-role" class="field-input" style="max-width:140px">
-              <option value="owner">owner</option>
-              <option value="allowed">allowed</option>
-            </select>
-            <button type="button" class="primary-btn" id="btn-add-ship">Add ship</button>
-          </div>
-        </div>
+
+      <h3 class="subsection-title">Whitelist</h3>
+      <div class="flat-list" id="whitelist-list"></div>
+      <div class="inline-form">
+        <input type="text" id="new-ship" class="field-input" placeholder="~sampel-palnet">
+        <select id="new-role" class="field-input field-narrow">
+          <option value="owner">owner</option>
+          <option value="allowed">allowed</option>
+        </select>
+        <button type="button" class="primary-btn" id="btn-add-ship">Add ship</button>
       </div>
 
-      <div class="subsection" style="margin-top:20px">
-        <h3 class="subsection-title">Channel permissions</h3>
-        <input type="text" id="chan-filter" class="filter-input" placeholder="Filter channels…">
-        <div id="channel-list" class="scroll-box"></div>
-      </div>
+      <h3 class="subsection-title">Channel permissions</h3>
+      <input type="text" id="chan-filter" class="filter-input" placeholder="Filter channels…">
+      <div id="channel-list" class="scroll-box"></div>
+
     </section>
 
-    <!-- ==================================================================
-         06 CONTEXT  -- system-prompt fields + scheduled tasks
-         ================================================================== -->
+    <!-- ============================================================
+         04 CONTEXT
+         ============================================================ -->
     <section class="panel section-pane" id="section-context" data-pane="context" role="tabpanel">
-      <p class="section-intro">
-        Freeform text fields (identity, soul, agent, user, memory, custom) composed into every system prompt, plus recurring cron tasks.
-      </p>
 
-      <div class="subsection">
-        <h3 class="subsection-title">Context fields</h3>
-        <div id="ctx-tabs" style="margin-bottom:10px"></div>
-        <textarea id="ctx-editor" class="ctx-editor" rows="10"></textarea>
-        <div class="field" style="margin-top:10px">
-          <div class="field-inline">
-            <input type="text" id="new-ctx-key" class="field-input" placeholder="new field name" style="max-width:220px">
-            <button type="button" class="ghost-btn" id="btn-add-ctx">Add field</button>
-            <div style="flex:1"></div>
-            <button type="button" class="row-btn danger" id="btn-delete-ctx">Delete</button>
-            <button type="button" class="primary-btn" id="btn-save-ctx">Save</button>
-          </div>
-        </div>
+      <h3 class="subsection-title">System prompt fields</h3>
+      <div id="ctx-tabs"></div>
+      <textarea id="ctx-editor" class="ctx-editor" rows="12"></textarea>
+      <div class="inline-form">
+        <input type="text" id="new-ctx-key" class="field-input field-narrow" placeholder="new field name">
+        <button type="button" class="ghost-btn" id="btn-add-ctx">Add field</button>
+        <div style="flex:1"></div>
+        <button type="button" class="row-btn danger" id="btn-delete-ctx">Delete</button>
+        <button type="button" class="primary-btn" id="btn-save-ctx">Save</button>
       </div>
 
-      <div class="subsection" style="margin-top:20px">
-        <h3 class="subsection-title">Scheduled tasks (cron)</h3>
-        <div id="cron-list"></div>
-        <div class="field" style="margin-top:12px">
-          <div class="field-inline">
-            <input type="text" id="cron-schedule" class="field-input" placeholder="*/30 * * * *" style="max-width:180px">
-            <input type="text" id="cron-prompt" class="field-input" placeholder="Prompt to fire on schedule">
-            <button type="button" class="primary-btn" id="btn-add-cron">Add task</button>
-          </div>
-          <p class="field-hint">Five fields: minute hour day-of-month month day-of-week. Examples: <code class="inline-code">*/30 * * * *</code>, <code class="inline-code">0 9 * * 1-5</code>.</p>
-        </div>
+      <h3 class="subsection-title">Scheduled tasks (cron)</h3>
+      <div class="flat-list" id="cron-list"></div>
+      <div class="inline-form">
+        <input type="text" id="cron-schedule" class="field-input field-narrow" placeholder="*/30 * * * *">
+        <input type="text" id="cron-prompt" class="field-input" placeholder="Prompt to fire on schedule">
+        <button type="button" class="primary-btn" id="btn-add-cron">Add task</button>
       </div>
+      <p class="field-hint">Five fields: minute hour day-of-month month day-of-week. e.g. <code class="inline-code">*/30 * * * *</code> · <code class="inline-code">0 9 * * 1-5</code>.</p>
+
     </section>
 
     <footer class="console-foot">
@@ -423,10 +304,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <!-- mcp-api.js and mcp-ui.js own the MCP Endpoint / Upstreams / OAuth
-       sections; claw-api.js and claw-ui.js own Providers / Access /
-       Context.  Section-tab switching lives in mcp-ui.js and is
-       data-section driven so it works for all tabs, old and new. -->
   <script src="/apps/claw/js/mcp-api.js"></script>
   <script src="/apps/claw/js/claw-api.js"></script>
   <script src="/apps/claw/js/mcp-ui.js"></script>
